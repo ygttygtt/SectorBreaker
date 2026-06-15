@@ -51,6 +51,8 @@ When project status changes, update all relevant memory surfaces in the same com
 
 ## Commit And Push
 
+Commit messages should be written in Chinese.
+
 This project uses two remotes. After committing to `main`, push both remotes when network/auth allows:
 
 ```bash

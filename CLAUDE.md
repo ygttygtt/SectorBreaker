@@ -52,6 +52,8 @@ That document records:
 
 ## Git: Dual Remote Push
 
+提交日志统一使用中文。
+
 本项目同时推送到 GitHub 和 Gitee，**每次 commit 后必须两边都推**：
 
 ```bash
