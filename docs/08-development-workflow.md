@@ -7,7 +7,7 @@ Use conda for Python environment isolation.
 Recommended environment:
 
 ```bash
-conda create -n sectorbreaker python=3.11
+conda env create -f environment.yml
 conda activate sectorbreaker
 ```
 

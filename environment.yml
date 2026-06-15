@@ -1,0 +1,14 @@
+name: sectorbreaker
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - fastapi>=0.136.0
+      - httpx>=0.28.0
+      - langgraph>=1.2.5
+      - pydantic>=2.7.4
+      - pytest>=8.0.0
+      - uvicorn>=0.30.0

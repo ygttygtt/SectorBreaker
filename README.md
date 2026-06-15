@@ -60,6 +60,13 @@ SectorBreaker 首版定位为 **本地个人研究工作台**。
 
 ## 快速验证
 
+创建并激活 conda 环境：
+
+```bash
+conda env create -f environment.yml
+conda activate sectorbreaker
+```
+
 后端测试：
 
 ```bash
