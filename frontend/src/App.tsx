@@ -1,13 +1,32 @@
-import { Bot, CheckCircle2, Database, FileText, Play, Search } from "lucide-react";
+import {
+  ArrowRight,
+  Bot,
+  BrainCircuit,
+  CheckCircle2,
+  ClipboardCheck,
+  Database,
+  FileText,
+  Layers3,
+  Play,
+  Search,
+  ShieldCheck
+} from "lucide-react";
 
 import "./styles.css";
 
-const gates = ["范围确认", "研究框架", "资料证据", "知识地图", "机会地图", "导出"];
+const gates = [
+  { name: "范围确认", status: "done" },
+  { name: "研究框架", status: "done" },
+  { name: "资料证据", status: "current" },
+  { name: "知识地图", status: "next" },
+  { name: "机会地图", status: "next" },
+  { name: "知识库导出", status: "next" }
+];
 
 const artifacts = [
-  "00-研究框架/research-frame.md",
-  "01-行业地图/industry-map.md",
-  "05-机会地图/opportunity-map.md"
+  { path: "00-研究框架/research-frame.md", tag: "已生成" },
+  { path: "01-行业地图/industry-map.md", tag: "已生成" },
+  { path: "05-机会地图/opportunity-map.md", tag: "待增强" }
 ];
 
 export function App() {
@@ -16,14 +35,22 @@ export function App() {
       <aside className="sidebar" aria-label="项目导航">
         <div className="brand">
           <Bot size={24} />
-          <h1>SectorBreaker</h1>
+          <div>
+            <h1>SectorBreaker</h1>
+            <span>领域破壁系统</span>
+          </div>
+        </div>
+        <div className="run-badge">
+          <ShieldCheck size={16} />
+          MVP 闭环已就绪
         </div>
         <nav>
           <a className="active" href="#cockpit">
-            研究驾驶舱
+            破壁工作台
           </a>
+          <a href="#gates">阶段关口</a>
           <a href="#evidence">证据与产物</a>
-          <a href="#export">知识库导出</a>
+          <a href="#next">升级路线</a>
         </nav>
       </aside>
 
@@ -31,7 +58,7 @@ export function App() {
         <header className="topbar">
           <div>
             <p className="eyebrow">本地个人研究工作台</p>
-            <h2>研究驾驶舱</h2>
+            <h2>破壁工作台</h2>
           </div>
           <button className="primary" type="button">
             <Play size={18} />
@@ -49,22 +76,26 @@ export function App() {
             <strong>混合</strong>
           </div>
           <div>
-            <span className="label">研究深度</span>
-            <strong>快速</strong>
+            <span className="label">运行状态</span>
+            <strong>最小闭环</strong>
+          </div>
+          <div>
+            <span className="label">下一步</span>
+            <strong>接入真实 LLM 与检索任务</strong>
           </div>
         </section>
 
         <div className="grid">
-          <section className="panel">
+          <section className="panel" id="gates">
             <div className="panel-title">
-              <CheckCircle2 size={18} />
-              <h3>固定关口</h3>
+              <ClipboardCheck size={18} />
+              <h3>阶段关口</h3>
             </div>
             <ol className="gates">
               {gates.map((gate, index) => (
-                <li key={gate}>
+                <li className={gate.status} key={gate.name}>
                   <span>{index + 1}</span>
-                  {gate}
+                  <strong>{gate.name}</strong>
                 </li>
               ))}
             </ol>
@@ -77,12 +108,47 @@ export function App() {
             </div>
             <ul className="artifacts">
               {artifacts.map((artifact) => (
-                <li key={artifact}>
+                <li key={artifact.path}>
                   <FileText size={16} />
-                  {artifact}
+                  <span>{artifact.path}</span>
+                  <em>{artifact.tag}</em>
                 </li>
               ))}
             </ul>
+          </section>
+
+          <section className="panel">
+            <div className="panel-title">
+              <BrainCircuit size={18} />
+              <h3>Agent 状态</h3>
+            </div>
+            <div className="status-list">
+              <p>
+                <CheckCircle2 size={16} />
+                Schema / Provider / SQLite 已通过测试
+              </p>
+              <p>
+                <Layers3 size={16} />
+                LangGraph 已跑通 deterministic workflow
+              </p>
+              <p>
+                <ArrowRight size={16} />
+                下一步：接入真实 LLM 与检索任务
+              </p>
+            </div>
+          </section>
+
+          <section className="panel" id="next">
+            <div className="panel-title">
+              <ShieldCheck size={18} />
+              <h3>升级路线</h3>
+            </div>
+            <div className="roadmap">
+              <span>LLM Planner</span>
+              <span>Tavily Evidence</span>
+              <span>QA Critic</span>
+              <span>FTS 问答增强</span>
+            </div>
           </section>
 
           <section className="panel wide" id="export">
