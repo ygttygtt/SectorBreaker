@@ -35,18 +35,19 @@ SectorBreaker 首版定位为 **本地个人研究工作台**。
 
 ## 当前已完成
 
-目前项目已经完成工程地基和最小 MVP 闭环：
+目前项目已经完成工程地基和本地 MVP 闭环：
 
 - 文档优先的协作规范：`AGENTS.md`、`CLAUDE.md`、`docs/`、`.claude/memory/`。
 - Pydantic schema：项目、证据、产物、LangGraph state。
-- Provider 抽象：LLM、搜索、检索、导出。
+- Provider 抽象与环境装配：LLM、搜索、检索、导出。
+- OpenAI 兼容 `LLMProvider`：通过 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 启用。
 - Tavily 搜索 provider：已用 fake HTTP 测试，不依赖真实 API。
 - SQLite 存储：项目、证据、产物、FTS 检索。
-- LangGraph 最小 deterministic workflow。
+- LangGraph 研究 workflow：范围、证据、研究框架、知识地图、机会地图、QA 质量门、导出关口。
 - Markdown / Obsidian 导出器。
-- FastAPI 最小 API。
-- Vite + React + TypeScript 前端工作台。
-- 前端主界面已命名为“破壁工作台”。
+- FastAPI API：项目创建/列表/详情、运行、证据、产物、导出、项目问答。
+- Vite + React + TypeScript 前端“破壁工作台”已接入 API。
+- Vite 开发代理已配置 `/api -> http://127.0.0.1:8000`。
 
 ## 技术栈
 
@@ -82,6 +83,12 @@ npm run build
 npm audit --audit-level=high
 ```
 
+启动后端：
+
+```bash
+uvicorn backend.app.api.app:app --host 127.0.0.1 --port 8000 --reload
+```
+
 前端开发服务：
 
 ```bash
@@ -96,17 +103,19 @@ npm run dev -- --host 127.0.0.1 --port 3000
 http://127.0.0.1:3000/
 ```
 
+当前本机已经存在 `sectorbreaker` conda 环境。如果 `conda env list` 看不到，可以重新执行 `conda env create -f environment.yml`。
+
 ## 后续最重要的工作
 
-下一阶段不是继续堆页面，而是把真实研究能力接入现有骨架：
+下一阶段不是继续堆页面，而是增强研究质量和协作能力：
 
-1. 实现 OpenAI 兼容 `LLMProvider`。
-2. 用真实 LLM 替换 deterministic Research Planner。
-3. 把 Tavily Search Scout 接入 LangGraph。
-4. 实现 Evidence Curator，给资料来源打可信度和验证状态。
-5. 实现 QA Critic，阻止没有证据的结论进入导出。
-6. 加入 LangGraph interrupt/resume，支持阶段性人工确认。
-7. 把前端工作台接入真实 API。
+1. 把 Research Planner 输出从 raw `dict` 升级为专用 Pydantic schema。
+2. 增强 Evidence Curator，细分来源质量、冲突证据和验证状态。
+3. 为 Tavily Search Scout 增加多查询规划和空结果诊断。
+4. 加入 LangGraph interrupt/resume，支持阶段性人工确认。
+5. 增加 artifact 全文检索和更好的项目问答答案生成。
+6. 做两个验收案例，沉淀 golden export fixture。
+7. v2 再做 embeddings/RAG、持续监控、周报和多人账号协作。
 
 详细交接说明见：
 

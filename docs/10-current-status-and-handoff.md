@@ -19,21 +19,28 @@ Read this after `AGENTS.md`, `CLAUDE.md`, `docs/00-project-brief.md`, `docs/01-a
 
 - Pydantic schemas exist for projects, evidence, artifacts, and research state.
 - Provider interfaces exist for LLM, search, retrieval, and fake test providers.
+- OpenAI-compatible LLM provider exists and is created from environment variables when configured.
+- Provider factory returns `None` by default when no real credentials are configured, so tests and local demos stay deterministic.
 - Tavily provider exists and is tested with fake HTTP.
 - SQLite migrations exist for projects, evidence, FTS, and artifacts.
 - Repository supports project creation, evidence storage, artifact storage, FTS search.
+- Repository supports project listing and detail lookup.
 
 ### Workflow And Export
 
 - LangGraph is installed and used in a minimal deterministic workflow.
-- Workflow produces evidence-linked research frame, industry map, and opportunity map.
+- Workflow can use injected search and LLM providers.
+- Workflow produces evidence-linked research frame, industry map, market overview, player map, content/channel map, and opportunity map.
+- QA Critic blocks export when required coverage is missing or artifacts lack evidence references.
 - Markdown exporter writes an Obsidian-friendly package and `manifest.json`.
 
 ### API And Frontend
 
-- FastAPI app factory exists with project, run, evidence, artifact, export, and chat endpoints.
+- FastAPI app factory exists with project create/list/detail, run, evidence, artifact, export, and chat endpoints.
+- Module-level ASGI app exists at `backend.app.api.app:app`.
 - React/Vite workbench exists with the current name "破壁工作台".
-- Frontend is still mostly static and not yet wired to the backend API.
+- Frontend is wired to backend API for run start, evidence/artifact rendering, project chat, and export.
+- Vite proxies `/api` to `http://127.0.0.1:8000`.
 
 ## Verification Commands
 
@@ -48,8 +55,8 @@ cd frontend && npm audit --audit-level=high
 
 Current known baseline:
 
-- Python tests: 14 passing, 1 Starlette deprecation warning from FastAPI TestClient.
-- Frontend tests: 1 passing.
+- Python tests: 21 passing, 1 Starlette deprecation warning from FastAPI TestClient.
+- Frontend tests: 4 passing.
 - Frontend build: passing.
 - npm audit high severity: 0 vulnerabilities.
 
@@ -57,9 +64,9 @@ Current known baseline:
 
 These are suitable for regular teammates or lower-capability coding agents if they read the relevant docs first:
 
-- Add React project creation form.
-- Add typed API client for frontend.
-- Render evidence and artifact lists from API responses.
+- Add editable React project creation form.
+- Extract typed API client from `frontend/src/App.tsx`.
+- Add artifact detail viewer and richer evidence filters.
 - Improve Markdown export formatting.
 - Add more fixture examples.
 - Add small API endpoints that match `docs/05-api-contract.md`.
@@ -81,31 +88,27 @@ Why: these parts control hallucination risk, evidence integrity, workflow stabil
 
 ## Recommended Next Steps
 
-### Step 1: Real LLM Provider
+### Step 1: Research Planner Contract Hardening
 
-Implement OpenAI-compatible `LLMProvider` using `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL`. Keep tests deterministic with fake HTTP or fake provider fixtures.
+Replace the planner's raw `dict` response with a dedicated Pydantic output schema. The output must include research sections, key questions, learning path, and coverage checklist items.
 
-### Step 2: Research Planner Agent
+### Step 2: Search Scout And Evidence Curator
 
-Replace the deterministic research-frame node with an LLM-backed planner that returns structured output. The output must include research sections, key questions, and coverage checklist items.
+Enhance Tavily query planning and Evidence Curator rules. Convert source candidates into richer `EvidenceItem` metadata with confidence, scope notes, source quality, and conflict markers.
 
-### Step 3: Search Scout And Evidence Curator
+### Step 3: QA Critic Gate
 
-Wire Tavily into the graph through `SearchProvider`. Convert search results into `EvidenceItem` objects with confidence and verification status.
+Current QA blocks missing coverage and missing evidence references. Next, add unsupported-claim detection and retry suggestions.
 
-### Step 4: QA Critic Gate
-
-Add a QA node that blocks export when important artifacts lack evidence references or contain unsupported claims.
-
-### Step 5: Human Review
+### Step 4: Human Review
 
 Add real LangGraph interrupt/resume behavior for gate review. The API should expose `waiting_for_human` state and a resume endpoint.
 
-### Step 6: Frontend API Integration
+### Step 5: Frontend Productization
 
-Wire the workbench to backend endpoints: create project, start run, view artifacts, export, and chat.
+Add editable project settings, artifact detail view, progress/error states, and downloadable export links.
 
-### Step 7: Acceptance Examples
+### Step 6: Acceptance Examples
 
 Run two end-to-end examples:
 

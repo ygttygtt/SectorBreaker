@@ -8,36 +8,47 @@ Tests should make the project safe for lower-context agents to modify. Prefer fo
 
 ### Unit Tests
 
-- Provider interfaces with fake implementations.
-- SQLite repositories.
+- Provider interfaces and environment-backed provider factories.
+- SQLite repositories, insertion ordering, and FTS retrieval.
 - Export writer.
-- FTS retrieval.
 - Schema validation.
 
 ### Graph Tests
 
-- Quick, standard, and deep research configurations.
+- Quick and provider-injected research configurations.
 - Gate coverage pass and fail paths.
-- Missing evidence retry.
-- Human interrupt and resume.
 - QA blocking unsupported claims.
+
+Still needed:
+
+- Deep research configuration fixtures.
+- Missing evidence retry behavior.
+- Human interrupt and resume.
 
 ### API Tests
 
-- Project CRUD.
+- Project create/list/detail.
 - Start run.
-- Resume run.
-- Stream event contract.
 - Export package creation.
 - Project Q&A.
 
+Still needed:
+
+- Project update/archive.
+- Resume run.
+- Stream event contract.
+
 ### Frontend Tests
 
-- Project creation form.
-- Run cockpit state rendering.
-- Evidence list.
-- Artifact viewer.
+- Run workbench state rendering.
+- API-backed project creation and run start.
+- Project Q&A.
 - Export action.
+
+Still needed:
+
+- Editable project creation form.
+- Full artifact viewer.
 
 ### Golden Tests
 

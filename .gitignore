@@ -33,6 +33,7 @@ Thumbs.db
 
 # Logs
 *.log
+*.err
 
 # Local agent/worktree scratch
 .worktrees/

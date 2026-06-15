@@ -13,6 +13,8 @@ FastAPI owns backend contracts. Pydantic schemas are the source of truth. The fr
 - `GET /api/projects/{project_id}`: get project.
 - `PATCH /api/projects/{project_id}`: update project configuration before a run starts.
 
+Current v1 implementation supports create/list/detail. Patch/update remains a contract target.
+
 ### Runs
 
 - `POST /api/projects/{project_id}/runs`: start a research run.
@@ -20,11 +22,15 @@ FastAPI owns backend contracts. Pydantic schemas are the source of truth. The fr
 - `POST /api/runs/{run_id}/resume`: resume after human review.
 - `GET /api/runs/{run_id}/events`: stream run events with SSE.
 
+Current v1 implementation runs synchronously from the project endpoint. Run status, resume, and SSE remain upgrade targets.
+
 ### Evidence And Artifacts
 
 - `GET /api/projects/{project_id}/evidence`
 - `GET /api/projects/{project_id}/artifacts`
 - `GET /api/artifacts/{artifact_id}`
+
+Current v1 implementation supports project-scoped evidence and artifact lists. Artifact detail remains an upgrade target.
 
 ### Q&A
 
@@ -34,6 +40,8 @@ FastAPI owns backend contracts. Pydantic schemas are the source of truth. The fr
 
 - `POST /api/projects/{project_id}/exports`: create export package.
 - `GET /api/exports/{export_id}/download`: download export package.
+
+Current v1 implementation returns the export manifest. Download packaging remains an upgrade target.
 
 ## Error Shape
 

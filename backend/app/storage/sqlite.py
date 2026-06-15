@@ -90,6 +90,24 @@ class SQLiteRepository:
             updated_at=datetime.fromisoformat(row["updated_at"]),
         )
 
+    def list_projects(self) -> list[ResearchProject]:
+        with self._connect() as connection:
+            rows = connection.execute("SELECT * FROM projects ORDER BY created_at DESC").fetchall()
+        return [
+            ResearchProject(
+                id=row["id"],
+                title=row["title"],
+                domain=row["domain"],
+                market_scope=MarketScope(row["market_scope"]),
+                depth=ResearchDepth(row["depth"]),
+                status=ProjectStatus(row["status"]),
+                custom_market_scope=row["custom_market_scope"],
+                created_at=datetime.fromisoformat(row["created_at"]),
+                updated_at=datetime.fromisoformat(row["updated_at"]),
+            )
+            for row in rows
+        ]
+
     def add_evidence(self, evidence: EvidenceItem) -> None:
         with self._connect() as connection:
             connection.execute(
@@ -119,7 +137,7 @@ class SQLiteRepository:
     def list_evidence(self, project_id: str) -> list[EvidenceItem]:
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM evidence WHERE project_id = ? ORDER BY id",
+                "SELECT * FROM evidence WHERE project_id = ? ORDER BY rowid",
                 (project_id,),
             ).fetchall()
         return [self._row_to_evidence(row) for row in rows]

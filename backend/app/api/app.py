@@ -1,12 +1,15 @@
 """FastAPI app factory."""
 
+import os
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from backend.app.exporters.markdown import MarkdownExporter
 from backend.app.graph.workflow import run_research_workflow
+from backend.app.providers.factory import build_llm_provider, build_search_provider
+from backend.app.providers.interfaces import LLMProvider, SearchProvider
 from backend.app.schemas import ResearchProjectCreate
 from backend.app.storage.sqlite import SQLiteRepository, init_database
 
@@ -20,10 +23,17 @@ class ChatResponse(BaseModel):
     citations: list[str]
 
 
-def create_app(database_path: Path, export_root: Path) -> FastAPI:
+def create_app(
+    database_path: Path,
+    export_root: Path,
+    search_provider: SearchProvider | None = None,
+    llm_provider: LLMProvider | None = None,
+) -> FastAPI:
     init_database(database_path)
     repository = SQLiteRepository(database_path)
     exporter = MarkdownExporter(export_root)
+    active_search_provider = search_provider if search_provider is not None else build_search_provider()
+    active_llm_provider = llm_provider if llm_provider is not None else build_llm_provider()
     app = FastAPI(title="SectorBreaker")
 
     @app.post("/api/projects")
@@ -32,12 +42,26 @@ def create_app(database_path: Path, export_root: Path) -> FastAPI:
 
     @app.get("/api/projects")
     def list_projects():
-        return []
+        return [project.model_dump(mode="json") for project in repository.list_projects()]
+
+    @app.get("/api/projects/{project_id}")
+    def get_project(project_id: str):
+        try:
+            return repository.get_project(project_id).model_dump(mode="json")
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="project not found") from exc
 
     @app.post("/api/projects/{project_id}/runs")
     def run_project(project_id: str):
-        project = repository.get_project(project_id)
-        state = run_research_workflow(project)
+        try:
+            project = repository.get_project(project_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="project not found") from exc
+        state = run_research_workflow(
+            project,
+            search_provider=active_search_provider,
+            llm_provider=active_llm_provider,
+        )
         for evidence in state.evidence:
             repository.add_evidence(evidence)
         for artifact in state.artifacts:
@@ -54,7 +78,10 @@ def create_app(database_path: Path, export_root: Path) -> FastAPI:
 
     @app.post("/api/projects/{project_id}/exports")
     def export_project(project_id: str):
-        project = repository.get_project(project_id)
+        try:
+            project = repository.get_project(project_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="project not found") from exc
         evidence = repository.list_evidence(project_id)
         artifacts = repository.list_artifacts(project_id)
         return exporter.export_project(project, artifacts, evidence).model_dump(mode="json")
@@ -71,3 +98,9 @@ def create_app(database_path: Path, export_root: Path) -> FastAPI:
         ).model_dump(mode="json")
 
     return app
+
+
+app = create_app(
+    database_path=Path(os.getenv("SECTORBREAKER_DB_PATH", "data/sectorbreaker.sqlite3")),
+    export_root=Path(os.getenv("SECTORBREAKER_EXPORT_ROOT", "exports")),
+)

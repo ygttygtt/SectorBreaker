@@ -13,6 +13,28 @@ conda activate sectorbreaker
 
 Frontend uses Node.js with Vite + React + TypeScript.
 
+Backend development server:
+
+```bash
+uvicorn backend.app.api.app:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Frontend development server:
+
+```bash
+cd frontend
+npm install
+npm run dev -- --host 127.0.0.1 --port 3000
+```
+
+The Vite dev server proxies `/api` to `http://127.0.0.1:8000` by default.
+When port 8000 is already occupied, set `VITE_API_PROXY_TARGET`, for example:
+
+```bash
+$env:VITE_API_PROXY_TARGET="http://127.0.0.1:8010"
+npm run dev -- --host 127.0.0.1 --port 3010
+```
+
 ## Local Configuration
 
 Secrets go in `.env` or `.env.local`; never commit them.
@@ -23,6 +45,11 @@ Expected keys:
 - `LLM_API_KEY`
 - `LLM_MODEL`
 - `TAVILY_API_KEY`
+
+Runtime paths can be overridden with:
+
+- `SECTORBREAKER_DB_PATH`
+- `SECTORBREAKER_EXPORT_ROOT`
 
 ## Task Workflow
 
