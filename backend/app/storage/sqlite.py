@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import sqlite3
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
 from backend.app.providers.interfaces import RetrievalResult
 from backend.app.schemas import (
+    Artifact,
+    ArtifactType,
     EvidenceItem,
     MarketScope,
     ProjectStatus,
@@ -121,6 +124,36 @@ class SQLiteRepository:
             ).fetchall()
         return [self._row_to_evidence(row) for row in rows]
 
+    def add_artifact(self, artifact: Artifact) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO artifacts (
+                    id, project_id, artifact_type, title, content_path, content,
+                    source_evidence_ids, schema_version, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    artifact.id,
+                    artifact.project_id,
+                    artifact.artifact_type.value,
+                    artifact.title,
+                    artifact.content_path,
+                    artifact.content,
+                    json.dumps(artifact.source_evidence_ids, ensure_ascii=False),
+                    artifact.schema_version,
+                    artifact.created_at.isoformat(),
+                ),
+            )
+
+    def list_artifacts(self, project_id: str) -> list[Artifact]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM artifacts WHERE project_id = ? ORDER BY id",
+                (project_id,),
+            ).fetchall()
+        return [self._row_to_artifact(row) for row in rows]
+
     def search_project(self, project_id: str, query: str, limit: int) -> list[RetrievalResult]:
         with self._connect() as connection:
             rows = connection.execute(
@@ -154,6 +187,20 @@ class SQLiteRepository:
             summary=row["summary"],
             confidence=row["confidence"],
             verification_status=VerificationStatus(row["verification_status"]),
+        )
+
+    @staticmethod
+    def _row_to_artifact(row: sqlite3.Row) -> Artifact:
+        return Artifact(
+            id=row["id"],
+            project_id=row["project_id"],
+            artifact_type=ArtifactType(row["artifact_type"]),
+            title=row["title"],
+            content_path=row["content_path"],
+            content=row["content"],
+            source_evidence_ids=json.loads(row["source_evidence_ids"]),
+            schema_version=row["schema_version"],
+            created_at=datetime.fromisoformat(row["created_at"]),
         )
 
     @staticmethod

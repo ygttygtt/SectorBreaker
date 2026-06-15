@@ -9,6 +9,7 @@ from backend.app.providers.interfaces import (
     SearchQuery,
     SearchResult,
 )
+from backend.app.providers.tavily import TavilySearchProvider
 
 __all__ = [
     "ChatMessage",
@@ -18,4 +19,5 @@ __all__ = [
     "SearchProvider",
     "SearchQuery",
     "SearchResult",
+    "TavilySearchProvider",
 ]

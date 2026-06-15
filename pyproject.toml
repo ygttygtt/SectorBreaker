@@ -1,0 +1,18 @@
+[project]
+name = "sectorbreaker"
+version = "0.1.0"
+description = "Local-first LangGraph multi-agent industry research workbench."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.136.0",
+    "langgraph>=1.2.5",
+    "pydantic>=2.7.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,6 +1,6 @@
 """Artifact schemas."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, Field
@@ -23,6 +23,7 @@ class Artifact(BaseModel):
     artifact_type: ArtifactType
     title: str
     content_path: str
+    content: str = ""
     source_evidence_ids: list[str] = Field(default_factory=list)
     schema_version: str = "1"
-    created_at: datetime
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
