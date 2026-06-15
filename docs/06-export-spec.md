@@ -48,4 +48,3 @@ Every export must include `manifest.json` with:
 - artifact paths;
 - evidence ids;
 - app version when available.
-

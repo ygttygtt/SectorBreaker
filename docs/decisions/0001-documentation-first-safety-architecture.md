@@ -18,4 +18,3 @@ Start with documentation and collaboration guardrails before feature code. Requi
 - Later implementation tasks can be split more reliably.
 - Agent output drift is reduced by schema and evidence requirements.
 - Changing public contracts requires documentation and tests in the same change.
-

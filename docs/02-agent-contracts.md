@@ -71,4 +71,3 @@ All Agent outputs that include factual claims must support:
 - Output: Markdown files, Obsidian links, export manifest.
 - Must not: generate new facts during export.
 - Failure mode: stop export and report invalid artifact schema.
-

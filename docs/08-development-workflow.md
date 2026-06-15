@@ -43,4 +43,3 @@ Expected keys:
 - Are public schemas documented?
 - Are tests deterministic without live external APIs?
 - Does generated output stay out of git?
-

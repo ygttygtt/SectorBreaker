@@ -10,4 +10,3 @@ Business logic should be organized around documented contracts:
 - Provider interfaces: `../docs/04-provider-interfaces.md`
 
 Do not call external services directly from graph nodes or route handlers. Use provider interfaces.
-

@@ -47,4 +47,3 @@ Errors should include:
 ## Human Review
 
 When the graph interrupts for review, the run status becomes `waiting_for_human`. The frontend must show the gate output and send the user's decision through the resume endpoint.
-

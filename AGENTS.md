@@ -46,4 +46,3 @@ git push origin main && git push gitee main
 ```
 
 If push fails because credentials or network are unavailable, report the exact failure and leave the commit local.
-

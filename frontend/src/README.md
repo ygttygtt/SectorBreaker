@@ -10,4 +10,3 @@ Planned module boundaries:
 - `features/chat/`: project-local Q&A.
 
 Prefer typed API contracts and focused components over large pages with embedded business logic.
-

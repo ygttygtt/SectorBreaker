@@ -85,4 +85,3 @@ exports/<project-slug>/
 ## Versioning
 
 State, artifacts, and exports must carry schema versions. Breaking schema changes require migration notes and tests.
-

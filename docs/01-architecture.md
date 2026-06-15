@@ -56,4 +56,3 @@ User input enters the API as structured project configuration. The workflow stor
 - Retrieval can move from SQLite FTS to hybrid vector retrieval.
 - Export format is versioned for future Obsidian and web publishing targets.
 - Team collaboration can be added around project ownership and run permissions without changing Agent contracts.
-

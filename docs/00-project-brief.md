@@ -38,4 +38,3 @@ SectorBreaker is a local-first research workbench that helps a user break into a
 - V1: Adaptive workflow, evidence-linked research output, Obsidian export, SQLite FTS Q&A.
 - V2: Embeddings, vector retrieval, stronger RAG, source re-ranking, richer citation audit.
 - V3: Monitoring jobs, weekly reports, team collaboration, permissions, cloud deployment.
-

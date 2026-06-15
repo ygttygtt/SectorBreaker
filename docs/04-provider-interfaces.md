@@ -59,4 +59,3 @@ Required methods:
 - `export_markdown(project_id, artifacts, evidence)`
 
 Exporters must write a manifest containing export version, artifact list, source evidence list, and generated timestamp.
-

@@ -10,4 +10,3 @@ Planned module boundaries:
 - `schemas/`: shared Pydantic models.
 
 Keep each module small and documented before adding behavior.
-

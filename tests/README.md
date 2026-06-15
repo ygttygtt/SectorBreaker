@@ -11,4 +11,3 @@ Planned groups:
 - `fixtures/`: fake provider responses and golden exports.
 
 See `../docs/07-testing-strategy.md`.
-

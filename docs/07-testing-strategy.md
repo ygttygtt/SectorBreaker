@@ -46,4 +46,3 @@ Exported Markdown structure must be compared against stable fixtures. Intentiona
 ## External Services
 
 No automated test should require live LLM or Tavily credentials by default. Use fake providers and deterministic fixtures.
-

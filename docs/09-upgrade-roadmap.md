@@ -36,4 +36,3 @@
 ## Upgrade Rules
 
 New capabilities should attach through versioned interfaces and migrations. Do not rewrite the core graph to add a provider, exporter, or retrieval backend.
-
