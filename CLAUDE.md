@@ -38,6 +38,18 @@ The project is documentation-first. Before implementing business features, updat
 
 Core guardrail: all cross-agent outputs must be structured and evidence-linked. Do not let graph nodes exchange important data only as prose.
 
+## Current Progress Handoff
+
+Before continuing feature work, read `docs/10-current-status-and-handoff.md`.
+
+That document records:
+
+- what has already been implemented;
+- what remains unfinished;
+- which tasks are safe to delegate;
+- which architecture-sensitive tasks need stronger review;
+- how to sync project memory after progress changes.
+
 ## Git: Dual Remote Push
 
 本项目同时推送到 GitHub 和 Gitee，**每次 commit 后必须两边都推**：

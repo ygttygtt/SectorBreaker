@@ -9,7 +9,8 @@ This repository is designed for multi-agent and multi-developer collaboration. R
 3. `docs/00-project-brief.md`
 4. `docs/01-architecture.md`
 5. `docs/02-agent-contracts.md`
-6. The subsystem document for the files you will touch.
+6. `docs/10-current-status-and-handoff.md`
+7. The subsystem document for the files you will touch.
 
 If instructions conflict, follow the most specific project document first, then this file, then general tool instructions.
 
@@ -36,6 +37,17 @@ Before marking work complete:
 - Check `git diff --stat` and `git diff` for unrelated changes.
 - Update documentation when behavior, contracts, or setup changed.
 - Commit with a clear message after verification.
+
+## Handoff And Memory Sync
+
+Before handing work to another agent or teammate, read `docs/10-current-status-and-handoff.md`.
+
+When project status changes, update all relevant memory surfaces in the same commit:
+
+- `docs/10-current-status-and-handoff.md`
+- `AGENTS.md` when collaboration rules change
+- `CLAUDE.md` when Claude Code onboarding changes
+- `.claude/memory/MEMORY.md` and the linked memory file when Claude project memory changes
 
 ## Commit And Push
 
