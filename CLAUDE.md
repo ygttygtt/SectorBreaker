@@ -1,0 +1,33 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+SectorBreaker（领域破壁）是一款基于 LangGraph 与多智能体协同的数字化行业研究与情报分析系统。通过反向拆解产业链、竞品及内容生态，帮助用户在 1 小时内将碎片化信息编织为可无缝导入 Obsidian 的全域商业认知地图。
+
+核心方法论分五步：
+1. **建数据库** — 行业市场、玩家、交易单位的结构化数据
+2. **反向拆解** — 竞品商业结构、收入模型、转化路径、信任资产
+3. **内容生态** — 批量分析内容账号、高频选题、内容分类
+4. **知识地图** — 多层级行业地图 + Obsidian 知识卡片
+5. **情报系统** — 持续监控、周报生成、机会追踪
+
+## Tech Stack
+
+- **LangGraph** — 多智能体编排框架
+- **Python** — 主语言
+- **Obsidian** — 知识库输出格式（Markdown）
+
+## Git: Dual Remote Push
+
+本项目同时推送到 GitHub 和 Gitee，**每次 commit 后必须两边都推**：
+
+```bash
+git push origin main && git push gitee main
+```
+
+| Remote | 平台 | 地址 |
+|--------|------|------|
+| `origin` | GitHub | `git@github.com:ygttygtt/SectorBreaker.git` |
+| `gitee` | Gitee | `git@gitee.com:ygttygtt/sector-breaker.git` |
