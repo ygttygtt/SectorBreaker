@@ -11,6 +11,14 @@ dist/
 build/
 venv/
 .venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node / frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
 
 # IDE
 .vscode/
@@ -23,3 +31,12 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Local agent/worktree scratch
+.worktrees/
+.superpowers/
+
+# Runtime data and generated exports
+data/
+exports/**
+!exports/.gitkeep

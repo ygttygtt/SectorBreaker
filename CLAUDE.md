@@ -17,7 +17,26 @@ SectorBreaker（领域破壁）是一款基于 LangGraph 与多智能体协同�
 
 - **LangGraph** — 多智能体编排框架
 - **Python** — 主语言
+- **FastAPI** — 后端 API
+- **Vite + React + TypeScript** — Web 工作台
+- **SQLite** — 本地结构化状态与 FTS 检索
 - **Obsidian** — 知识库输出格式（Markdown）
+
+## Collaboration Bootstrap
+
+Claude Code and other coding agents must read `AGENTS.md` first, then this file, then the relevant document under `docs/`.
+
+The project is documentation-first. Before implementing business features, update or verify:
+
+- `docs/01-architecture.md` for workflow or graph changes
+- `docs/02-agent-contracts.md` for Agent behavior changes
+- `docs/03-state-and-storage.md` for state/database/file changes
+- `docs/04-provider-interfaces.md` for external service integration changes
+- `docs/05-api-contract.md` for backend API changes
+- `docs/06-export-spec.md` for Markdown/Obsidian output changes
+- `docs/07-testing-strategy.md` for test coverage expectations
+
+Core guardrail: all cross-agent outputs must be structured and evidence-linked. Do not let graph nodes exchange important data only as prose.
 
 ## Git: Dual Remote Push
 

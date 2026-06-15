@@ -1,1 +1,2 @@
 - [Git 双远程推送](git-dual-remote-push.md) — 每次提交后必须同时推送到 GitHub (origin) 和 Gitee (gitee)
+- [项目安全协作架构](project-safety-architecture.md) — 文档优先、接口优先、schema 优先、证据优先的多人/多 Agent 协作规范
