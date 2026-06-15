@@ -40,7 +40,7 @@ Core guardrail: all cross-agent outputs must be structured and evidence-linked. 
 
 ## Current Progress Handoff
 
-Before continuing feature work, read `docs/10-current-status-and-handoff.md`.
+Before continuing feature work, read `docs/10-current-status-and-handoff.md` and `docs/11-tooling-handoff.md`.
 
 That document records:
 
@@ -49,6 +49,8 @@ That document records:
 - which tasks are safe to delegate;
 - which architecture-sensitive tasks need stronger review;
 - how to sync project memory after progress changes.
+
+Claude Code should also read `.claude/memory/MEMORY.md` before making changes.
 
 ## Git: Dual Remote Push
 

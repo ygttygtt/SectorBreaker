@@ -1,3 +1,4 @@
 - [Git 双远程推送](git-dual-remote-push.md) — 每次提交后必须同时推送到 GitHub (origin) 和 Gitee (gitee)
 - [项目安全协作架构](project-safety-architecture.md) — 文档优先、接口优先、schema 优先、证据优先的多人/多 Agent 协作规范
 - [当前进度与交接说明](current-progress-and-handoff.md) — 后续 Agent/成员接手前必须阅读，包含剩余任务、风险点、记忆同步方式
+- [跨工具接手说明](tooling-handoff.md) — Cursor、Windsurf、Gemini、Claude Code、Codex 等工具接手时的统一入口

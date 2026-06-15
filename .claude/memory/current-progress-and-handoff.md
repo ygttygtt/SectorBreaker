@@ -50,7 +50,9 @@ metadata:
 记忆同步：
 
 - 状态变化更新 `docs/10-current-status-and-handoff.md`。
+- 跨工具接手信息变化更新 `docs/11-tooling-handoff.md`。
 - Claude Code 记忆变化更新 `.claude/memory/MEMORY.md` 和对应 memory 文件。
+- 跨工具接手记忆变化更新 `.claude/memory/tooling-handoff.md`。
 - 协作规则变化更新 `AGENTS.md`。
 - Claude 入口说明变化更新 `CLAUDE.md`。
 - 提交后同时推送 `origin main` 和 `gitee main`。

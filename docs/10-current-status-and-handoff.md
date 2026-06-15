@@ -5,6 +5,7 @@
 This document tells future agents and teammates where the project stands, what to do next, what can be delegated safely, and which parts need architecture-level review.
 
 Read this after `AGENTS.md`, `CLAUDE.md`, `docs/00-project-brief.md`, `docs/01-architecture.md`, and `docs/02-agent-contracts.md`.
+For Cursor, Windsurf, Gemini, Codex, Claude Code, or other tools, also read `docs/11-tooling-handoff.md`.
 
 ## Current Implemented State
 
@@ -140,11 +141,13 @@ Use outputs to tighten prompts, evidence rules, and export structure.
 When meaningful progress happens, update memory in the same commit:
 
 1. Update this file with completed work and next steps.
-2. Update `.claude/memory/current-progress-and-handoff.md` with the concise memory version.
-3. Update `.claude/memory/MEMORY.md` if a new memory file is added.
-4. Update `CLAUDE.md` if Claude Code onboarding changes.
-5. Update `AGENTS.md` if cross-agent rules change.
-6. Commit and push both remotes:
+2. Update `docs/11-tooling-handoff.md` when cross-tool onboarding or baseline changes.
+3. Update `.claude/memory/current-progress-and-handoff.md` with the concise memory version.
+4. Update `.claude/memory/tooling-handoff.md` when cross-tool onboarding or baseline changes.
+5. Update `.claude/memory/MEMORY.md` if a new memory file is added.
+6. Update `CLAUDE.md` if Claude Code onboarding changes.
+7. Update `AGENTS.md` if cross-agent rules change.
+8. Commit and push both remotes:
 
    ```bash
    git push origin main && git push gitee main

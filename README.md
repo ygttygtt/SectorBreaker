@@ -129,7 +129,8 @@ http://127.0.0.1:3000/
 1. `AGENTS.md`
 2. `CLAUDE.md`
 3. `docs/10-current-status-and-handoff.md`
-4. 与自己任务相关的 `docs/0x-*.md`
+4. `docs/11-tooling-handoff.md`
+5. 与自己任务相关的 `docs/0x-*.md`
 
 核心原则：
 

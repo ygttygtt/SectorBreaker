@@ -10,7 +10,8 @@ This repository is designed for multi-agent and multi-developer collaboration. R
 4. `docs/01-architecture.md`
 5. `docs/02-agent-contracts.md`
 6. `docs/10-current-status-and-handoff.md`
-7. The subsystem document for the files you will touch.
+7. `docs/11-tooling-handoff.md`
+8. The subsystem document for the files you will touch.
 
 If instructions conflict, follow the most specific project document first, then this file, then general tool instructions.
 
@@ -45,6 +46,7 @@ Before handing work to another agent or teammate, read `docs/10-current-status-a
 When project status changes, update all relevant memory surfaces in the same commit:
 
 - `docs/10-current-status-and-handoff.md`
+- `docs/11-tooling-handoff.md` when cross-tool handoff status changes
 - `AGENTS.md` when collaboration rules change
 - `CLAUDE.md` when Claude Code onboarding changes
 - `.claude/memory/MEMORY.md` and the linked memory file when Claude project memory changes
