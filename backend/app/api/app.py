@@ -9,6 +9,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
+from fastapi.background import BackgroundTasks
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -93,11 +94,11 @@ def create_app(
     # ── Runs ──────────────────────────────────────────────────────
 
     @app.post("/api/projects/{project_id}/runs")
-    async def run_project(project_id: str):
-        """Create a run and execute the workflow synchronously.
+    async def run_project(project_id: str, background_tasks: BackgroundTasks):
+        """Create a run and start the workflow in the background.
 
-        Returns the run with status after completion. For real-time progress,
-        use the SSE endpoint /api/runs/{run_id}/events instead.
+        Returns immediately with the run object so the frontend can
+        connect to the SSE endpoint for real-time progress.
         """
         try:
             project = repository.get_project(project_id)
@@ -110,26 +111,27 @@ def create_app(
         async def emit_event(event: RunEvent) -> None:
             repository.add_run_event(event, run.id)
 
-        try:
-            state = await run_research_workflow(
-                project,
-                search_provider=active_search_provider,
-                llm_provider=active_llm_provider,
-                emitter=emit_event,
-            )
-            # Persist evidence and artifacts to the repository
-            for evidence in state.evidence:
-                repository.add_evidence(evidence)
-            for artifact in state.artifacts:
-                repository.add_artifact(artifact)
-            repository.update_run(run.id, status=RunStatus.COMPLETED, completed_at=datetime.now(UTC))
-        except Exception as exc:
-            await emit_event(RunEvent(
-                event_type="error", gate="unknown",
-                message=f"工作流执行失败：{exc}",
-            ))
-            repository.update_run(run.id, status=RunStatus.FAILED, completed_at=datetime.now(UTC))
+        async def run_in_background() -> None:
+            try:
+                state = await run_research_workflow(
+                    project,
+                    search_provider=active_search_provider,
+                    llm_provider=active_llm_provider,
+                    emitter=emit_event,
+                )
+                for evidence in state.evidence:
+                    repository.add_evidence(evidence)
+                for artifact in state.artifacts:
+                    repository.add_artifact(artifact)
+                repository.update_run(run.id, status=RunStatus.COMPLETED, completed_at=datetime.now(UTC))
+            except Exception as exc:
+                await emit_event(RunEvent(
+                    event_type="error", gate="unknown",
+                    message=f"工作流执行失败：{exc}",
+                ))
+                repository.update_run(run.id, status=RunStatus.FAILED, completed_at=datetime.now(UTC))
 
+        background_tasks.add_task(run_in_background)
         return repository.get_run(run.id).model_dump(mode="json")
 
     @app.get("/api/runs/{run_id}")

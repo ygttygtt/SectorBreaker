@@ -1,9 +1,18 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
-// Mock useRunEvents to avoid EventSource issues in jsdom
+// Mock useRunEvents — simulate SSE completing after a short delay
+let lastCallback: (() => void) | null = null;
+let timer: ReturnType<typeof setTimeout> | null = null;
 vi.mock("./hooks/useRunEvents", () => ({
-  useRunEvents: () => ({ events: [], isConnected: false, reset: () => {} }),
+  useRunEvents: ({ onComplete }: { onComplete?: () => void }) => {
+    if (onComplete && onComplete !== lastCallback) {
+      lastCallback = onComplete;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => onComplete(), 10);
+    }
+    return { events: [], isConnected: false, reset: () => {} };
+  },
 }));
 
 import { App } from "./App";
@@ -11,6 +20,8 @@ import { App } from "./App";
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  lastCallback = null;
+  if (timer) { clearTimeout(timer); timer = null; }
 });
 
 const projectMock = {
@@ -25,11 +36,11 @@ const projectMock = {
 const runMock = {
   id: "run-1",
   project_id: "project-1",
-  status: "completed",
-  current_gate: "export",
+  status: "running",
+  current_gate: "scope",
   current_step: null,
   created_at: new Date().toISOString(),
-  completed_at: new Date().toISOString(),
+  completed_at: null,
 };
 
 const artifactsMock = [
@@ -66,7 +77,7 @@ async function startResearch(domain = "AI Agent 工具") {
   const input = screen.getByPlaceholderText(/AI Agent 工具/);
   fireEvent.change(input, { target: { value: domain } });
   fireEvent.click(screen.getByRole("button", { name: /开始破壁/ }));
-  // Wait for review phase
+  // Wait for review phase (SSE onComplete triggers this)
   await waitFor(() => expect(screen.getByText(/完成/)).toBeInTheDocument());
   // Click "跳过，直接继续" to go to result
   fireEvent.click(screen.getByRole("button", { name: /跳过/ }));

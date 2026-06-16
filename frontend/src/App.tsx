@@ -18,6 +18,7 @@ import { ConfigPanel } from "./components/ConfigPanel";
 import { Logo } from "./components/Logo";
 import { GraphFlow, GATES } from "./components/GraphFlow";
 import { LogStream } from "./components/LogStream";
+import { DebugPanel } from "./components/DebugPanel";
 import { ReviewView } from "./components/ReviewView";
 import { api } from "./api/client";
 import { useRunEvents } from "./hooks/useRunEvents";
@@ -57,11 +58,9 @@ function LandingView({ onStart, onOpenSettings, isLoading }: {
   return (
     <div className="landing">
       <div className="landing-brand">
-        <Logo size={48} />
-        <div>
-          <h1>SectorBreaker</h1>
-          <p>领域破壁系统</p>
-        </div>
+        <Logo size={80} />
+        <h1>SectorBreaker</h1>
+        <p>领 域 破 壁 系 统</p>
       </div>
 
       <h2 className="landing-title">你想了解什么领域？</h2>
@@ -185,6 +184,7 @@ function ResearchView({
       />
 
       <LogStream events={events} />
+      <DebugPanel events={events} />
     </div>
   );
 }
@@ -441,22 +441,12 @@ export function App() {
         depth: "quick",
       });
       setProject(proj);
-      setPhase("researching");
 
-      // Start run (synchronous, waits for completion)
+      // Start run — returns immediately, workflow runs in background
       const run = await api.startRun(proj.id);
-
-      // If run completed synchronously, go to review phase
-      if (run.status === "completed") {
-        const [artifactsData, evidenceData] = await Promise.all([
-          api.listArtifacts(proj.id),
-          api.listEvidence(proj.id),
-        ]);
-        setArtifacts(artifactsData);
-        setEvidence(evidenceData);
-        setRunId(run.id);
-        setPhase("reviewing");
-      }
+      setRunId(run.id);
+      setPhase("researching");
+      // SSE useRunEvents hook will connect automatically via runId
     } catch (err) {
       const message = err instanceof Error ? err.message : "启动研究失败";
       error(message);

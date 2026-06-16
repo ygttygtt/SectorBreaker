@@ -1,9 +1,23 @@
+import time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from backend.app.api.app import create_app
 from backend.app.providers.fakes import FakeLLMProvider, FakeSearchProvider
+
+
+def _wait_for_run(client: TestClient, run_id: str, timeout: float = 10.0) -> dict:
+    """Poll until the background run completes or fails."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        resp = client.get(f"/api/runs/{run_id}")
+        assert resp.status_code == 200
+        status = resp.json()["status"]
+        if status in ("completed", "failed"):
+            return resp.json()
+        time.sleep(0.1)
+    raise TimeoutError(f"Run {run_id} did not complete within {timeout}s")
 
 
 def test_api_runs_research_and_exports_markdown(tmp_path: Path) -> None:
@@ -25,7 +39,12 @@ def test_api_runs_research_and_exports_markdown(tmp_path: Path) -> None:
 
     run_response = client.post(f"/api/projects/{project_id}/runs")
     assert run_response.status_code == 200
-    assert run_response.json()["status"] == "completed"
+    run_id = run_response.json()["id"]
+    assert run_response.json()["status"] == "running"
+
+    # Wait for background workflow to finish
+    run_result = _wait_for_run(client, run_id)
+    assert run_result["status"] == "completed"
 
     artifacts_response = client.get(f"/api/projects/{project_id}/artifacts")
     assert artifacts_response.status_code == 200
@@ -58,7 +77,8 @@ def test_api_project_chat_uses_local_fts(tmp_path: Path) -> None:
         },
     ).json()["id"]
 
-    client.post(f"/api/projects/{project_id}/runs")
+    run_resp = client.post(f"/api/projects/{project_id}/runs")
+    _wait_for_run(client, run_resp.json()["id"])
 
     chat_response = client.post(f"/api/projects/{project_id}/chat", json={"question": "应该先学什么"})
 
@@ -99,8 +119,9 @@ def test_api_run_uses_injected_search_and_llm_providers(tmp_path: Path) -> None:
     ).json()["id"]
 
     run_response = client.post(f"/api/projects/{project_id}/runs")
-    assert run_response.status_code == 200
-    assert run_response.json()["status"] == "completed"
+    run_id = run_response.json()["id"]
+    run_result = _wait_for_run(client, run_id)
+    assert run_result["status"] == "completed"
 
     evidence_response = client.get(f"/api/projects/{project_id}/evidence")
     assert evidence_response.json()[1]["source_title"] == "宠物服务市场"
