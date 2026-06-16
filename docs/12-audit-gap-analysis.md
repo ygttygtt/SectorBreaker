@@ -5,49 +5,21 @@
 
 ---
 
-## 阻塞 MVP 的关键问题（必须先修）
+## 阻塞 MVP 的关键问题
 
-### 🔴 B1：用户注入的信息不影响后续 Gate
+### ~~🔴 B1：用户注入的信息不影响后续 Gate~~ → ✅ 已修复
+- `/resume` 端点读取 `user_inputs` 表，传入 `user_guidance` 和 `user_evidence_items`
+- `_run_scope_gate` 注入 `user_evidence_items` 为证据
+- 其他 gate 的 LLM prompt 包含 `user_guidance`
 
-**设计稿要求**：每个 gate 完成后暂停，用户可以补充信息，补充的信息会影响后续 gate 的 AI 分析。
+### ~~🔴 B2：workflow 不暂停，ReviewView 只在最后出现一次~~ → ✅ 已修复
+- `run_workflow_until_pause` 在 scope/research_frame/opportunity 三个 gate 后暂停
+- 发出 `waiting_for_human` SSE 事件
+- 前端检测到 `waiting_for_human` → 切到 reviewing → 显示 ReviewView
+- 用户确认后调 `/resume` → 恢复执行
 
-**代码现状**：
-- `ReviewView` 的 `onContinue` 提交 `guidance` 和 `evidenceData` 到后端 `addUserInput` API ✅
-- 后端 `addUserInput` 只是存到 `user_inputs` 表 ❌
-- `workflow.py` 的 `run_research_workflow` 接收 `user_guidance` 和 `user_evidence_items` 参数 ✅
-- **但 workflow 从不读取 `user_inputs` 表** ❌
-- **而且 workflow 一口气跑完所有 gate，根本不会暂停等人审** ❌
-
-**结论**：人工审阅是假的。ReviewView 只在全部完成后显示一次，用户补充的信息永远不会被用到。
-
-### 🔴 B2：workflow 不暂停，ReviewView 只在最后出现一次
-
-**设计稿要求**：每个关键节点暂停等待确认。
-
-**代码现状**：
-- `App.tsx` 的 phase 状态机：`landing → researching → reviewing → result`
-- `reviewing` 只在 `onComplete`（SSE [DONE]）后触发一次
-- workflow 中没有 `waiting_for_human` 事件，没有暂停机制
-- 6 个 gate 一口气跑完
-
-**结论**：用户无法在中间节点审阅和注入信息。
-
-### 🔴 B3：LLM timeout 可能不够
-
-**代码现状**：`OpenAICompatibleLLMProvider.timeout_seconds = 60`
-
-**问题**：现在每个 gate 调 LLM 1-4 次。knowledge_map_gate 连续调 4 次 LLM，如果每次 30-60 秒，整个 gate 可能需要 2-4 分钟。但 timeout 是单次请求的，应该没问题。
-
-**实际风险**：某些 LLM API（如本地 Ollama）可能很慢，60 秒不够。但这不是 MVP 阻塞项。
-
-### 🔴 B4：SSE 事件流在 workflow 极快完成时的行为
-
-**代码现状**：
-- `run_project` 用 `BackgroundTasks` 后台执行，立即返回 run ID
-- 前端拿到 runId 后连接 SSE
-- SSE endpoint 先重播已有事件，然后轮询新事件
-
-**风险**：如果 workflow 在前端连接 SSE 之前就完成了，SSE 会重播所有事件然后发 [DONE]。这应该能正常工作，但需要验证。
+### ⚠️ B3：LLM timeout 可能不够 → 未修（非 MVP 阻塞）
+### ⚠️ B4：SSE 在极快完成时的行为 → 已验证可工作（重播机制正常）
 
 ---
 
@@ -300,19 +272,19 @@ landing → researching → [gate_complete事件] → reviewing → [用户确�
 
 ## 总结：差距优先级
 
-### P0 — MVP 阻塞项（必须修复）
-1. **workflow 暂停机制**：每个 gate 完成后暂停，发 `waiting_for_human` 事件
-2. **前端 gate-by-gate 审阅**：收到 `gate_complete` 事件后切到 reviewing，用户确认后 resume
-3. **用户信息回流**：workflow 恢复时读取 user_inputs，注入到后续 gate 的 LLM prompt
-4. **失败状态处理**：workflow 失败时前端正确显示错误，不卡住
+### ~~P0 — MVP 阻塞项~~ → ✅ 全部修复
+1. ✅ workflow 暂停机制：scope/research_frame/opportunity 三个 gate 暂停
+2. ✅ 前端逐 gate 审阅：waiting_for_human 事件触发 ReviewView
+3. ✅ 用户信息回流：/resume 读取 user_inputs 注入 workflow
+4. ✅ 失败状态处理：workflow 失败设 FAILED 状态，SSE 发 [DONE]
 
-### P1 — 功能完整性（应该修复）
-5. **第二步缺失**：竞品数据库、收入结构、转化路径、信任资产（需新增 gate 或扩展现有 gate）
-6. **第三步缺失**：内容账号数据库、高频选题、内容分类（需新增产物类型）
-7. **交易单位独立产物**：`TRANSACTION_UNITS` 已定义但未使用
+### ~~P1 — 功能完整性~~ → ✅ 大部分修复
+5. ✅ 第二步产物：新增 COMPETITOR_ANALYSIS、REVENUE_STRUCTURE、TRUST_ASSETS
+6. ⚠️ 第三步产物：CONTENT_CHANNELS prompt 已扩展（含 6 种分类），但独立 CONTENT_ACCOUNTS/CONTENT_TOPICS 未单独生成
+7. ⚠️ 交易单位：PLAYER_MAP prompt 已包含交易单位字段，但未使用独立 TRANSACTION_UNITS 类型
 
-### P2 — 质量提升（可以后续）
-8. LLM prompt 更详细，要求更多输出字段
+### P2 — 质量提升（后续）
+8. LLM prompt 更详细
 9. 行业地图三级节点
 10. 知识卡片结构化模板
-11. 一键执行选项（跳过所有审阅）
+11. 一键执行选项（auto_run=true 已实现但前端未暴露按钮）

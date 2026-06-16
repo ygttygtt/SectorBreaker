@@ -15,6 +15,15 @@ class ArtifactType(StrEnum):
     CONTENT_CHANNELS = "content_channels"
     OPPORTUNITY_MAP = "opportunity_map"
     EXPORT_MANIFEST = "export_manifest"
+    # Step 2: Reverse engineering
+    COMPETITOR_ANALYSIS = "competitor_analysis"
+    REVENUE_STRUCTURE = "revenue_structure"
+    CONVERSION_PATH = "conversion_path"
+    TRUST_ASSETS = "trust_assets"
+    # Step 3: Content ecosystem
+    CONTENT_ACCOUNTS = "content_accounts"
+    CONTENT_TOPICS = "content_topics"
+    CONTENT_CLASSIFICATION = "content_classification"
 
 
 class Artifact(BaseModel):
