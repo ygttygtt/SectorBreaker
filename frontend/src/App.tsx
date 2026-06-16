@@ -21,6 +21,8 @@ import { GraphFlow, GATES } from "./components/GraphFlow";
 import { LogStream } from "./components/LogStream";
 import { DebugPanel } from "./components/DebugPanel";
 import { ReviewView } from "./components/ReviewView";
+import { ThemeSwitcher } from "./components/ThemeSwitcher";
+import type { ThemeId } from "./components/ThemeSwitcher";
 import { api } from "./api/client";
 import { useRunEvents } from "./hooks/useRunEvents";
 import type { Project, RunEvent, Artifact, Evidence, ChatResponse, ExportManifest } from "./api/client";
@@ -413,6 +415,9 @@ export function App() {
   const [activeMessage, setActiveMessage] = useState<string | null>(null);
   const [reviewingGate, setReviewingGate] = useState<string | null>(null);
   const [reviewingEvents, setReviewingEvents] = useState<RunEvent[]>([]);
+  const [theme, setTheme] = useState<ThemeId>(
+    () => (localStorage.getItem("sb-theme") as ThemeId) || "default"
+  );
   const [llmConfigured, setLlmConfigured] = useState(true); // Assume configured until check fails
 
   // Check LLM config on mount
@@ -421,6 +426,11 @@ export function App() {
       setLlmConfigured(cfg.configured);
     }).catch(() => setLlmConfigured(false));
   }, []);
+
+  // Persist theme
+  useEffect(() => {
+    localStorage.setItem("sb-theme", theme);
+  }, [theme]);
 
   // SSE event handlers
   const onEvent = useCallback((event: RunEvent) => {
@@ -569,8 +579,9 @@ export function App() {
   const isFinalReview = reviewingGate === "export";
 
   return (
-    <main className="shell">
+    <main className="shell" data-theme={theme === "default" ? undefined : theme}>
       <ToastContainer toasts={toasts} onRemove={removeToast} />
+      <ThemeSwitcher current={theme} onChange={setTheme} />
       <ConfigPanel
         isOpen={showConfig}
         onClose={() => setShowConfig(false)}
