@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, XCircle, Info, X } from "lucide-react";
 
 export type ToastType = "success" | "error" | "info";
@@ -68,18 +68,18 @@ export function ToastContainer({ toasts, onRemove }: ToastContainerProps) {
 export function useToast() {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-  const addToast = (type: ToastType, message: string, duration?: number) => {
+  const addToast = useCallback((type: ToastType, message: string, duration?: number) => {
     const id = Math.random().toString(36).substring(2, 9);
     setToasts((prev) => [...prev, { id, type, message, duration }]);
-  };
+  }, []);
 
-  const removeToast = (id: string) => {
+  const removeToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
-  };
+  }, []);
 
-  const success = (message: string) => addToast("success", message);
-  const error = (message: string) => addToast("error", message, 5000);
-  const info = (message: string) => addToast("info", message);
+  const success = useCallback((message: string) => addToast("success", message), [addToast]);
+  const error = useCallback((message: string) => addToast("error", message, 5000), [addToast]);
+  const info = useCallback((message: string) => addToast("info", message), [addToast]);
 
-  return { toasts, removeToast, success, error, info };
+  return useMemo(() => ({ toasts, removeToast, success, error, info }), [toasts, removeToast, success, error, info]);
 }

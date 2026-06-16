@@ -28,17 +28,17 @@ globalThis.EventSource = MockEventSource;
 
 // Mock gsap to avoid browser API issues in jsdom
 vi.mock("gsap", () => {
-  const noop = () => {};
+  const noop = (..._args: unknown[]) => {};
   const gsap = {
     to: noop,
     from: noop,
     fromTo: noop,
     set: noop,
-    context: (fn: () => void) => {
-      fn();
-      return { revert: noop };
+    context: (fn: () => void, _scope?: unknown) => {
+      // Don't call fn immediately - let React handle the effect timing
+      return { revert: noop, add: noop };
     },
-    timeline: () => ({
+    timeline: (_opts?: unknown) => ({
       to: noop,
       from: noop,
       fromTo: noop,
@@ -46,9 +46,11 @@ vi.mock("gsap", () => {
       add: noop,
       play: noop,
       pause: noop,
+      kill: noop,
     }),
     defaults: noop,
     matchMedia: () => ({ add: noop, revert: noop }),
+    quickTo: () => noop,
   };
-  return { default: gsap };
+  return { __esModule: true, default: gsap };
 });

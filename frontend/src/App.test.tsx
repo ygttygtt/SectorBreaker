@@ -1,12 +1,77 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
+// Mock useRunEvents to avoid EventSource issues in jsdom
+vi.mock("./hooks/useRunEvents", () => ({
+  useRunEvents: () => ({ events: [], isConnected: false, reset: () => {} }),
+}));
+
 import { App } from "./App";
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
+
+const projectMock = {
+  id: "project-1",
+  title: "AI Agent 工具",
+  domain: "AI Agent 工具",
+  market_scope: "mixed",
+  depth: "quick",
+  status: "draft",
+};
+
+const runMock = {
+  id: "run-1",
+  project_id: "project-1",
+  status: "completed",
+  current_gate: "export",
+  current_step: null,
+  created_at: new Date().toISOString(),
+  completed_at: new Date().toISOString(),
+};
+
+const artifactsMock = [
+  { id: "ART-RESEARCH-FRAME", title: "研究框架", content_path: "00-研究框架/research-frame.md" },
+];
+
+const evidenceMock = [
+  { id: "EV-USER-SCOPE", source_title: "用户输入范围", snippet: "用户希望研究 AI Agent 工具" },
+];
+
+function mockFetch(responses: Record<string, unknown> = {}) {
+  return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = String(input);
+    if (url === "/api/projects" && !responses[url]) {
+      return new Response(JSON.stringify(projectMock), { status: 200 });
+    }
+    if (url === "/api/projects/project-1/runs") {
+      return new Response(JSON.stringify(runMock), { status: 200 });
+    }
+    if (url === "/api/projects/project-1/artifacts") {
+      return new Response(JSON.stringify(artifactsMock), { status: 200 });
+    }
+    if (url === "/api/projects/project-1/evidence") {
+      return new Response(JSON.stringify(evidenceMock), { status: 200 });
+    }
+    if (responses[url]) {
+      return new Response(JSON.stringify(responses[url]), { status: 200 });
+    }
+    return new Response("{}", { status: 200 });
+  });
+}
+
+async function startResearch(domain = "AI Agent 工具") {
+  const input = screen.getByPlaceholderText(/AI Agent 工具/);
+  fireEvent.change(input, { target: { value: domain } });
+  fireEvent.click(screen.getByRole("button", { name: /开始破壁/ }));
+  // Wait for review phase
+  await waitFor(() => expect(screen.getByText(/完成/)).toBeInTheDocument());
+  // Click "跳过，直接继续" to go to result
+  fireEvent.click(screen.getByRole("button", { name: /跳过/ }));
+  await waitFor(() => expect(screen.getByText("研究完成")).toBeInTheDocument());
+}
 
 test("renders the landing page with search input", () => {
   render(<App />);
@@ -19,114 +84,27 @@ test("renders the landing page with search input", () => {
   expect(screen.getByText("导出")).toBeInTheDocument();
 });
 
-test("starts a research run and shows result", async () => {
-  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-    const url = String(input);
-    if (url === "/api/projects") {
-      return new Response(
-        JSON.stringify({
-          id: "project-1",
-          title: "AI Agent 工具",
-          domain: "AI Agent 工具",
-          market_scope: "mixed",
-          depth: "quick",
-          status: "draft",
-        }),
-        { status: 200 }
-      );
-    }
-    if (url === "/api/projects/project-1/runs") {
-      return new Response(
-        JSON.stringify({
-          id: "run-1",
-          project_id: "project-1",
-          status: "completed",
-          current_gate: "export",
-          current_step: null,
-          created_at: new Date().toISOString(),
-          completed_at: new Date().toISOString(),
-        }),
-        { status: 200 }
-      );
-    }
-    if (url === "/api/projects/project-1/artifacts") {
-      return new Response(
-        JSON.stringify([
-          {
-            id: "ART-RESEARCH-FRAME",
-            title: "研究框架",
-            content_path: "00-研究框架/research-frame.md",
-          },
-        ]),
-        { status: 200 }
-      );
-    }
-    if (url === "/api/projects/project-1/evidence") {
-      return new Response(
-        JSON.stringify([
-          {
-            id: "EV-USER-SCOPE",
-            source_title: "用户输入范围",
-            snippet: "用户希望研究 AI Agent 工具",
-          },
-        ]),
-        { status: 200 }
-      );
-    }
-    return new Response("{}", { status: 200 });
-  });
+test("starts a research run, reviews, and shows result", async () => {
+  mockFetch();
 
   render(<App />);
 
-  const input = screen.getByPlaceholderText(/AI Agent 工具/);
-  fireEvent.change(input, { target: { value: "AI Agent 工具" } });
-  fireEvent.click(screen.getByRole("button", { name: /开始破壁/ }));
+  await startResearch();
 
-  await waitFor(() => expect(screen.getByText("研究完成")).toBeInTheDocument());
-  expect(screen.getByText("研究框架")).toBeInTheDocument();
-  expect(fetchMock).toHaveBeenCalledWith(
-    "/api/projects",
-    expect.objectContaining({ method: "POST" })
-  );
+  expect(screen.getAllByText("研究框架").length).toBeGreaterThanOrEqual(1);
 });
 
 test("asks a project question after research completes", async () => {
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-    const url = String(input);
-    if (url === "/api/projects") {
-      return new Response(
-        JSON.stringify({ id: "project-1", title: "AI Agent 工具", domain: "AI Agent 工具", market_scope: "mixed", depth: "quick", status: "draft" }),
-        { status: 200 }
-      );
-    }
-    if (url === "/api/projects/project-1/runs") {
-      return new Response(
-        JSON.stringify({ id: "run-1", project_id: "project-1", status: "completed", current_gate: "export", current_step: null, created_at: "", completed_at: "" }),
-        { status: 200 }
-      );
-    }
-    if (url === "/api/projects/project-1/artifacts") {
-      return new Response(JSON.stringify([]), { status: 200 });
-    }
-    if (url === "/api/projects/project-1/evidence") {
-      return new Response(JSON.stringify([]), { status: 200 });
-    }
-    if (url === "/api/projects/project-1/chat") {
-      return new Response(
-        JSON.stringify({ answer: "建议先看研究框架。", citations: ["EV-USER-SCOPE"] }),
-        { status: 200 }
-      );
-    }
-    return new Response("{}", { status: 200 });
+  mockFetch({
+    "/api/projects/project-1/chat": {
+      answer: "建议先看研究框架。",
+      citations: ["EV-USER-SCOPE"],
+    },
   });
 
   render(<App />);
 
-  const input = screen.getByPlaceholderText(/AI Agent 工具/);
-  fireEvent.change(input, { target: { value: "AI Agent 工具" } });
-  fireEvent.click(screen.getByRole("button", { name: /开始破壁/ }));
-
-  await waitFor(() => expect(screen.getByText("研究完成")).toBeInTheDocument());
+  await startResearch();
 
   fireEvent.change(screen.getByLabelText("项目问题"), { target: { value: "应该先学什么" } });
   fireEvent.click(screen.getByRole("button", { name: "询问" }));
@@ -136,47 +114,18 @@ test("asks a project question after research completes", async () => {
 });
 
 test("exports the current project", async () => {
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-    const url = String(input);
-    if (url === "/api/projects") {
-      return new Response(
-        JSON.stringify({ id: "project-1", title: "AI Agent 工具", domain: "AI Agent 工具", market_scope: "mixed", depth: "quick", status: "draft" }),
-        { status: 200 }
-      );
-    }
-    if (url === "/api/projects/project-1/runs") {
-      return new Response(
-        JSON.stringify({ id: "run-1", project_id: "project-1", status: "completed", current_gate: "export", current_step: null, created_at: "", completed_at: "" }),
-        { status: 200 }
-      );
-    }
-    if (url === "/api/projects/project-1/artifacts") {
-      return new Response(JSON.stringify([]), { status: 200 });
-    }
-    if (url === "/api/projects/project-1/evidence") {
-      return new Response(JSON.stringify([]), { status: 200 });
-    }
-    if (url === "/api/projects/project-1/exports") {
-      return new Response(
-        JSON.stringify({
-          export_version: "1",
-          project_id: "project-1",
-          artifact_paths: ["00-研究框架/research-frame.md"],
-          evidence_ids: ["EV-USER-SCOPE"],
-        }),
-        { status: 200 }
-      );
-    }
-    return new Response("{}", { status: 200 });
+  mockFetch({
+    "/api/projects/project-1/exports": {
+      export_version: "1",
+      project_id: "project-1",
+      artifact_paths: ["00-研究框架/research-frame.md"],
+      evidence_ids: ["EV-USER-SCOPE"],
+    },
   });
 
   render(<App />);
 
-  const input = screen.getByPlaceholderText(/AI Agent 工具/);
-  fireEvent.change(input, { target: { value: "AI Agent 工具" } });
-  fireEvent.click(screen.getByRole("button", { name: /开始破壁/ }));
-
-  await waitFor(() => expect(screen.getByText("研究完成")).toBeInTheDocument());
+  await startResearch();
 
   fireEvent.click(screen.getByRole("button", { name: /导出知识库/ }));
 

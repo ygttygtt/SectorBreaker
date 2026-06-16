@@ -18,11 +18,12 @@ import { ConfigPanel } from "./components/ConfigPanel";
 import { Logo } from "./components/Logo";
 import { GraphFlow, GATES } from "./components/GraphFlow";
 import { LogStream } from "./components/LogStream";
+import { ReviewView } from "./components/ReviewView";
 import { api } from "./api/client";
 import { useRunEvents } from "./hooks/useRunEvents";
 import type { Project, RunEvent, Artifact, Evidence, ChatResponse, ExportManifest } from "./api/client";
 
-type AppPhase = "landing" | "researching" | "result";
+type AppPhase = "landing" | "researching" | "reviewing" | "result";
 
 /* ================================================================== */
 /*  LandingView                                                        */
@@ -411,8 +412,7 @@ export function App() {
       ]);
       setArtifacts(artifactsData);
       setEvidence(evidenceData);
-      setPhase("result");
-      success("研究完成！");
+      setPhase("reviewing");
     } catch {
       error("获取研究结果失败");
     }
@@ -446,7 +446,7 @@ export function App() {
       // Start run (synchronous, waits for completion)
       const run = await api.startRun(proj.id);
 
-      // If run completed synchronously, load results directly without SSE
+      // If run completed synchronously, go to review phase
       if (run.status === "completed") {
         const [artifactsData, evidenceData] = await Promise.all([
           api.listArtifacts(proj.id),
@@ -454,8 +454,8 @@ export function App() {
         ]);
         setArtifacts(artifactsData);
         setEvidence(evidenceData);
-        setPhase("result");
-        success("研究完成！");
+        setRunId(run.id);
+        setPhase("reviewing");
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "启动研究失败";
@@ -505,6 +505,25 @@ export function App() {
           activeAgent={activeAgent}
           activeMessage={activeMessage}
           onBack={resetToLanding}
+        />
+      )}
+
+      {phase === "reviewing" && project && runId && (
+        <ReviewView
+          project={project}
+          runId={runId}
+          completedGate="export"
+          events={events}
+          artifacts={artifacts}
+          evidence={evidence}
+          onContinue={(guidance, evidenceData) => {
+            setPhase("result");
+            success("已保存补充信息，研究完成！");
+          }}
+          onSkip={() => {
+            setPhase("result");
+            success("研究完成！");
+          }}
         />
       )}
 
