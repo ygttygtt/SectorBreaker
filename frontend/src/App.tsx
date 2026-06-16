@@ -10,6 +10,7 @@ import {
   ArrowLeft,
   FileText,
   Database,
+  Zap,
 } from "lucide-react";
 
 import "./styles.css";
@@ -38,7 +39,6 @@ function LandingView({ onStart, onOpenSettings, isLoading }: {
   const [domain, setDomain] = useState("");
   const formRef = useRef<HTMLFormElement>(null);
 
-  // Entrance animation
   useEffect(() => {
     const ctx = gsap.context(() => {
       gsap.from(".landing-brand", { y: -30, opacity: 0, duration: 0.6, ease: "power2.out" });
@@ -132,7 +132,6 @@ function ResearchView({
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
 
-  // Entrance animation
   useEffect(() => {
     if (!contentRef.current) return;
     const ctx = gsap.context(() => {
@@ -144,12 +143,10 @@ function ResearchView({
     return () => ctx.revert();
   }, []);
 
-  // Determine current gate from events
   const currentGate = events.length > 0
     ? [...events].reverse().find((e) => e.gate)?.gate ?? "scope"
     : "scope";
 
-  // Scope display name
   const scopeLabel = project.market_scope === "china" ? "中国市场"
     : project.market_scope === "global" ? "全球市场" : "混合市场";
 
@@ -213,7 +210,6 @@ function ResultView({
   const [isExporting, setIsExporting] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
-  // Entrance animation
   useEffect(() => {
     if (!contentRef.current) return;
     const ctx = gsap.context(() => {
@@ -249,7 +245,6 @@ function ResultView({
     }
   }
 
-  // Filter artifacts by selected gate
   const displayArtifacts = selectedGate
     ? artifacts.filter((a) => a.id.toLowerCase().includes(selectedGate.replace("_", "-")))
     : artifacts;
@@ -277,15 +272,12 @@ function ResultView({
         <strong>{project.domain}</strong>
       </div>
 
-      {/* Flow graph - clickable to filter */}
       <GraphFlow
         currentGate="export"
         onGateClick={(gate) => setSelectedGate(selectedGate === gate ? null : gate)}
       />
 
-      {/* Content area */}
       <div className="result-content">
-        {/* Artifacts */}
         <section className="result-section">
           <div className="result-section-title">
             <FileText size={18} />
@@ -306,7 +298,6 @@ function ResultView({
           )}
         </section>
 
-        {/* Evidence */}
         <section className="result-section">
           <div className="result-section-title">
             <Database size={18} />
@@ -326,7 +317,6 @@ function ResultView({
           )}
         </section>
 
-        {/* Chat */}
         <section className="result-section result-section--chat">
           <div className="result-section-title">
             <Search size={18} />
@@ -352,7 +342,6 @@ function ResultView({
           )}
         </section>
 
-        {/* Export */}
         <section className="result-section result-section--export">
           <button className="primary" onClick={exportProject} disabled={isExporting}>
             {isExporting ? (
@@ -396,8 +385,10 @@ export function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [activeAgent, setActiveAgent] = useState<string | null>(null);
   const [activeMessage, setActiveMessage] = useState<string | null>(null);
+  const [reviewingGate, setReviewingGate] = useState<string | null>(null);
+  const [reviewingEvents, setReviewingEvents] = useState<RunEvent[]>([]);
 
-  // SSE events
+  // SSE event handlers
   const onEvent = useCallback((event: RunEvent) => {
     setActiveAgent(event.agent ?? null);
     setActiveMessage(event.message);
@@ -413,10 +404,18 @@ export function App() {
       setArtifacts(artifactsData);
       setEvidence(evidenceData);
       setPhase("reviewing");
+      setReviewingGate("export");
+      setReviewingEvents([]);
     } catch {
       error("获取研究结果失败");
     }
-  }, [project, success, error]);
+  }, [project, error]);
+
+  // Handle waiting_for_human events — show review for specific gate
+  const onWaitingForHuman = useCallback((event: RunEvent) => {
+    setReviewingGate(event.gate);
+    setPhase("reviewing");
+  }, []);
 
   const onError = useCallback((msg: string) => {
     error(msg);
@@ -429,15 +428,28 @@ export function App() {
     onError,
   });
 
+  // Detect waiting_for_human events from the event stream
+  useEffect(() => {
+    const waitingEvent = events.find((e) => e.event_type === "waiting_for_human");
+    if (waitingEvent && phase === "researching") {
+      setReviewingGate(waitingEvent.gate);
+      // Collect events for this gate
+      const gateEvents = events.filter((e) => e.gate === waitingEvent.gate);
+      setReviewingEvents(gateEvents);
+      setPhase("reviewing");
+    }
+  }, [events, phase]);
+
   async function startResearch(domain: string) {
     setIsLoading(true);
     setChat(null);
     setExportManifest(null);
     setActiveAgent(null);
     setActiveMessage(null);
+    setReviewingGate(null);
+    setReviewingEvents([]);
 
     try {
-      // Create project
       const proj = await api.createProject({
         title: domain,
         domain,
@@ -446,11 +458,9 @@ export function App() {
       });
       setProject(proj);
 
-      // Start run — returns immediately, workflow runs in background
       const run = await api.startRun(proj.id);
       setRunId(run.id);
       setPhase("researching");
-      // SSE useRunEvents hook will connect automatically via runId
     } catch (err) {
       const message = err instanceof Error ? err.message : "启动研究失败";
       error(message);
@@ -470,8 +480,55 @@ export function App() {
     setExportManifest(null);
     setActiveAgent(null);
     setActiveMessage(null);
+    setReviewingGate(null);
+    setReviewingEvents([]);
     resetEvents();
   }
+
+  // Resume workflow after human review
+  async function handleReviewContinue(guidance?: string, evidenceData?: string) {
+    if (!runId) return;
+    try {
+      await api.resumeRun(runId, {
+        guidance: guidance || undefined,
+        evidence_data: evidenceData || undefined,
+      });
+      setPhase("researching");
+      setReviewingGate(null);
+      setReviewingEvents([]);
+      success("已继续研究");
+    } catch (err) {
+      error(err instanceof Error ? err.message : "恢复研究失败");
+    }
+  }
+
+  async function handleReviewSkip() {
+    if (!runId) return;
+    try {
+      await api.resumeRun(runId, {});
+      setPhase("researching");
+      setReviewingGate(null);
+      setReviewingEvents([]);
+    } catch (err) {
+      error(err instanceof Error ? err.message : "恢复研究失败");
+    }
+  }
+
+  // Handle final review (after all gates complete)
+  async function handleFinalContinue(guidance?: string, evidenceData?: string) {
+    if (guidance || evidenceData) {
+      success("已保存补充信息，研究完成！");
+    }
+    setPhase("result");
+  }
+
+  function handleFinalSkip() {
+    setPhase("result");
+    success("研究完成！");
+  }
+
+  // Check if this is the final review (export gate) or intermediate
+  const isFinalReview = reviewingGate === "export";
 
   return (
     <main className="shell">
@@ -506,18 +563,12 @@ export function App() {
         <ReviewView
           project={project}
           runId={runId}
-          completedGate="export"
-          events={events}
-          artifacts={artifacts}
-          evidence={evidence}
-          onContinue={(guidance, evidenceData) => {
-            setPhase("result");
-            success("已保存补充信息，研究完成！");
-          }}
-          onSkip={() => {
-            setPhase("result");
-            success("研究完成！");
-          }}
+          completedGate={reviewingGate ?? "export"}
+          events={isFinalReview ? events : reviewingEvents}
+          artifacts={isFinalReview ? artifacts : []}
+          evidence={isFinalReview ? evidence : []}
+          onContinue={isFinalReview ? handleFinalContinue : handleReviewContinue}
+          onSkip={isFinalReview ? handleFinalSkip : handleReviewSkip}
         />
       )}
 

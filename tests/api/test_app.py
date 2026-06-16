@@ -37,7 +37,7 @@ def test_api_runs_research_and_exports_markdown(tmp_path: Path) -> None:
     assert project_response.status_code == 200
     project_id = project_response.json()["id"]
 
-    run_response = client.post(f"/api/projects/{project_id}/runs")
+    run_response = client.post(f"/api/projects/{project_id}/runs", params={"auto_run": "true"})
     assert run_response.status_code == 200
     run_id = run_response.json()["id"]
     assert run_response.json()["status"] == "running"
@@ -77,7 +77,7 @@ def test_api_project_chat_uses_local_fts(tmp_path: Path) -> None:
         },
     ).json()["id"]
 
-    run_resp = client.post(f"/api/projects/{project_id}/runs")
+    run_resp = client.post(f"/api/projects/{project_id}/runs", params={"auto_run": "true"})
     _wait_for_run(client, run_resp.json()["id"])
 
     chat_response = client.post(f"/api/projects/{project_id}/chat", json={"question": "应该先学什么"})
@@ -118,7 +118,7 @@ def test_api_run_uses_injected_search_and_llm_providers(tmp_path: Path) -> None:
         },
     ).json()["id"]
 
-    run_response = client.post(f"/api/projects/{project_id}/runs")
+    run_response = client.post(f"/api/projects/{project_id}/runs", params={"auto_run": "true"})
     run_id = run_response.json()["id"]
     run_result = _wait_for_run(client, run_id)
     assert run_result["status"] == "completed"

@@ -1,5 +1,5 @@
 """LangGraph workflow package."""
 
-from backend.app.graph.workflow import build_research_graph, run_research_workflow
+from backend.app.graph.workflow import run_research_workflow, run_workflow_until_pause
 
-__all__ = ["build_research_graph", "run_research_workflow"]
+__all__ = ["run_research_workflow", "run_workflow_until_pause"]

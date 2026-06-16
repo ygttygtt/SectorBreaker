@@ -151,4 +151,12 @@ export const api = {
       body: JSON.stringify(data),
     });
   },
+
+  // Resume after human review
+  resumeRun(runId: string, data: { guidance?: string; evidence_data?: string }) {
+    return requestJson<{ status: string; run_id: string }>(`/api/runs/${runId}/resume`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
 };

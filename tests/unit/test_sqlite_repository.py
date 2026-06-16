@@ -14,7 +14,7 @@ from backend.app.storage.sqlite import list_migration_files
 def test_sqlite_migrations_are_discoverable() -> None:
     migrations = list_migration_files()
 
-    assert [migration.name for migration in migrations] == ["001_initial.sql", "002_artifacts.sql", "003_runs.sql"]
+    assert [migration.name for migration in migrations] == ["001_initial.sql", "002_artifacts.sql", "003_runs.sql", "004_workflow_state.sql"]
 
 
 def test_sqlite_repository_creates_project_and_evidence(tmp_path: Path) -> None:

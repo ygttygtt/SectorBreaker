@@ -31,6 +31,7 @@ class ResearchRun(BaseModel):
     status: RunStatus = RunStatus.PENDING
     current_gate: str | None = None
     current_step: str | None = None
+    workflow_state: str | None = None  # JSON-serialized workflow state for pause/resume
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     completed_at: datetime | None = None
 

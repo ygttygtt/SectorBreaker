@@ -36,7 +36,10 @@ def init_database(database_path: Path) -> None:
     database_path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(database_path) as connection:
         for migration_file in list_migration_files():
-            connection.executescript(migration_file.read_text(encoding="utf-8"))
+            try:
+                connection.executescript(migration_file.read_text(encoding="utf-8"))
+            except sqlite3.OperationalError:
+                pass  # idempotent: skip if already applied
 
 
 class SQLiteRepository:
@@ -258,6 +261,7 @@ class SQLiteRepository:
             status=RunStatus(row["status"]),
             current_gate=row["current_gate"],
             current_step=row["current_step"],
+            workflow_state=row["workflow_state"],
             created_at=datetime.fromisoformat(row["created_at"]),
             completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
         )
@@ -269,6 +273,7 @@ class SQLiteRepository:
         current_gate: str | None = None,
         current_step: str | None = None,
         completed_at: datetime | None = None,
+        workflow_state: str | None = None,
     ) -> None:
         sets = []
         params: list[object] = []
@@ -284,6 +289,9 @@ class SQLiteRepository:
         if completed_at is not None:
             sets.append("completed_at = ?")
             params.append(completed_at.isoformat())
+        if workflow_state is not None:
+            sets.append("workflow_state = ?")
+            params.append(workflow_state)
         if not sets:
             return
         params.append(run_id)

@@ -14,7 +14,14 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from backend.app.exporters.markdown import MarkdownExporter
-from backend.app.graph.workflow import run_research_workflow
+from backend.app.graph.workflow import (
+    _state_from_json,
+    _state_to_json,
+    _to_research_state,
+    next_gate,
+    run_research_workflow,
+    run_workflow_until_pause,
+)
 from backend.app.providers.factory import build_llm_provider, build_search_provider
 from backend.app.providers.interfaces import LLMProvider, SearchProvider
 from backend.app.providers.openai_compatible import OpenAICompatibleLLMProvider
@@ -94,11 +101,11 @@ def create_app(
     # ── Runs ──────────────────────────────────────────────────────
 
     @app.post("/api/projects/{project_id}/runs")
-    async def run_project(project_id: str, background_tasks: BackgroundTasks):
+    async def run_project(project_id: str, background_tasks: BackgroundTasks, auto_run: bool = False):
         """Create a run and start the workflow in the background.
 
-        Returns immediately with the run object so the frontend can
-        connect to the SSE endpoint for real-time progress.
+        The workflow runs gates sequentially. After each gate that requires
+        human review, it pauses and sets status to waiting_for_human.
         """
         try:
             project = repository.get_project(project_id)
@@ -113,17 +120,41 @@ def create_app(
 
         async def run_in_background() -> None:
             try:
-                state = await run_research_workflow(
+                state, paused_gate, completed = await run_workflow_until_pause(
                     project,
                     search_provider=active_search_provider,
                     llm_provider=active_llm_provider,
                     emitter=emit_event,
+                    auto_run=auto_run,
                 )
-                for evidence in state.evidence:
-                    repository.add_evidence(evidence)
-                for artifact in state.artifacts:
-                    repository.add_artifact(artifact)
-                repository.update_run(run.id, status=RunStatus.COMPLETED, completed_at=datetime.now(UTC))
+
+                # Persist workflow state
+                repository.update_run(run.id, workflow_state=_state_to_json(state))
+
+                if completed:
+                    # All gates finished — persist results
+                    research_state = _to_research_state(state)
+                    for evidence in research_state.evidence:
+                        repository.add_evidence(evidence)
+                    for artifact in research_state.artifacts:
+                        repository.add_artifact(artifact)
+                    repository.update_run(
+                        run.id,
+                        status=RunStatus.COMPLETED,
+                        completed_at=datetime.now(UTC),
+                    )
+                elif paused_gate:
+                    # Paused for human review
+                    repository.update_run(
+                        run.id,
+                        status=RunStatus.WAITING_FOR_HUMAN,
+                        current_gate=paused_gate,
+                    )
+                    await emit_event(RunEvent(
+                        event_type="waiting_for_human",
+                        gate=paused_gate,
+                        message=f"等待人工审阅：{paused_gate}",
+                    ))
             except Exception as exc:
                 await emit_event(RunEvent(
                     event_type="error", gate="unknown",
@@ -137,9 +168,114 @@ def create_app(
     @app.get("/api/runs/{run_id}")
     def get_run(run_id: str):
         try:
-            return repository.get_run(run_id).model_dump(mode="json")
+            run = repository.get_run(run_id)
+            data = run.model_dump(mode="json")
+            # Don't expose workflow_state to frontend
+            data.pop("workflow_state", None)
+            return data
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="run not found") from exc
+
+    @app.post("/api/runs/{run_id}/resume")
+    async def resume_run(run_id: str, payload: ResumeRequest):
+        """Resume workflow after human review.
+
+        Stores user inputs and continues execution from the next gate.
+        """
+        try:
+            run = repository.get_run(run_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="run not found") from exc
+
+        if run.status != RunStatus.WAITING_FOR_HUMAN:
+            raise HTTPException(status_code=400, detail=f"run is not waiting for human review (status: {run.status})")
+
+        # Store user inputs
+        if payload.guidance:
+            repository.add_user_input(UserInput(
+                id=f"ui-{uuid4().hex}",
+                run_id=run_id,
+                gate=run.current_gate or "unknown",
+                input_type="guidance",
+                content=payload.guidance,
+            ))
+        if payload.evidence_data:
+            repository.add_user_input(UserInput(
+                id=f"ui-{uuid4().hex}",
+                run_id=run_id,
+                gate=run.current_gate or "unknown",
+                input_type="evidence_data",
+                content=payload.evidence_data,
+            ))
+
+        # Load workflow state and resume
+        try:
+            project = repository.get_project(run.project_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="project not found") from exc
+
+        state = _state_from_json(run.workflow_state) if run.workflow_state else None
+
+        repository.update_run(run_id, status=RunStatus.RUNNING)
+
+        async def emit_event(event: RunEvent) -> None:
+            repository.add_run_event(event, run_id)
+
+        async def resume_in_background() -> None:
+            try:
+                user_inputs = repository.list_user_inputs(run_id)
+                guidance = "\n".join(
+                    f"[{inp.gate}] {inp.content}" for inp in user_inputs if inp.input_type == "guidance"
+                )
+                evidence_items = [
+                    {"source_title": "用户补充", "snippet": inp.content}
+                    for inp in user_inputs if inp.input_type == "evidence_data"
+                ]
+
+                new_state, paused_gate, completed = await run_workflow_until_pause(
+                    project,
+                    search_provider=active_search_provider,
+                    llm_provider=active_llm_provider,
+                    emitter=emit_event,
+                    state=state,
+                    user_guidance=guidance or None,
+                    user_evidence_items=evidence_items or None,
+                )
+
+                repository.update_run(run_id, workflow_state=_state_to_json(new_state))
+
+                if completed:
+                    research_state = _to_research_state(new_state)
+                    for evidence in research_state.evidence:
+                        repository.add_evidence(evidence)
+                    for artifact in research_state.artifacts:
+                        repository.add_artifact(artifact)
+                    repository.update_run(
+                        run_id,
+                        status=RunStatus.COMPLETED,
+                        completed_at=datetime.now(UTC),
+                    )
+                elif paused_gate:
+                    repository.update_run(
+                        run_id,
+                        status=RunStatus.WAITING_FOR_HUMAN,
+                        current_gate=paused_gate,
+                    )
+                    await emit_event(RunEvent(
+                        event_type="waiting_for_human",
+                        gate=paused_gate,
+                        message=f"等待人工审阅：{paused_gate}",
+                    ))
+            except Exception as exc:
+                await emit_event(RunEvent(
+                    event_type="error", gate="unknown",
+                    message=f"工作流恢复失败：{exc}",
+                ))
+                repository.update_run(run_id, status=RunStatus.FAILED, completed_at=datetime.now(UTC))
+
+        asyncio.create_task(resume_in_background())
+
+        return {"status": "resumed", "run_id": run_id}
 
     @app.get("/api/runs/{run_id}/events")
     async def stream_events(run_id: str):
@@ -162,7 +298,7 @@ def create_app(
                 yield "data: [DONE]\n\n"
                 return
 
-            # Poll for new events (simple polling approach)
+            # Poll for new events
             idle_count = 0
             max_idle = 600  # 5 minutes timeout at 0.5s intervals
             while idle_count < max_idle:
@@ -176,16 +312,23 @@ def create_app(
                 else:
                     idle_count += 1
 
-                # Check if run completed
+                # Check if run completed or paused
                 try:
                     current_run = repository.get_run(run_id)
                     if current_run.status in (RunStatus.COMPLETED, RunStatus.FAILED):
-                        # Drain remaining events
                         remaining = repository.list_run_events(run_id, after_id=last_id)
                         for event in remaining:
                             yield f"data: {event.model_dump_json()}\n\n"
                         yield "data: [DONE]\n\n"
                         return
+                    if current_run.status == RunStatus.WAITING_FOR_HUMAN:
+                        # Drain remaining events but DON'T send [DONE]
+                        remaining = repository.list_run_events(run_id, after_id=last_id)
+                        for event in remaining:
+                            yield f"data: {event.model_dump_json()}\n\n"
+                        # Keep connection open — workflow is paused
+                        # Continue polling for when resume is called
+                        idle_count = 0
                 except KeyError:
                     yield "data: [DONE]\n\n"
                     return
@@ -197,34 +340,6 @@ def create_app(
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
-
-    @app.post("/api/runs/{run_id}/resume")
-    async def resume_run(run_id: str, payload: ResumeRequest):
-        """Resume after human review, optionally with supplementary info."""
-        try:
-            run = repository.get_run(run_id)
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail="run not found") from exc
-
-        # Store user inputs
-        if payload.guidance:
-            repository.add_user_input(UserInput(
-                id=f"ui-{uuid4().hex}",
-                run_id=run_id,
-                gate=run.current_gate or "unknown",
-                input_type="guidance",
-                content=payload.guidance,
-            ))
-        if payload.evidence_data:
-            repository.add_user_input(UserInput(
-                id=f"ui-{uuid4().hex}",
-                run_id=run_id,
-                gate=run.current_gate or "unknown",
-                input_type="evidence_data",
-                content=payload.evidence_data,
-            ))
-
-        return {"status": "resumed", "run_id": run_id}
 
     @app.post("/api/runs/{run_id}/inputs")
     async def add_user_input_endpoint(run_id: str, payload: UserInputPayload):
