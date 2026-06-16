@@ -18,6 +18,10 @@ from backend.app.schemas import (
     ResearchDepth,
     ResearchProject,
     ResearchProjectCreate,
+    ResearchRun,
+    RunEvent,
+    RunStatus,
+    UserInput,
     VerificationStatus,
 )
 
@@ -225,3 +229,144 @@ class SQLiteRepository:
     def _evidence_search_text(evidence: EvidenceItem) -> str:
         parts = [evidence.source_title, evidence.snippet, evidence.summary or ""]
         return "\n".join(part for part in parts if part)
+
+    # ── Runs ──────────────────────────────────────────────────────
+
+    def create_run(self, project_id: str, run_id: str | None = None) -> ResearchRun:
+        now = datetime.now(UTC)
+        run = ResearchRun(
+            id=run_id or f"run-{uuid4().hex}",
+            project_id=project_id,
+            status=RunStatus.PENDING,
+            created_at=now,
+        )
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT INTO runs (id, project_id, status, created_at) VALUES (?, ?, ?, ?)",
+                (run.id, run.project_id, run.status.value, run.created_at.isoformat()),
+            )
+        return run
+
+    def get_run(self, run_id: str) -> ResearchRun:
+        with self._connect() as connection:
+            row = connection.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
+        if row is None:
+            raise KeyError(f"run not found: {run_id}")
+        return ResearchRun(
+            id=row["id"],
+            project_id=row["project_id"],
+            status=RunStatus(row["status"]),
+            current_gate=row["current_gate"],
+            current_step=row["current_step"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+            completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
+        )
+
+    def update_run(
+        self,
+        run_id: str,
+        status: RunStatus | None = None,
+        current_gate: str | None = None,
+        current_step: str | None = None,
+        completed_at: datetime | None = None,
+    ) -> None:
+        sets = []
+        params: list[object] = []
+        if status is not None:
+            sets.append("status = ?")
+            params.append(status.value)
+        if current_gate is not None:
+            sets.append("current_gate = ?")
+            params.append(current_gate)
+        if current_step is not None:
+            sets.append("current_step = ?")
+            params.append(current_step)
+        if completed_at is not None:
+            sets.append("completed_at = ?")
+            params.append(completed_at.isoformat())
+        if not sets:
+            return
+        params.append(run_id)
+        with self._connect() as connection:
+            connection.execute(f"UPDATE runs SET {', '.join(sets)} WHERE id = ?", params)
+
+    # ── Run Events ────────────────────────────────────────────────
+
+    def add_run_event(self, event: RunEvent, run_id: str) -> int:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO run_events (run_id, event_type, gate, step, agent, message, data, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    event.event_type,
+                    event.gate,
+                    event.step,
+                    event.agent,
+                    event.message,
+                    json.dumps(event.data, ensure_ascii=False) if event.data else None,
+                    datetime.fromtimestamp(event.timestamp, tz=UTC).isoformat(),
+                ),
+            )
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def list_run_events(self, run_id: str, after_id: int = 0) -> list[RunEvent]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM run_events WHERE run_id = ? AND id > ? ORDER BY id",
+                (run_id, after_id),
+            ).fetchall()
+        return [
+            RunEvent(
+                event_type=row["event_type"],
+                gate=row["gate"],
+                step=row["step"],
+                agent=row["agent"],
+                message=row["message"],
+                data=json.loads(row["data"]) if row["data"] else None,
+                timestamp=datetime.fromisoformat(row["created_at"]).timestamp(),
+            )
+            for row in rows
+        ]
+
+    # ── User Inputs ───────────────────────────────────────────────
+
+    def add_user_input(self, user_input: UserInput) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT INTO user_inputs (id, run_id, gate, input_type, content, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    user_input.id,
+                    user_input.run_id,
+                    user_input.gate,
+                    user_input.input_type,
+                    user_input.content,
+                    user_input.created_at.isoformat(),
+                ),
+            )
+
+    def list_user_inputs(self, run_id: str, gate: str | None = None) -> list[UserInput]:
+        with self._connect() as connection:
+            if gate:
+                rows = connection.execute(
+                    "SELECT * FROM user_inputs WHERE run_id = ? AND gate = ? ORDER BY rowid",
+                    (run_id, gate),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    "SELECT * FROM user_inputs WHERE run_id = ? ORDER BY rowid",
+                    (run_id,),
+                ).fetchall()
+        return [
+            UserInput(
+                id=row["id"],
+                run_id=row["run_id"],
+                gate=row["gate"],
+                input_type=row["input_type"],
+                content=row["content"],
+                created_at=datetime.fromisoformat(row["created_at"]),
+            )
+            for row in rows
+        ]

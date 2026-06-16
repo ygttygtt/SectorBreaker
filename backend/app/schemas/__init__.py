@@ -9,6 +9,7 @@ from backend.app.schemas.projects import (
     ResearchProject,
     ResearchProjectCreate,
 )
+from backend.app.schemas.runs import ResearchRun, ResumeRequest, RunEvent, RunStatus, UserInput
 from backend.app.schemas.state import ResearchGate, ResearchState
 
 __all__ = [
@@ -21,6 +22,11 @@ __all__ = [
     "ResearchGate",
     "ResearchProject",
     "ResearchProjectCreate",
+    "ResearchRun",
     "ResearchState",
+    "ResumeRequest",
+    "RunEvent",
+    "RunStatus",
+    "UserInput",
     "VerificationStatus",
 ]

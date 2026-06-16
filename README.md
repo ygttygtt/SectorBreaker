@@ -47,7 +47,7 @@ SectorBreaker 首版定位为 **本地个人研究工作台**。
 - Markdown / Obsidian 导出器。
 - FastAPI API：项目创建/列表/详情、运行、证据、产物、导出、项目问答。
 - Vite + React + TypeScript 前端“破壁工作台”已接入 API。
-- Vite 开发代理已配置 `/api -> http://127.0.0.1:8000`。
+- Vite 开发代理已配置 `/api -> http://127.0.0.1:8030`。
 
 ## 技术栈
 
@@ -59,51 +59,49 @@ SectorBreaker 首版定位为 **本地个人研究工作台**。
 - Vite + React + TypeScript
 - Obsidian-friendly Markdown export
 
-## 快速验证
+## 快速开始
 
-创建并激活 conda 环境：
+### 环境准备
 
 ```bash
-conda env create -f environment.yml
+conda env create -f environment.yml   # 首次安装
+conda activate sectorbreaker           # 激活环境
+cd frontend && npm install             # 首次安装前端依赖
+```
+
+### 启动项目
+
+需要两个终端窗口，先激活 conda 环境再启动服务，`Ctrl+C` 随时停掉对应服务。
+
+**终端 1 — 后端**（端口 8030）：
+
+```bash
 conda activate sectorbreaker
+python -m uvicorn backend.app.api.app:app --port 8030 --reload
 ```
 
-后端测试：
+**终端 2 — 前端**（端口 5173）：
 
 ```bash
+conda activate sectorbreaker
+cd frontend
+npm run dev
+```
+
+打开浏览器访问 `http://127.0.0.1:5173/`。
+
+### 测试
+
+```bash
+# 后端测试
+conda activate sectorbreaker
 python -m pytest -q
-```
 
-前端测试和构建：
-
-```bash
+# 前端测试和构建
 cd frontend
 npm test
 npm run build
-npm audit --audit-level=high
 ```
-
-启动后端：
-
-```bash
-uvicorn backend.app.api.app:app --host 127.0.0.1 --port 8000 --reload
-```
-
-前端开发服务：
-
-```bash
-cd frontend
-npm install
-npm run dev -- --host 127.0.0.1 --port 3000
-```
-
-打开：
-
-```text
-http://127.0.0.1:3000/
-```
-
-当前本机已经存在 `sectorbreaker` conda 环境。如果 `conda env list` 看不到，可以重新执行 `conda env create -f environment.yml`。
 
 ## 后续最重要的工作
 

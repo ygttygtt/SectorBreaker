@@ -36,8 +36,11 @@ class OpenAICompatibleLLMProvider:
                 {"role": message.role, "content": message.content}
                 for message in messages
             ],
-            "response_format": {"type": "json_object"},
         }
+        # Only request JSON mode when the caller expects structured data
+        if response_schema is not str:
+            payload["response_format"] = {"type": "json_object"}
+
         headers = {"Authorization": f"Bearer {self.api_key}"}
         async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
             response = await client.post(
@@ -49,7 +52,21 @@ class OpenAICompatibleLLMProvider:
             data = response.json()
 
         content = data["choices"][0]["message"]["content"]
-        parsed = json.loads(content)
+
+        # If caller expects plain text, return as-is
+        if response_schema is str:
+            return content
+
+        # Try parsing as JSON; fall back to raw text if the API ignored json_object mode
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError:
+            if response_schema is dict:
+                return {"text": content}
+            if isinstance(response_schema, type) and issubclass(response_schema, BaseModel):
+                return response_schema.model_validate({"text": content})
+            return {"text": content}
+
         if response_schema is dict:
             return parsed
         if isinstance(response_schema, type) and issubclass(response_schema, BaseModel):

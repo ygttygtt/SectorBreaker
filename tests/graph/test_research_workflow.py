@@ -1,3 +1,5 @@
+import asyncio
+
 from backend.app.graph.workflow import run_research_workflow
 from backend.app.providers.fakes import FakeLLMProvider, FakeSearchProvider
 from backend.app.schemas import ArtifactType, MarketScope, ResearchDepth, ResearchGate, ResearchProject
@@ -12,7 +14,7 @@ def test_research_workflow_generates_evidence_linked_artifacts() -> None:
         depth=ResearchDepth.QUICK,
     )
 
-    state = run_research_workflow(project)
+    state = asyncio.run(run_research_workflow(project))
 
     artifact_types = {artifact.artifact_type for artifact in state.artifacts}
     assert state.current_gate == ResearchGate.EXPORT
@@ -47,7 +49,7 @@ def test_research_workflow_uses_search_and_llm_providers() -> None:
         }
     )
 
-    state = run_research_workflow(project, search_provider=search_provider, llm_provider=llm_provider)
+    state = asyncio.run(run_research_workflow(project, search_provider=search_provider, llm_provider=llm_provider))
 
     artifact_types = {artifact.artifact_type for artifact in state.artifacts}
     assert "宠物服务市场" in state.evidence[1].source_title
@@ -67,7 +69,7 @@ def test_research_workflow_blocks_export_when_research_frame_is_empty() -> None:
     )
     llm_provider = FakeLLMProvider(response={"sections": [], "key_questions": []})
 
-    state = run_research_workflow(project, llm_provider=llm_provider)
+    state = asyncio.run(run_research_workflow(project, llm_provider=llm_provider))
 
     assert state.current_gate == ResearchGate.OPPORTUNITY
     assert state.coverage_checklist["research_frame"] is False

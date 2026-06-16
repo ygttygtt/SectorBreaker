@@ -25,7 +25,7 @@ def test_api_runs_research_and_exports_markdown(tmp_path: Path) -> None:
 
     run_response = client.post(f"/api/projects/{project_id}/runs")
     assert run_response.status_code == 200
-    assert run_response.json()["current_gate"] == "export"
+    assert run_response.json()["status"] == "completed"
 
     artifacts_response = client.get(f"/api/projects/{project_id}/artifacts")
     assert artifacts_response.status_code == 200
@@ -57,6 +57,7 @@ def test_api_project_chat_uses_local_fts(tmp_path: Path) -> None:
             "depth": "quick",
         },
     ).json()["id"]
+
     client.post(f"/api/projects/{project_id}/runs")
 
     chat_response = client.post(f"/api/projects/{project_id}/chat", json={"question": "应该先学什么"})
@@ -98,8 +99,8 @@ def test_api_run_uses_injected_search_and_llm_providers(tmp_path: Path) -> None:
     ).json()["id"]
 
     run_response = client.post(f"/api/projects/{project_id}/runs")
-    evidence_response = client.get(f"/api/projects/{project_id}/evidence")
-
     assert run_response.status_code == 200
-    assert run_response.json()["current_gate"] == "export"
+    assert run_response.json()["status"] == "completed"
+
+    evidence_response = client.get(f"/api/projects/{project_id}/evidence")
     assert evidence_response.json()[1]["source_title"] == "宠物服务市场"

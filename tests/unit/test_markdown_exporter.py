@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 from backend.app.exporters.markdown import MarkdownExporter
@@ -13,7 +14,7 @@ def test_markdown_exporter_writes_obsidian_package(tmp_path: Path) -> None:
         market_scope=MarketScope.MIXED,
         depth=ResearchDepth.QUICK,
     )
-    state = run_research_workflow(project)
+    state = asyncio.run(run_research_workflow(project))
 
     manifest = MarkdownExporter(tmp_path).export_project(project, state.artifacts, state.evidence)
 
@@ -25,4 +26,3 @@ def test_markdown_exporter_writes_obsidian_package(tmp_path: Path) -> None:
     )
     assert "evidence_ids:" in content
     assert "EV-USER-SCOPE" in content
-
