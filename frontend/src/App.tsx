@@ -418,11 +418,15 @@ export function App() {
     }
   }, [project, success, error]);
 
+  const onError = useCallback((msg: string) => {
+    error(msg);
+  }, [error]);
+
   const { events, reset: resetEvents } = useRunEvents({
     runId,
     onEvent,
     onComplete,
-    onError: (msg) => error(msg),
+    onError,
   });
 
   async function startResearch(domain: string) {

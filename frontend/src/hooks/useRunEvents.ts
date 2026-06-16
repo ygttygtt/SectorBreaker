@@ -8,10 +8,24 @@ export interface UseRunEventsOptions {
   onError?: (error: string) => void;
 }
 
+/**
+ * SSE hook — connects to /api/runs/{runId}/events.
+ *
+ * Uses refs for callbacks so the EventSource connection is stable
+ * across re-renders. Only reconnects when runId changes.
+ */
 export function useRunEvents({ runId, onEvent, onComplete, onError }: UseRunEventsOptions) {
   const [events, setEvents] = useState<RunEvent[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
+
+  // Store latest callbacks in refs to avoid reconnecting on callback change
+  const onEventRef = useRef(onEvent);
+  const onCompleteRef = useRef(onComplete);
+  const onErrorRef = useRef(onError);
+  onEventRef.current = onEvent;
+  onCompleteRef.current = onComplete;
+  onErrorRef.current = onError;
 
   const reset = useCallback(() => {
     setEvents([]);
@@ -36,13 +50,13 @@ export function useRunEvents({ runId, onEvent, onComplete, onError }: UseRunEven
       if (msg.data === "[DONE]") {
         es.close();
         setIsConnected(false);
-        onComplete?.();
+        onCompleteRef.current?.();
         return;
       }
       try {
         const event: RunEvent = JSON.parse(msg.data);
         setEvents((prev) => [...prev, event]);
-        onEvent?.(event);
+        onEventRef.current?.(event);
       } catch {
         // ignore parse errors
       }
@@ -50,7 +64,7 @@ export function useRunEvents({ runId, onEvent, onComplete, onError }: UseRunEven
 
     es.onerror = () => {
       setIsConnected(false);
-      onError?.("SSE 连接断开");
+      onErrorRef.current?.("SSE 连接断开");
       es.close();
     };
 
@@ -58,7 +72,8 @@ export function useRunEvents({ runId, onEvent, onComplete, onError }: UseRunEven
       es.close();
       setIsConnected(false);
     };
-  }, [runId, onEvent, onComplete, onError, reset]);
+    // Only reconnect when runId changes — callbacks are via refs
+  }, [runId, reset]);
 
   return { events, isConnected, reset };
 }

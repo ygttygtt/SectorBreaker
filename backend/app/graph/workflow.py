@@ -32,6 +32,35 @@ async def _emit(emitter: EventEmitter | None, event: RunEvent) -> None:
         await emitter(event)
 
 
+async def _llm_generate(
+    llm_provider: LLMProvider | None,
+    system_prompt: str,
+    user_prompt: str,
+    fallback: dict | str,
+    emitter: EventEmitter | None,
+    gate: str,
+    agent: str,
+) -> dict | str:
+    """Call LLM with fallback to template on failure."""
+    if llm_provider is None:
+        return fallback
+    try:
+        result = await llm_provider.complete_structured(
+            messages=[
+                ChatMessage(role="system", content=system_prompt),
+                ChatMessage(role="user", content=user_prompt),
+            ],
+            response_schema=dict if isinstance(fallback, dict) else str,
+        )
+        return result
+    except Exception as exc:
+        await _emit(emitter, RunEvent(
+            event_type="error", gate=gate, agent=agent,
+            message=f"LLM 调用失败，使用默认内容：{exc}",
+        ))
+        return fallback
+
+
 def build_research_graph(
     search_provider: SearchProvider | None = None,
     llm_provider: LLMProvider | None = None,
@@ -39,11 +68,11 @@ def build_research_graph(
 ):
     graph = StateGraph(dict[str, Any])
 
-    graph.add_node("scope_gate", _make_scope_gate(emitter))
+    graph.add_node("scope_gate", _make_scope_gate(llm_provider, emitter))
     graph.add_node("evidence_gate", _make_evidence_gate(search_provider, emitter))
     graph.add_node("research_frame_gate", _make_research_frame_gate(llm_provider, emitter))
-    graph.add_node("knowledge_map_gate", _make_knowledge_map_gate(emitter))
-    graph.add_node("opportunity_gate", _make_opportunity_gate(emitter))
+    graph.add_node("knowledge_map_gate", _make_knowledge_map_gate(llm_provider, emitter))
+    graph.add_node("opportunity_gate", _make_opportunity_gate(llm_provider, emitter))
     graph.add_node("qa_critic_gate", _make_qa_critic_gate(emitter))
     graph.add_node("export_gate", _make_export_gate(emitter))
 
@@ -104,7 +133,7 @@ async def run_research_workflow(
 # ── Gate factories ────────────────────────────────────────────────
 
 
-def _make_scope_gate(emitter: EventEmitter | None):
+def _make_scope_gate(llm_provider: LLMProvider | None, emitter: EventEmitter | None):
     async def scope_gate(state: dict[str, Any]) -> dict[str, Any]:
         project = state["project"]
         gate = ResearchGate.SCOPE.value
@@ -139,7 +168,48 @@ def _make_scope_gate(emitter: EventEmitter | None):
             ).model_dump(mode="json")
         )
 
-        state["current_gate"] = ResearchGate.RESEARCH_FRAME.value
+        # Use LLM to analyze domain scope and identify key boundaries
+        await _emit(emitter, RunEvent(
+            event_type="step_start", gate=gate, step="scope_analysis", agent="Research Planner",
+            message="正在分析领域边界和研究范围...",
+        ))
+
+        scope_analysis = await _llm_generate(
+            llm_provider,
+            system_prompt=(
+                "你是行业研究规划 Agent。用户想研究一个领域，你需要分析这个领域的边界。"
+                "只返回 JSON，字段：domain_definition（领域定义）, boundaries（边界说明）, "
+                "common_confusions（常见混淆点列表）, recommended_scope（建议研究范围）。"
+            ),
+            user_prompt=(
+                f"领域：{project['domain']}\n"
+                f"市场范围：{project['market_scope']}\n"
+                f"研究深度：{project['depth']}\n"
+                f"{'用户补充：' + state.get('user_guidance', '') if state.get('user_guidance') else ''}"
+            ),
+            fallback={
+                "domain_definition": f"{project['domain']}行业研究",
+                "boundaries": "需要进一步明确",
+                "common_confusions": ["市场口径不统一", "数据来源不一致"],
+                "recommended_scope": "先从行业概况和主要玩家开始",
+            },
+            emitter=emitter, gate=gate, agent="Research Planner",
+        )
+
+        if isinstance(scope_analysis, dict):
+            summary = scope_analysis.get("domain_definition", project['domain'])
+            boundaries = scope_analysis.get("boundaries", "")
+            confusions = scope_analysis.get("common_confusions", [])
+            scope_content = f"{summary}。边界：{boundaries}。常见混淆：{', '.join(str(c) for c in confusions)}"
+        else:
+            scope_content = str(scope_analysis)
+
+        await _emit(emitter, RunEvent(
+            event_type="artifact_created", gate=gate, agent="Research Planner",
+            message=f"范围分析完成：{scope_content[:80]}...",
+        ))
+
+        state["current_gate"] = ResearchGate.EVIDENCE.value
         state["coverage_checklist"] = {
             "scope_confirmed": True,
             "research_frame": False,
@@ -166,49 +236,56 @@ def _make_evidence_gate(search_provider: SearchProvider | None, emitter: EventEm
             message="正在收集行业证据",
         ))
 
-        # Step: Search
+        # Step 1: Search for market overview
         await _emit(emitter, RunEvent(
-            event_type="step_start", gate=gate, step="search", agent="Search Scout",
-            message=f"正在搜索：{project['domain']} 行业 市场 玩家 机会",
+            event_type="step_start", gate=gate, step="search_market", agent="Search Scout",
+            message=f"正在搜索：{project['domain']} 行业概况 市场规模",
         ))
 
-        if search_provider is not None:
-            query = SearchQuery(
-                query=f"{project['domain']} 行业 市场 玩家 机会",
-                market_scope=project["market_scope"],
-                max_results=5,
-            )
-            try:
-                results = await search_provider.search(query)
-                for index, result in enumerate(results, start=1):
-                    evidence = EvidenceItem(
-                        id=f"EV-SEARCH-{index:03d}",
-                        project_id=state["project_id"],
-                        source_title=result.title,
-                        source_url=result.url,
-                        source_type="web",
-                        snippet=result.snippet,
-                        summary=result.snippet,
-                        confidence=0.65,
-                        verification_status=VerificationStatus.PARTIALLY_VERIFIED,
-                    )
-                    state["evidence"].append(evidence.model_dump(mode="json"))
+        search_queries = [
+            f"{project['domain']} 行业概况 市场规模 趋势",
+            f"{project['domain']} 主要玩家 竞争格局",
+            f"{project['domain']} 用户痛点 机会",
+        ]
 
+        if search_provider is not None:
+            for query_idx, query_text in enumerate(search_queries):
+                query = SearchQuery(
+                    query=query_text,
+                    market_scope=project["market_scope"],
+                    max_results=5,
+                )
+                try:
+                    results = await search_provider.search(query)
+                    for index, result in enumerate(results, start=1):
+                        evidence = EvidenceItem(
+                            id=f"EV-SEARCH-{query_idx}-{index:03d}",
+                            project_id=state["project_id"],
+                            source_title=result.title,
+                            source_url=result.url,
+                            source_type="web",
+                            snippet=result.snippet,
+                            summary=result.snippet,
+                            confidence=0.65,
+                            verification_status=VerificationStatus.PARTIALLY_VERIFIED,
+                        )
+                        state["evidence"].append(evidence.model_dump(mode="json"))
+
+                        await _emit(emitter, RunEvent(
+                            event_type="evidence_collected", gate=gate,
+                            agent="Search Scout",
+                            message=f"找到：{result.title}",
+                            data={"evidence_id": evidence.id},
+                        ))
+                except Exception as exc:
                     await _emit(emitter, RunEvent(
-                        event_type="evidence_collected", gate=gate,
-                        agent="Search Scout",
-                        message=f"找到：{result.title}",
-                        data={"evidence_id": evidence.id},
+                        event_type="error", gate=gate, agent="Search Scout",
+                        message=f"搜索失败（{query_text}）：{exc}",
                     ))
-            except Exception as exc:
-                await _emit(emitter, RunEvent(
-                    event_type="error", gate=gate, agent="Search Scout",
-                    message=f"搜索失败：{exc}",
-                ))
         else:
             await _emit(emitter, RunEvent(
                 event_type="step_complete", gate=gate, step="search", agent="Search Scout",
-                message="未配置搜索提供商，跳过搜索",
+                message="未配置搜索提供商，跳过在线搜索",
             ))
 
         await _emit(emitter, RunEvent(
@@ -242,39 +319,30 @@ def _make_research_frame_gate(llm_provider: LLMProvider | None, emitter: EventEm
             message="正在分析领域结构，生成研究框架...",
         ))
 
-        plan = _default_plan()
-        if llm_provider is not None:
-            try:
-                guidance_note = ""
-                if state.get("user_guidance"):
-                    guidance_note = f"\n用户补充的研究方向：{state['user_guidance']}"
+        plan = await _llm_generate(
+            llm_provider,
+            system_prompt=(
+                "你是行业研究规划 Agent。为用户指定的行业生成研究框架。"
+                "只返回 JSON，字段：sections（研究板块列表）, key_questions（关键问题列表）, "
+                "learning_path（学习路径列表）。"
+            ),
+            user_prompt=(
+                f"为 {project['domain']} 生成研究框架。"
+                f"市场范围：{project['market_scope']}。"
+                f"{'用户补充方向：' + state.get('user_guidance', '') if state.get('user_guidance') else ''}"
+            ),
+            fallback=_default_plan(),
+            emitter=emitter, gate=gate, agent="Research Planner",
+        )
 
-                plan = await llm_provider.complete_structured(
-                    messages=[
-                        ChatMessage(
-                            role="system",
-                            content="你是行业研究规划 Agent。只返回 JSON。",
-                        ),
-                        ChatMessage(
-                            role="user",
-                            content=(
-                                f"为 {project['domain']} 生成研究框架。"
-                                "JSON 字段：sections、key_questions。"
-                                f"{guidance_note}"
-                            ),
-                        ),
-                    ],
-                    response_schema=dict,
-                )
-            except Exception as exc:
-                await _emit(emitter, RunEvent(
-                    event_type="error", gate=gate, agent="Research Planner",
-                    message=f"LLM 调用失败，使用默认框架：{exc}",
-                ))
-                plan = _default_plan()
+        if isinstance(plan, dict):
+            sections = [item for item in plan.get("sections", []) if item]
+            key_questions = [item for item in plan.get("key_questions", []) if item]
+        else:
+            plan = _default_plan()
+            sections = plan["sections"]
+            key_questions = plan["key_questions"]
 
-        sections = [item for item in plan.get("sections", []) if item]
-        key_questions = [item for item in plan.get("key_questions", []) if item]
         section_body = "\n".join(f"- {item}" for item in sections)
         question_body = "\n".join(f"- {item}" for item in key_questions)
         body = (
@@ -319,7 +387,7 @@ def _make_research_frame_gate(llm_provider: LLMProvider | None, emitter: EventEm
     return research_frame_gate
 
 
-def _make_knowledge_map_gate(emitter: EventEmitter | None):
+def _make_knowledge_map_gate(llm_provider: LLMProvider | None, emitter: EventEmitter | None):
     async def knowledge_map_gate(state: dict[str, Any]) -> dict[str, Any]:
         project = state["project"]
         gate = ResearchGate.KNOWLEDGE_MAP.value
@@ -329,45 +397,74 @@ def _make_knowledge_map_gate(emitter: EventEmitter | None):
             message="正在构建知识地图",
         ))
 
-        artifacts_data = [
+        # Define artifacts to generate with LLM
+        artifacts_spec = [
             (
                 "ART-INDUSTRY-MAP", ArtifactType.INDUSTRY_MAP, "行业地图",
                 "01-行业地图/industry-map.md",
-                f"# {project['domain']} 行业地图\n\n"
-                "## 一级节点\n\n"
-                "- 需求侧：用户、场景、痛点、预算\n"
-                "- 供给侧：产品、服务、交付、成本\n"
-                "- 渠道侧：搜索、内容、本地生活、私域\n"
-                "- 风险侧：监管、资质、平台规则、信任成本\n",
+                "行业地图与产业链结构",
+                "你是行业研究 Agent。为指定行业生成知识地图。只返回 JSON，字段：title, "
+                "content（Markdown 格式，包含一级节点、二级节点，标注供给侧/需求侧/渠道/风险边界）。"
+                "至少包含 4 个一级节点，每个一级节点下 2-3 个二级节点。",
             ),
             (
                 "ART-MARKET-OVERVIEW", ArtifactType.MARKET_OVERVIEW, "市场现状",
                 "02-市场现状/market-overview.md",
-                f"# {project['domain']} 市场现状\n\n"
-                "- 优先确认市场规模、增长驱动、限制因素和统计口径。\n"
-                "- 将事实、观点和待验证假设分开记录。\n",
+                "市场规模、增长驱动与约束",
+                "你是市场分析 Agent。为指定行业生成市场现状分析。只返回 JSON，字段：title, "
+                "content（Markdown 格式，包含市场规模估算、增长驱动、限制因素、数据口径说明）。"
+                "区分事实、推测和观点。",
             ),
             (
                 "ART-PLAYER-MAP", ArtifactType.PLAYER_MAP, "玩家与交易单位",
                 "03-玩家与交易单位/player-map.md",
-                f"# {project['domain']} 玩家与交易单位\n\n"
-                "- 拆分提供服务、拥有用户、拥有渠道、负责交付、承担监管的角色。\n"
-                "- 继续识别用户真正付钱购买的交易单位。\n",
+                "玩家角色、商业逻辑与交易单位",
+                "你是竞品分析 Agent。为指定行业生成玩家与交易单位分析。只返回 JSON，字段：title, "
+                "content（Markdown 格式，按角色分类：提供服务者、拥有用户者、拥有渠道者、"
+                "掌握关键资源者、负责交付者、监管者。每类给出代表玩家、商业价值、议价能力）。"
+                "同时识别主要交易单位（用户真正付钱购买的东西）。",
             ),
             (
                 "ART-CONTENT-CHANNELS", ArtifactType.CONTENT_CHANNELS, "内容与渠道",
                 "04-内容与渠道/content-channels.md",
-                f"# {project['domain']} 内容与渠道\n\n"
-                "- 观察搜索关键词、内容平台、私域、本地生活和转介绍。\n"
-                "- 区分曝光型、信任型、收藏型、转化型内容。\n",
+                "内容生态、获客渠道与转化路径",
+                "你是内容生态分析 Agent。为指定行业生成内容与渠道分析。只返回 JSON，字段：title, "
+                "content（Markdown 格式，包含搜索关键词分类、内容平台分析、本地生活渠道、"
+                "私域渠道、转化路径分析。区分曝光型、信任型、收藏型、转化型内容）。",
             ),
         ]
 
-        for art_id, art_type, title, path, content in artifacts_data:
+        for art_id, art_type, title, path, desc, system_prompt in artifacts_spec:
             await _emit(emitter, RunEvent(
                 event_type="step_start", gate=gate, step=art_id, agent="Knowledge Mapper",
-                message=f"正在生成：{title}",
+                message=f"正在生成：{title}（{desc}）",
             ))
+
+            # Call LLM to generate content
+            llm_result = await _llm_generate(
+                llm_provider,
+                system_prompt=system_prompt,
+                user_prompt=(
+                    f"行业：{project['domain']}\n"
+                    f"市场范围：{project['market_scope']}\n"
+                    f"研究深度：{project['depth']}\n"
+                    f"已有证据数量：{len(state['evidence'])} 条\n"
+                    f"研究框架：{', '.join(a.get('title', '') for a in state['artifacts'])}\n"
+                    f"{'用户方向：' + state.get('user_guidance', '') if state.get('user_guidance') else ''}"
+                ),
+                fallback={
+                    "title": title,
+                    "content": f"# {project['domain']} {title}\n\n需要配置 LLM 以生成详细内容。",
+                },
+                emitter=emitter, gate=gate, agent="Knowledge Mapper",
+            )
+
+            if isinstance(llm_result, dict):
+                content = llm_result.get("content", f"# {title}\n\n内容生成中。")
+                if not content.startswith("#"):
+                    content = f"# {project['domain']} {title}\n\n{content}"
+            else:
+                content = f"# {project['domain']} {title}\n\n{llm_result}"
 
             artifact = Artifact(
                 id=art_id,
@@ -382,7 +479,7 @@ def _make_knowledge_map_gate(emitter: EventEmitter | None):
 
             await _emit(emitter, RunEvent(
                 event_type="artifact_created", gate=gate, agent="Knowledge Mapper",
-                message=f"{title}已生成",
+                message=f"{title}已生成（{len(content)} 字）",
                 data={"artifact_id": art_id},
             ))
 
@@ -398,7 +495,7 @@ def _make_knowledge_map_gate(emitter: EventEmitter | None):
     return knowledge_map_gate
 
 
-def _make_opportunity_gate(emitter: EventEmitter | None):
+def _make_opportunity_gate(llm_provider: LLMProvider | None, emitter: EventEmitter | None):
     async def opportunity_gate(state: dict[str, Any]) -> dict[str, Any]:
         project = state["project"]
         gate = ResearchGate.OPPORTUNITY.value
@@ -410,8 +507,48 @@ def _make_opportunity_gate(emitter: EventEmitter | None):
 
         await _emit(emitter, RunEvent(
             event_type="step_start", gate=gate, step="opportunity", agent="Opportunity Analyst",
-            message="正在识别机会假设...",
+            message="正在基于行业数据识别机会假设...",
         ))
+
+        # Summarize what we know for the LLM
+        artifact_titles = [a.get("title", "") for a in state["artifacts"]]
+        evidence_count = len(state["evidence"])
+
+        llm_result = await _llm_generate(
+            llm_provider,
+            system_prompt=(
+                "你是机会分析 Agent。基于前面的行业研究，为指定行业生成机会地图。"
+                "只返回 JSON，字段：title, content（Markdown 格式，包含："
+                "第一批机会假设列表，每个假设包含：机会名称、机会逻辑、目标用户、"
+                "进入门槛、需要的资源、主要风险、第一周可以验证什么）。"
+                "至少给出 3 个机会假设。"
+            ),
+            user_prompt=(
+                f"行业：{project['domain']}\n"
+                f"市场范围：{project['market_scope']}\n"
+                f"已完成的研究：{', '.join(artifact_titles)}\n"
+                f"证据数量：{evidence_count} 条\n"
+                f"{'用户方向：' + state.get('user_guidance', '') if state.get('user_guidance') else ''}"
+            ),
+            fallback={
+                "title": "机会地图",
+                "content": (
+                    f"# {project['domain']} 机会地图\n\n"
+                    "## 第一批机会假设\n\n"
+                    "- 找出用户痛点强但内容供给不足的细分主题。\n"
+                    "- 找出信任成本高、但可用案例和证据降低风险的交易单位。\n"
+                    "- 找出第一周可验证的问题：用户是否搜索、是否咨询、是否愿意付费。\n"
+                ),
+            },
+            emitter=emitter, gate=gate, agent="Opportunity Analyst",
+        )
+
+        if isinstance(llm_result, dict):
+            content = llm_result.get("content", "")
+            if not content.startswith("#"):
+                content = f"# {project['domain']} 机会地图\n\n{content}"
+        else:
+            content = f"# {project['domain']} 机会地图\n\n{llm_result}"
 
         artifact = Artifact(
             id="ART-OPPORTUNITY-MAP",
@@ -419,20 +556,14 @@ def _make_opportunity_gate(emitter: EventEmitter | None):
             artifact_type=ArtifactType.OPPORTUNITY_MAP,
             title="机会地图",
             content_path="05-机会地图/opportunity-map.md",
-            content=(
-                f"# {project['domain']} 机会地图\n\n"
-                "## 第一批机会假设\n\n"
-                "- 找出用户痛点强但内容供给不足的细分主题。\n"
-                "- 找出信任成本高、但可用案例和证据降低风险的交易单位。\n"
-                "- 找出第一周可验证的问题：用户是否搜索、是否咨询、是否愿意付费。\n"
-            ),
+            content=content,
             source_evidence_ids=_evidence_ids(state),
         )
         state["artifacts"].append(artifact.model_dump(mode="json"))
 
         await _emit(emitter, RunEvent(
             event_type="artifact_created", gate=gate, agent="Opportunity Analyst",
-            message="机会地图已生成",
+            message=f"机会地图已生成（{len(content)} 字）",
             data={"artifact_id": artifact.id},
         ))
 
@@ -484,7 +615,7 @@ def _make_qa_critic_gate(emitter: EventEmitter | None):
         else:
             await _emit(emitter, RunEvent(
                 event_type="step_complete", gate=gate, step="qa_check", agent="QA Critic",
-                message="质量门检查通过",
+                message=f"质量门检查通过（{len(state['artifacts'])} 个产物，{len(state['evidence'])} 条证据）",
             ))
 
         await _emit(emitter, RunEvent(
@@ -512,7 +643,7 @@ def _make_export_gate(emitter: EventEmitter | None):
 
         await _emit(emitter, RunEvent(
             event_type="step_complete", gate="export", step="write", agent="Export Writer",
-            message=f"已生成 {len(state['artifacts'])} 个产物",
+            message=f"已生成 {len(state['artifacts'])} 个产物，{len(state['evidence'])} 条证据",
         ))
 
         await _emit(emitter, RunEvent(
