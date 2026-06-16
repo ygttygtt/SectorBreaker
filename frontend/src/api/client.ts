@@ -95,8 +95,9 @@ export const api = {
   },
 
   // Runs
-  startRun(projectId: string) {
-    return requestJson<RunResponse>(`/api/projects/${projectId}/runs`, { method: "POST" });
+  startRun(projectId: string, autoRun: boolean = false) {
+    const params = autoRun ? "?auto_run=true" : "";
+    return requestJson<RunResponse>(`/api/projects/${projectId}/runs${params}`, { method: "POST" });
   },
 
   getRun(runId: string) {

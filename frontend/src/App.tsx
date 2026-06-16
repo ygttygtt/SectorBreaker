@@ -32,7 +32,7 @@ type AppPhase = "landing" | "researching" | "reviewing" | "result";
 /* ================================================================== */
 
 function LandingView({ onStart, onOpenSettings, isLoading }: {
-  onStart: (domain: string) => void;
+  onStart: (domain: string, autoRun?: boolean) => void;
   onOpenSettings: () => void;
   isLoading: boolean;
 }) {
@@ -80,19 +80,30 @@ function LandingView({ onStart, onOpenSettings, isLoading }: {
             autoFocus
           />
         </div>
-        <button className="primary landing-btn" type="submit" disabled={!domain.trim() || isLoading}>
-          {isLoading ? (
-            <>
-              <Loader2 size={18} className="spinner" />
-              启动中…
-            </>
-          ) : (
-            <>
-              <Play size={18} />
-              开始破壁
-            </>
-          )}
-        </button>
+        <div className="landing-btn-row">
+          <button className="primary landing-btn" type="submit" disabled={!domain.trim() || isLoading}>
+            {isLoading ? (
+              <>
+                <Loader2 size={18} className="spinner" />
+                启动中…
+              </>
+            ) : (
+              <>
+                <Play size={18} />
+                开始破壁
+              </>
+            )}
+          </button>
+          <button
+            className="secondary landing-btn landing-btn--auto"
+            type="button"
+            disabled={!domain.trim() || isLoading}
+            onClick={() => { if (domain.trim()) onStart(domain.trim(), true); }}
+          >
+            <Zap size={16} />
+            一键执行
+          </button>
+        </div>
       </form>
 
       <div className="landing-steps-preview">
@@ -120,7 +131,7 @@ function LandingView({ onStart, onOpenSettings, isLoading }: {
 /* ================================================================== */
 
 function ResearchView({
-  project, runId, events, activeAgent, activeMessage,
+  project, runId, events, activeAgent, activeMessage, isConnected,
   onBack,
 }: {
   project: Project;
@@ -128,6 +139,7 @@ function ResearchView({
   events: RunEvent[];
   activeAgent: string | null;
   activeMessage: string | null;
+  isConnected: boolean;
   onBack: () => void;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
@@ -168,10 +180,16 @@ function ResearchView({
           <strong>{project.domain}</strong>
           <span className="research-scope">{scopeLabel}</span>
         </div>
-        <span className="research-status research-status--running">
-          <Loader2 size={14} className="spinner" />
-          研究进行中
-        </span>
+        {isConnected ? (
+          <span className="research-status research-status--running">
+            <Loader2 size={14} className="spinner" />
+            研究进行中
+          </span>
+        ) : (
+          <span className="research-status research-status--disconnected">
+            连接已断开
+          </span>
+        )}
       </div>
 
       <GraphFlow
@@ -421,7 +439,7 @@ export function App() {
     error(msg);
   }, [error]);
 
-  const { events, reset: resetEvents } = useRunEvents({
+  const { events, isConnected, reset: resetEvents } = useRunEvents({
     runId,
     onEvent,
     onComplete,
@@ -440,7 +458,7 @@ export function App() {
     }
   }, [events, phase]);
 
-  async function startResearch(domain: string) {
+  async function startResearch(domain: string, autoRun: boolean = false) {
     setIsLoading(true);
     setChat(null);
     setExportManifest(null);
@@ -448,6 +466,9 @@ export function App() {
     setActiveMessage(null);
     setReviewingGate(null);
     setReviewingEvents([]);
+
+    // Timeout safety: if still loading after 30s, unlock the button
+    const timeout = setTimeout(() => setIsLoading(false), 30000);
 
     try {
       const proj = await api.createProject({
@@ -458,7 +479,7 @@ export function App() {
       });
       setProject(proj);
 
-      const run = await api.startRun(proj.id);
+      const run = await api.startRun(proj.id, autoRun);
       setRunId(run.id);
       setPhase("researching");
     } catch (err) {
@@ -466,6 +487,7 @@ export function App() {
       error(message);
       setPhase("landing");
     } finally {
+      clearTimeout(timeout);
       setIsLoading(false);
     }
   }
@@ -555,6 +577,7 @@ export function App() {
           events={events}
           activeAgent={activeAgent}
           activeMessage={activeMessage}
+          isConnected={isConnected}
           onBack={resetToLanding}
         />
       )}

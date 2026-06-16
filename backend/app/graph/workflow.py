@@ -310,10 +310,13 @@ async def _run_scope_gate(
     scope_analysis = await _llm_generate(
         llm_provider,
         system_prompt=(
-            "你是行业研究规划 Agent。用户想研究一个领域，你需要分析这个领域的边界。"
+            "你是行业研究规划 Agent。用户想研究一个领域，你需要：\n"
+            "1. 分析这个领域的边界和定义\n"
+            "2. 列出研究该领域最应先搞清楚的 5 个关键问题，每个说明为什么重要、去哪找答案、常见误判\n"
+            "3. 列出常见数据口径问题：指标名称、常见统计口径、容易混淆的地方、适合/不适合回答什么问题\n"
             "只返回 JSON，字段：domain_definition（领域定义）, boundaries（边界说明）, "
-            "common_confusions（常见混淆点列表）, data_caliber（常见数据口径问题）, "
-            "recommended_scope（建议研究范围）。"
+            "common_confusions（常见混淆点列表）, key_questions（关键问题列表，每个含 question/importance/source/common_mistake）, "
+            "data_caliber（数据口径列表，每个含 metric/caliber/confusion/suitable_for/not_suitable_for）。"
         ),
         user_prompt=(
             f"领域：{project['domain']}\n"
@@ -525,8 +528,13 @@ async def _run_knowledge_map_gate(
             "01-行业地图/industry-map.md",
             "行业地图与产业链结构",
             "你是行业研究 Agent。为指定行业生成知识地图。只返回 JSON，字段：title, "
-            "content（Markdown 格式，包含一级节点、二级节点，标注供给侧/需求侧/渠道/风险边界）。"
-            "至少包含 4 个一级节点，每个一级节点下 2-3 个二级节点。",
+            "content（Markdown 格式，包含：\n"
+            "1. 一级目录、二级目录、三级目录的层级结构\n"
+            "2. 每个节点标注属于供给侧/需求侧/渠道/风险边界\n"
+            "3. 新手学习顺序：先学什么后学什么，哪些可以先跳过\n"
+            "4. 每个一级节点对应 3 个关键问题\n"
+            "5. 新手最容易误解的 10 个地方\n"
+            "至少包含 4 个一级节点，每个一级节点下 2-3 个二级节点，重点二级节点下 1-2 个三级节点）。",
         ),
         (
             "ART-MARKET-OVERVIEW", ArtifactType.MARKET_OVERVIEW, "市场现状",
@@ -556,8 +564,17 @@ async def _run_knowledge_map_gate(
             "区分曝光型、信任型、收藏型、转化型、案例型、专家IP型内容，每类给出典型标题和用户行为）。",
         ),
         (
+            "ART-TRANSACTION-UNITS", ArtifactType.TRANSACTION_UNITS, "交易单位数据库",
+            "05-交易单位/transaction-units.md",
+            "用户真正付钱购买的东西",
+            "你是商业模式分析 Agent。为指定行业拆解交易单位。只返回 JSON，字段：title, "
+            "content（Markdown 格式，列出主要交易单位，每个包含：名称、用户为什么购买、客单价区间、"
+            "购买频率、复购周期、决策成本、交付难度、风险点、毛利来源、内容卖点、用户评价关键词）。"
+            "至少列出 5 个交易单位。",
+        ),
+        (
             "ART-COMPETITOR-ANALYSIS", ArtifactType.COMPETITOR_ANALYSIS, "竞品数据库",
-            "05-竞品数据库/competitor-analysis.md",
+            "06-竞品数据库/competitor-analysis.md",
             "代表玩家商业结构逐一拆解",
             "你是竞品分析 Agent。为指定行业的代表性玩家逐一分析商业结构。只返回 JSON，字段：title, "
             "content（Markdown 格式，选择 5-10 个代表性玩家，每个玩家分析：定位、目标用户、主推产品、"
@@ -566,7 +583,7 @@ async def _run_knowledge_map_gate(
         ),
         (
             "ART-REVENUE-STRUCTURE", ArtifactType.REVENUE_STRUCTURE, "收入结构",
-            "06-收入结构/revenue-structure.md",
+            "07-收入结构/revenue-structure.md",
             "引流/转化/利润/复购产品拆解",
             "你是商业模式分析 Agent。为指定行业拆解收入结构。只返回 JSON，字段：title, "
             "content（Markdown 格式，将收入拆成 4 类：引流产品（让用户第一次进来）、"
@@ -575,12 +592,42 @@ async def _run_knowledge_map_gate(
         ),
         (
             "ART-TRUST-ASSETS", ArtifactType.TRUST_ASSETS, "信任资产",
-            "07-信任资产/trust-assets.md",
+            "08-信任资产/trust-assets.md",
             "用户信任建立机制分析",
             "你是信任分析 Agent。为指定行业分析信任资产。只返回 JSON，字段：title, "
             "content（Markdown 格式，分析：用户最担心什么、用户凭什么相信一个玩家、"
             "哪些证据最有说服力、哪些证据只是营销包装、哪些资质或认证必须查证、"
             "哪些案例最能推动成交、新进入者最缺哪类信任资产）。",
+        ),
+        (
+            "ART-CONTENT-ACCOUNTS", ArtifactType.CONTENT_ACCOUNTS, "内容账号数据库",
+            "09-内容账号/content-accounts.md",
+            "批量内容账号分析",
+            "你是内容生态分析 Agent。为指定行业建立内容账号数据库。只返回 JSON，字段：title, "
+            "content（Markdown 格式，按平台分类：小红书、抖音、视频号、B站、公众号、知乎、大众点评。"
+            "每个平台列出 3-5 个代表性账号类型，每个类型输出：账号名称、账号主体、粉丝量级、"
+            "更新频率、内容方向、主要受众、主推产品或服务、转化方式、代表内容、值得学习的地方）。",
+        ),
+        (
+            "ART-CONTENT-TOPICS", ArtifactType.CONTENT_TOPICS, "高频选题分析",
+            "10-高频选题/content-topics.md",
+            "反复出现的选题和用户问题",
+            "你是内容分析 Agent。为指定行业分析高频选题。只返回 JSON，字段：title, "
+            "content（Markdown 格式，分析：哪些选题反复出现、哪些问题反复被用户提问、"
+            "哪些内容收藏率可能更高、哪些内容更接近成交、哪些内容只带来曝光但不一定转化、"
+            "哪些标题结构反复有效、哪些争议点说明用户存在决策焦虑）。",
+        ),
+        (
+            "ART-KNOWLEDGE-CARD-TEMPLATE", ArtifactType.EXPORT_MANIFEST, "知识卡片模板",
+            "11-知识卡片模板/knowledge-card-template.md",
+            "Obsidian 知识卡片结构化模板",
+            "你是知识管理 Agent。为指定行业创建 Obsidian 知识卡片模板。只返回 JSON，字段：title, "
+            "content（Markdown 格式，包含：\n"
+            "1. 一个完整的知识卡片示例（用该行业的某个节点举例）\n"
+            "2. 卡片结构：节点名称、一句话定义、它解决什么问题、它和哪些节点相关、"
+            "关键事实、关键指标、代表玩家、典型案例、常见误区、待验证问题、资料来源\n"
+            "3. Obsidian frontmatter 格式（tags、aliases、related）\n"
+            "4. 如何使用这张模板的说明）。",
         ),
     ]
 

@@ -153,6 +153,17 @@ button, input { font: inherit; }
   border-radius: 10px;
 }
 
+.landing-btn-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.landing-btn--auto {
+  font-size: 14px;
+  padding: 12px 20px;
+}
+
 .landing-steps-preview {
   margin-top: 48px;
   max-width: 640px;
@@ -283,6 +294,7 @@ button, input { font: inherit; }
 }
 
 .research-status--running { color: var(--gold); }
+.research-status--disconnected { color: var(--red); font-weight: 600; font-size: 13px; }
 
 /* ================================================================== */
 /*  Graph Flow                                                         */
