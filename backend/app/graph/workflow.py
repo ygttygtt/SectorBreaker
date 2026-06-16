@@ -539,12 +539,18 @@ async def _run_research_frame_gate(
     )
 
     if isinstance(plan, dict):
-        sections = [item for item in plan.get("sections", []) if item]
-        key_questions = [item for item in plan.get("key_questions", []) if item]
+        sections = [item for item in plan.get("sections") or plan.get("topics") or plan.get("研究板块") or [] if item]
+        key_questions = [item for item in plan.get("key_questions") or plan.get("questions") or plan.get("关键问题") or [] if item]
     else:
         plan = _default_plan()
         sections = plan["sections"]
         key_questions = plan["key_questions"]
+
+    # Fallback if LLM returned empty
+    if not sections:
+        plan = _default_plan()
+        sections = plan["sections"]
+        key_questions = key_questions or plan["key_questions"]
 
     section_body = "\n".join(f"- {item}" for item in sections)
     question_body = "\n".join(f"- {item}" for item in key_questions)
