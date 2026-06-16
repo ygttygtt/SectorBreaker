@@ -430,21 +430,25 @@ export function App() {
   }, []);
 
   const onComplete = useCallback(async () => {
-    if (!project) return;
+    if (!project || !runId) return;
     try {
+      // Fetch run status to determine which gate we're at
+      const run = await api.getRun(runId);
       const [artifactsData, evidenceData] = await Promise.all([
         api.listArtifacts(project.id),
         api.listEvidence(project.id),
       ]);
       setArtifacts(artifactsData);
       setEvidence(evidenceData);
+
+      // Always set to reviewing — the waiting_for_human effect may have
+      // already done this, but setting it again is idempotent
+      setReviewingGate(run.current_gate || "export");
       setPhase("reviewing");
-      setReviewingGate("export");
-      setReviewingEvents([]);
     } catch {
       error("获取研究结果失败");
     }
-  }, [project, error]);
+  }, [project, runId, error]);
 
   // Handle waiting_for_human events — show review for specific gate
   const onWaitingForHuman = useCallback((event: RunEvent) => {

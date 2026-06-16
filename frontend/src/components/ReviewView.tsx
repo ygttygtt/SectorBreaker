@@ -64,8 +64,9 @@ export function ReviewView({
   // Filter artifacts and evidence for this gate
   const gateArtifacts = artifacts; // In the future, filter by gate
 
-  // Get gate-specific events
-  const gateEvents = events.filter((e) => e.gate === completedGate);
+  // Get gate-specific events (for final review show all events)
+  const isFinalReview = completedGate === "export";
+  const gateEvents = isFinalReview ? events : events.filter((e) => e.gate === completedGate);
 
   // Gate-specific guidance hints
   const guidanceHints: Record<string, string> = {

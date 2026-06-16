@@ -293,7 +293,7 @@ def create_app(
                 yield f"data: {event.model_dump_json()}\n\n"
                 last_id += 1
 
-            # If run is already done, close
+            # If run is already done (or waiting), close after replay
             if run.status in (RunStatus.COMPLETED, RunStatus.FAILED):
                 yield "data: [DONE]\n\n"
                 return
