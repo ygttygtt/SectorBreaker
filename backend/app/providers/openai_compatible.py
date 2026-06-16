@@ -16,7 +16,7 @@ class OpenAICompatibleLLMProvider:
         api_key: str,
         model: str,
         temperature: float = 0.2,
-        timeout_seconds: int = 180,
+        timeout_seconds: int = 300,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key

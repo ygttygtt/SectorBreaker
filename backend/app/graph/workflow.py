@@ -675,9 +675,9 @@ async def _run_knowledge_map_gate(
             "09-内容账号/content-accounts.md",
             "批量内容账号分析",
             "你是内容生态分析 Agent。为指定行业建立内容账号数据库。只返回 JSON，字段：title, "
-            "content（Markdown 格式，按平台分类：小红书、抖音、视频号、B站、公众号、知乎、大众点评、行业垂直媒体。"
-            "每个平台列出 3-5 个代表性账号类型，每个类型输出：账号名称、账号主体、粉丝量级、"
-            "更新频率、内容方向、主要受众、主推产品或服务、转化方式、代表内容、值得学习的地方）。",
+            "content（Markdown 格式，按平台分类：小红书、抖音、B站、公众号、知乎。"
+            "每个平台列出 2-3 个代表性账号类型，每个类型简要输出：账号名称、粉丝量级、"
+            "内容方向、转化方式、值得学习的地方）。",
         ),
         (
             "ART-CONTENT-TOPICS", ArtifactType.CONTENT_TOPICS, "高频选题分析",
@@ -709,45 +709,57 @@ async def _run_knowledge_map_gate(
             message=f"正在生成：{title}（{desc}）",
         ))
 
-        async with _get_semaphore():
-            llm_result = await _llm_generate(
-                llm_provider,
-                system_prompt=system_prompt,
-                user_prompt=(
-                    f"行业：{project['domain']}\n"
-                    f"市场范围：{project['market_scope']}\n"
-                    f"研究深度：{project['depth']}\n"
-                    f"已有证据数量：{len(state['evidence'])} 条\n"
-                    f"研究框架：{', '.join(a.get('title', '') for a in state['artifacts'])}\n"
-                    f"{'用户方向：' + state.get('user_guidance', '') if state.get('user_guidance') else ''}"
-                ),
-                emitter=emitter, gate=gate, agent="Knowledge Mapper",
+        try:
+            async with _get_semaphore():
+                llm_result = await _llm_generate(
+                    llm_provider,
+                    system_prompt=system_prompt,
+                    user_prompt=(
+                        f"行业：{project['domain']}\n"
+                        f"市场范围：{project['market_scope']}\n"
+                        f"研究深度：{project['depth']}\n"
+                        f"已有证据数量：{len(state['evidence'])} 条\n"
+                        f"研究框架：{', '.join(a.get('title', '') for a in state['artifacts'])}\n"
+                        f"{'用户方向：' + state.get('user_guidance', '') if state.get('user_guidance') else ''}"
+                    ),
+                    emitter=emitter, gate=gate, agent="Knowledge Mapper",
+                )
+
+            if isinstance(llm_result, dict):
+                content = llm_result.get("content") or llm_result.get("text") or llm_result.get("result")
+                if not content:
+                    import json as _json
+                    content = _json.dumps(llm_result, ensure_ascii=False, indent=2)
+                if not content.startswith("#"):
+                    content = f"# {project['domain']} {title}\n\n{content}"
+            else:
+                content = f"# {project['domain']} {title}\n\n{llm_result}"
+
+            artifact = Artifact(
+                id=art_id, project_id=state["project_id"], artifact_type=art_type,
+                title=title, content_path=path, content=content,
+                source_evidence_ids=_evidence_ids(state),
             )
 
-        if isinstance(llm_result, dict):
-            content = llm_result.get("content") or llm_result.get("text") or llm_result.get("result")
-            if not content:
-                # LLM returned a dict without content key — serialize the whole thing
-                import json as _json
-                content = _json.dumps(llm_result, ensure_ascii=False, indent=2)
-            if not content.startswith("#"):
-                content = f"# {project['domain']} {title}\n\n{content}"
-        else:
-            content = f"# {project['domain']} {title}\n\n{llm_result}"
+            await _emit(emitter, RunEvent(
+                event_type="artifact_created", gate=gate, agent="Knowledge Mapper",
+                message=f"{title}已生成（{len(content)} 字）",
+                data={"artifact_id": art_id},
+            ))
 
-        artifact = Artifact(
-            id=art_id, project_id=state["project_id"], artifact_type=art_type,
-            title=title, content_path=path, content=content,
-            source_evidence_ids=_evidence_ids(state),
-        )
-
-        await _emit(emitter, RunEvent(
-            event_type="artifact_created", gate=gate, agent="Knowledge Mapper",
-            message=f"{title}已生成（{len(content)} 字）",
-            data={"artifact_id": art_id},
-        ))
-
-        return artifact
+            return artifact
+        except Exception as exc:
+            await _emit(emitter, RunEvent(
+                event_type="error", gate=gate, agent="Knowledge Mapper",
+                message=f"{title}生成失败：{exc}",
+            ))
+            # Return a fallback artifact so the workflow continues
+            return Artifact(
+                id=art_id, project_id=state["project_id"], artifact_type=art_type,
+                title=title, content_path=path,
+                content=f"# {project['domain']} {title}\n\n生成失败，请稍后重试。",
+                source_evidence_ids=_evidence_ids(state),
+            )
 
     # Run artifacts in parallel (limited by semaphore)
     results = await asyncio.gather(*[_generate_one_artifact(s) for s in artifacts_spec])
