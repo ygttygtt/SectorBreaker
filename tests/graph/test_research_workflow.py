@@ -5,6 +5,23 @@ from backend.app.providers.fakes import FakeLLMProvider, FakeSearchProvider
 from backend.app.schemas import ArtifactType, MarketScope, ResearchDepth, ResearchGate, ResearchProject
 
 
+def _default_fake_llm():
+    return FakeLLMProvider(
+        response={
+            "domain_definition": "测试行业",
+            "boundaries": "测试边界",
+            "common_confusions": ["测试混淆"],
+            "key_questions": [{"question": "测试问题", "importance": "重要", "source": "搜索", "common_mistake": "无", "priority_1h": "高"}],
+            "data_caliber": [],
+            "sections": ["行业定义", "市场现状"],
+            "key_questions_list": ["用户为什么付费？"],
+            "learning_path": ["先学行业定义"],
+            "title": "测试产物",
+            "content": "# 测试内容\n\n行业边界和市场现状分析。",
+        }
+    )
+
+
 def test_research_workflow_generates_evidence_linked_artifacts() -> None:
     project = ResearchProject(
         id="project-1",
@@ -14,7 +31,7 @@ def test_research_workflow_generates_evidence_linked_artifacts() -> None:
         depth=ResearchDepth.QUICK,
     )
 
-    state = asyncio.run(run_research_workflow(project))
+    state = asyncio.run(run_research_workflow(project, llm_provider=_default_fake_llm()))
 
     artifact_types = {artifact.artifact_type for artifact in state.artifacts}
     assert state.current_gate == ResearchGate.EXPORT

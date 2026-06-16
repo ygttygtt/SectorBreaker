@@ -68,29 +68,23 @@ async def _llm_generate(
     llm_provider: LLMProvider | None,
     system_prompt: str,
     user_prompt: str,
-    fallback: dict | str,
     emitter: EventEmitter | None,
     gate: str,
     agent: str,
 ) -> dict | str:
-    """Call LLM with fallback to template on failure."""
+    """Call LLM. Raises if provider is not configured."""
     if llm_provider is None:
-        return fallback
-    try:
-        result = await llm_provider.complete_structured(
-            messages=[
-                ChatMessage(role="system", content=system_prompt),
-                ChatMessage(role="user", content=user_prompt),
-            ],
-            response_schema=dict if isinstance(fallback, dict) else str,
+        raise RuntimeError(
+            "LLM 未配置。请先在页面右下角点击「LLM 设置」配置 API 地址和密钥。"
         )
-        return result
-    except Exception as exc:
-        await _emit(emitter, RunEvent(
-            event_type="error", gate=gate, agent=agent,
-            message=f"LLM 调用失败，使用默认内容：{exc}",
-        ))
-        return fallback
+    result = await llm_provider.complete_structured(
+        messages=[
+            ChatMessage(role="system", content=system_prompt),
+            ChatMessage(role="user", content=user_prompt),
+        ],
+        response_schema=dict,
+    )
+    return result
 
 
 # ── Workflow state management ────────────────────────────────────
@@ -338,13 +332,6 @@ async def _run_scope_gate(
             f"研究深度：{project['depth']}\n"
             f"{'用户补充：' + state.get('user_guidance', '') if state.get('user_guidance') else ''}"
         ),
-        fallback={
-            "domain_definition": f"{project['domain']}行业研究",
-            "boundaries": "需要进一步明确",
-            "common_confusions": ["市场口径不统一", "数据来源不一致"],
-            "data_caliber": "需区分市场规模、用户规模、供给规模等不同口径",
-            "recommended_scope": "先从行业概况和主要玩家开始",
-        },
         emitter=emitter, gate=gate, agent="Research Planner",
     )
 
@@ -526,7 +513,6 @@ async def _run_research_frame_gate(
             f"市场范围：{project['market_scope']}。"
             f"{'用户补充方向：' + state.get('user_guidance', '') if state.get('user_guidance') else ''}"
         ),
-        fallback=_default_plan(),
         emitter=emitter, gate=gate, agent="Research Planner",
     )
 
@@ -713,7 +699,6 @@ async def _run_knowledge_map_gate(
                     f"研究框架：{', '.join(a.get('title', '') for a in state['artifacts'])}\n"
                     f"{'用户方向：' + state.get('user_guidance', '') if state.get('user_guidance') else ''}"
                 ),
-                fallback={"title": title, "content": f"# {project['domain']} {title}\n\n需要配置 LLM 以生成详细内容。"},
                 emitter=emitter, gate=gate, agent="Knowledge Mapper",
             )
 
@@ -794,16 +779,6 @@ async def _run_opportunity_gate(
             f"证据数量：{len(state['evidence'])} 条\n"
             f"{'用户方向：' + state.get('user_guidance', '') if state.get('user_guidance') else ''}"
         ),
-        fallback={
-            "title": "机会地图",
-            "content": (
-                f"# {project['domain']} 机会地图\n\n"
-                "## 第一批机会假设\n\n"
-                "- 找出用户痛点强但内容供给不足的细分主题。\n"
-                "- 找出信任成本高、但可用案例和证据降低风险的交易单位。\n"
-                "- 找出第一周可验证的问题：用户是否搜索、是否咨询、是否愿意付费。\n"
-            ),
-        },
         emitter=emitter, gate=gate, agent="Opportunity Analyst",
     )
 

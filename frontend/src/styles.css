@@ -164,6 +164,25 @@ button, input { font: inherit; }
   padding: 12px 20px;
 }
 
+.landing-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  margin-bottom: 24px;
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 8px;
+  color: #856404;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.landing-warning:hover {
+  background: #ffeaa7;
+}
+
 .landing-steps-preview {
   margin-top: 48px;
   max-width: 640px;

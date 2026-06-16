@@ -20,9 +20,31 @@ def _wait_for_run(client: TestClient, run_id: str, timeout: float = 10.0) -> dic
     raise TimeoutError(f"Run {run_id} did not complete within {timeout}s")
 
 
+def _default_fake_llm():
+    """FakeLLMProvider that returns valid data for any prompt."""
+    return FakeLLMProvider(
+        response={
+            "domain_definition": "测试行业",
+            "boundaries": "测试边界",
+            "common_confusions": ["测试混淆"],
+            "key_questions": [{"question": "测试问题", "importance": "重要", "source": "搜索", "common_mistake": "无", "priority_1h": "高"}],
+            "data_caliber": [{"metric": "市场规模", "caliber": "统一口径", "confusion": "无", "suitable_for": "概况", "not_suitable_for": "细节", "recommended_source": "行业报告"}],
+            "sections": ["行业定义", "市场现状"],
+            "key_questions_list": ["用户为什么付费？"],
+            "learning_path": ["先学行业定义"],
+            "title": "测试产物",
+            "content": "# 测试内容\n\n行业边界和市场现状分析。",
+        }
+    )
+
+
 def test_api_runs_research_and_exports_markdown(tmp_path: Path) -> None:
     client = TestClient(
-        create_app(database_path=tmp_path / "sectorbreaker.sqlite3", export_root=tmp_path / "exports")
+        create_app(
+            database_path=tmp_path / "sectorbreaker.sqlite3",
+            export_root=tmp_path / "exports",
+            llm_provider=_default_fake_llm(),
+        )
     )
 
     project_response = client.post(
@@ -65,7 +87,11 @@ def test_api_runs_research_and_exports_markdown(tmp_path: Path) -> None:
 
 def test_api_project_chat_uses_local_fts(tmp_path: Path) -> None:
     client = TestClient(
-        create_app(database_path=tmp_path / "sectorbreaker.sqlite3", export_root=tmp_path / "exports")
+        create_app(
+            database_path=tmp_path / "sectorbreaker.sqlite3",
+            export_root=tmp_path / "exports",
+            llm_provider=_default_fake_llm(),
+        )
     )
     project_id = client.post(
         "/api/projects",

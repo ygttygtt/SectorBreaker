@@ -31,10 +31,11 @@ type AppPhase = "landing" | "researching" | "reviewing" | "result";
 /*  LandingView                                                        */
 /* ================================================================== */
 
-function LandingView({ onStart, onOpenSettings, isLoading }: {
+function LandingView({ onStart, onOpenSettings, isLoading, llmConfigured }: {
   onStart: (domain: string, autoRun?: boolean) => void;
   onOpenSettings: () => void;
   isLoading: boolean;
+  llmConfigured: boolean;
 }) {
   const [domain, setDomain] = useState("");
   const formRef = useRef<HTMLFormElement>(null);
@@ -68,6 +69,13 @@ function LandingView({ onStart, onOpenSettings, isLoading }: {
         输入一个行业或领域名称，AI 将为你拆解产业链、竞品格局、内容生态和机会地图
       </p>
 
+      {!llmConfigured && (
+        <div className="landing-warning" onClick={onOpenSettings}>
+          <Settings size={16} />
+          <span>LLM 未配置 — 点击此处设置 API 密钥后才能开始研究</span>
+        </div>
+      )}
+
       <form ref={formRef} className="landing-form" onSubmit={handleSubmit}>
         <div className="landing-input-wrap">
           <Search size={20} className="landing-input-icon" />
@@ -81,7 +89,7 @@ function LandingView({ onStart, onOpenSettings, isLoading }: {
           />
         </div>
         <div className="landing-btn-row">
-          <button className="primary landing-btn" type="submit" disabled={!domain.trim() || isLoading}>
+          <button className="primary landing-btn" type="submit" disabled={!domain.trim() || isLoading || !llmConfigured}>
             {isLoading ? (
               <>
                 <Loader2 size={18} className="spinner" />
@@ -405,6 +413,14 @@ export function App() {
   const [activeMessage, setActiveMessage] = useState<string | null>(null);
   const [reviewingGate, setReviewingGate] = useState<string | null>(null);
   const [reviewingEvents, setReviewingEvents] = useState<RunEvent[]>([]);
+  const [llmConfigured, setLlmConfigured] = useState(true); // Assume configured until check fails
+
+  // Check LLM config on mount
+  useEffect(() => {
+    api.getLLMConfig().then((cfg) => {
+      setLlmConfigured(cfg.configured);
+    }).catch(() => setLlmConfigured(false));
+  }, []);
 
   // SSE event handlers
   const onEvent = useCallback((event: RunEvent) => {
@@ -567,6 +583,7 @@ export function App() {
           onStart={startResearch}
           onOpenSettings={() => setShowConfig(true)}
           isLoading={isLoading}
+          llmConfigured={llmConfigured}
         />
       )}
 
