@@ -1,0 +1,13 @@
+[
+  {
+    "id": "EV-USER-SCOPE",
+    "project_id": "test-health",
+    "source_title": "User project scope",
+    "snippet": "User wants to research 大健康保健品 with china scope.",
+    "source_url": null,
+    "source_type": null,
+    "summary": "User-provided scope and intent.",
+    "confidence": 1.0,
+    "verification_status": "unverified"
+  }
+]

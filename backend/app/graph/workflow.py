@@ -71,20 +71,33 @@ async def _llm_generate(
     emitter: EventEmitter | None,
     gate: str,
     agent: str,
+    retries: int = 2,
 ) -> dict | str:
-    """Call LLM. Raises if provider is not configured."""
+    """Call LLM with retry. Raises if provider is not configured."""
     if llm_provider is None:
         raise RuntimeError(
             "LLM 未配置。请先在页面右下角点击「LLM 设置」配置 API 地址和密钥。"
         )
-    result = await llm_provider.complete_structured(
-        messages=[
-            ChatMessage(role="system", content=system_prompt),
-            ChatMessage(role="user", content=user_prompt),
-        ],
-        response_schema=dict,
-    )
-    return result
+    last_error = None
+    for attempt in range(retries):
+        try:
+            result = await llm_provider.complete_structured(
+                messages=[
+                    ChatMessage(role="system", content=system_prompt),
+                    ChatMessage(role="user", content=user_prompt),
+                ],
+                response_schema=dict,
+            )
+            return result
+        except Exception as exc:
+            last_error = exc
+            if attempt < retries - 1:
+                await _emit(emitter, RunEvent(
+                    event_type="error", gate=gate, agent=agent,
+                    message=f"LLM 调用失败（第 {attempt+1} 次），重试中... ({exc})",
+                ))
+                await asyncio.sleep(2)
+    raise last_error
 
 
 # ── Workflow state management ────────────────────────────────────
@@ -369,17 +382,26 @@ async def _run_scope_gate(
                     f"{c.get('not_suitable_for', '')} | {c.get('recommended_source', '')} |\n"
                 )
 
-        scope_artifact_content = (
-            f"# {project['domain']} 研究范围分析\n\n"
-            f"## 领域定义\n\n{scope_analysis.get('domain_definition', '')}\n\n"
-            f"## 边界说明\n\n{scope_analysis.get('boundaries', '')}\n\n"
-            f"## 常见混淆点\n\n" + "\n".join(f"- {c}" for c in scope_analysis.get("common_confusions", [])) + "\n\n"
-            f"## 关键问题（10个）\n\n{questions_md}\n"
-            f"## 数据口径\n\n"
-            f"| 指标 | 统计口径 | 容易混淆 | 适合回答 | 不适合回答 | 建议数据来源 |\n"
-            f"|------|---------|---------|---------|-----------|------------|\n"
-            f"{caliber_md}\n"
-        )
+        # Build content — use scope_content as fallback if structured fields are empty
+        definition = scope_analysis.get("domain_definition", "") or ""
+        boundaries = scope_analysis.get("boundaries", "") or ""
+        confusions = scope_analysis.get("common_confusions", []) or []
+
+        if not definition and not boundaries:
+            # LLM returned dict but without expected fields — use raw content
+            scope_artifact_content = f"# {project['domain']} 研究范围分析\n\n{scope_content}"
+        else:
+            scope_artifact_content = (
+                f"# {project['domain']} 研究范围分析\n\n"
+                f"## 领域定义\n\n{definition}\n\n"
+                f"## 边界说明\n\n{boundaries}\n\n"
+                f"## 常见混淆点\n\n" + "\n".join(f"- {c}" for c in confusions) + "\n\n"
+                f"## 关键问题（10个）\n\n{questions_md}\n"
+                f"## 数据口径\n\n"
+                f"| 指标 | 统计口径 | 容易混淆 | 适合回答 | 不适合回答 | 建议数据来源 |\n"
+                f"|------|---------|---------|---------|-----------|------------|\n"
+                f"{caliber_md}\n"
+            )
     else:
         scope_artifact_content = f"# {project['domain']} 研究范围分析\n\n{scope_content}"
 
@@ -703,7 +725,11 @@ async def _run_knowledge_map_gate(
             )
 
         if isinstance(llm_result, dict):
-            content = llm_result.get("content", f"# {title}\n\n内容生成中。")
+            content = llm_result.get("content") or llm_result.get("text") or llm_result.get("result")
+            if not content:
+                # LLM returned a dict without content key — serialize the whole thing
+                import json as _json
+                content = _json.dumps(llm_result, ensure_ascii=False, indent=2)
             if not content.startswith("#"):
                 content = f"# {project['domain']} {title}\n\n{content}"
         else:
