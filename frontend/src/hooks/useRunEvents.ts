@@ -46,6 +46,9 @@ export function useRunEvents({ runId, onEvent, onComplete, onError }: UseRunEven
     eventSourceRef.current = es;
     setIsConnected(true);
 
+    // Track seen events to deduplicate on reconnect replay
+    const seen = new Set<string>();
+
     es.onmessage = (msg) => {
       if (msg.data === "[DONE]") {
         es.close();
@@ -55,6 +58,10 @@ export function useRunEvents({ runId, onEvent, onComplete, onError }: UseRunEven
       }
       try {
         const event: RunEvent = JSON.parse(msg.data);
+        // Dedup key: timestamp + gate + event_type + message prefix
+        const key = `${event.timestamp}-${event.gate}-${event.event_type}-${event.message?.slice(0, 30)}`;
+        if (seen.has(key)) return;
+        seen.add(key);
         setEvents((prev) => [...prev, event]);
         onEventRef.current?.(event);
       } catch {
