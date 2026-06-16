@@ -12,6 +12,17 @@ import asyncio
 import json
 from typing import Any, Callable, Awaitable
 
+# Limit concurrent LLM calls to avoid rate limiting
+_LLM_CONCURRENCY = 3
+_llm_semaphore: asyncio.Semaphore | None = None
+
+
+def _get_semaphore() -> asyncio.Semaphore:
+    global _llm_semaphore
+    if _llm_semaphore is None:
+        _llm_semaphore = asyncio.Semaphore(_LLM_CONCURRENCY)
+    return _llm_semaphore
+
 from backend.app.providers.interfaces import ChatMessage, LLMProvider, SearchProvider, SearchQuery
 from backend.app.schemas import (
     Artifact,
@@ -312,11 +323,14 @@ async def _run_scope_gate(
         system_prompt=(
             "你是行业研究规划 Agent。用户想研究一个领域，你需要：\n"
             "1. 分析这个领域的边界和定义\n"
-            "2. 列出研究该领域最应先搞清楚的 5 个关键问题，每个说明为什么重要、去哪找答案、常见误判\n"
-            "3. 列出常见数据口径问题：指标名称、常见统计口径、容易混淆的地方、适合/不适合回答什么问题\n"
+            "2. 列出研究该领域最应先搞清楚的 10 个关键问题，每个说明：为什么重要、应该去哪里找答案、"
+            "常见误判是什么、如果只用1小时应该优先查到什么程度\n"
+            "3. 列出常见数据口径问题：指标名称、常见统计口径、容易混淆的地方、"
+            "适合回答什么问题、不适合回答什么问题、建议优先查证的数据来源\n"
             "只返回 JSON，字段：domain_definition（领域定义）, boundaries（边界说明）, "
-            "common_confusions（常见混淆点列表）, key_questions（关键问题列表，每个含 question/importance/source/common_mistake）, "
-            "data_caliber（数据口径列表，每个含 metric/caliber/confusion/suitable_for/not_suitable_for）。"
+            "common_confusions（常见混淆点列表）, "
+            "key_questions（关键问题列表，每个含 question/importance/source/common_mistake/priority_1h）, "
+            "data_caliber（数据口径列表，每个含 metric/caliber/confusion/suitable_for/not_suitable_for/recommended_source）。"
         ),
         user_prompt=(
             f"领域：{project['domain']}\n"
@@ -346,6 +360,52 @@ async def _run_scope_gate(
         )
     else:
         scope_content = str(scope_analysis)
+
+    # Save scope analysis as an artifact
+    if isinstance(scope_analysis, dict):
+        questions_md = ""
+        for q in scope_analysis.get("key_questions", []):
+            if isinstance(q, dict):
+                questions_md += (
+                    f"### {q.get('question', '')}\n"
+                    f"- **为什么重要**：{q.get('importance', '')}\n"
+                    f"- **去哪找答案**：{q.get('source', '')}\n"
+                    f"- **常见误判**：{q.get('common_mistake', '')}\n"
+                    f"- **1小时优先级**：{q.get('priority_1h', '')}\n\n"
+                )
+        caliber_md = ""
+        for c in scope_analysis.get("data_caliber", []):
+            if isinstance(c, dict):
+                caliber_md += (
+                    f"| {c.get('metric', '')} | {c.get('caliber', '')} | "
+                    f"{c.get('confusion', '')} | {c.get('suitable_for', '')} | "
+                    f"{c.get('not_suitable_for', '')} | {c.get('recommended_source', '')} |\n"
+                )
+
+        scope_artifact_content = (
+            f"# {project['domain']} 研究范围分析\n\n"
+            f"## 领域定义\n\n{scope_analysis.get('domain_definition', '')}\n\n"
+            f"## 边界说明\n\n{scope_analysis.get('boundaries', '')}\n\n"
+            f"## 常见混淆点\n\n" + "\n".join(f"- {c}" for c in scope_analysis.get("common_confusions", [])) + "\n\n"
+            f"## 关键问题（10个）\n\n{questions_md}\n"
+            f"## 数据口径\n\n"
+            f"| 指标 | 统计口径 | 容易混淆 | 适合回答 | 不适合回答 | 建议数据来源 |\n"
+            f"|------|---------|---------|---------|-----------|------------|\n"
+            f"{caliber_md}\n"
+        )
+    else:
+        scope_artifact_content = f"# {project['domain']} 研究范围分析\n\n{scope_content}"
+
+    scope_artifact = Artifact(
+        id="ART-SCOPE-ANALYSIS",
+        project_id=state["project_id"],
+        artifact_type=ArtifactType.RESEARCH_FRAME,
+        title="研究范围分析",
+        content_path="00-研究范围/scope-analysis.md",
+        content=scope_artifact_content,
+        source_evidence_ids=_evidence_ids(state),
+    )
+    state["artifacts"].append(scope_artifact.model_dump(mode="json"))
 
     await _emit(emitter, RunEvent(
         event_type="artifact_created", gate=gate, agent="Research Planner",
@@ -541,8 +601,10 @@ async def _run_knowledge_map_gate(
             "02-市场现状/market-overview.md",
             "市场规模、增长驱动与约束",
             "你是市场分析 Agent。为指定行业生成市场现状分析。只返回 JSON，字段：title, "
-            "content（Markdown 格式，包含市场规模估算、增长驱动、限制因素、数据口径说明）。"
-            "区分事实、推测和观点。",
+            "content（Markdown 格式，包含：市场规模估算、增长速度、核心细分市场及各自用户规模、"
+            "供给规模（机构/从业者/产品数量等）、主要增长驱动、主要限制因素、"
+            "数据来源及可信度判断、统计口径说明）。"
+            "严格区分事实、推测和观点，每个数据点标注来源和可信度。",
         ),
         (
             "ART-PLAYER-MAP", ArtifactType.PLAYER_MAP, "玩家与交易单位",
@@ -550,7 +612,8 @@ async def _run_knowledge_map_gate(
             "玩家角色、商业逻辑与交易单位",
             "你是竞品分析 Agent。为指定行业生成玩家与交易单位分析。只返回 JSON，字段：title, "
             "content（Markdown 格式，按角色分类：提供服务者、拥有用户者、拥有渠道者、"
-            "掌握关键资源者、负责交付者、监管者。每类给出代表玩家、商业价值、议价能力）。"
+            "掌握关键资源者、负责交付者、监管者、从交易中赚钱者。"
+            "每类给出：代表玩家、商业价值、议价能力、新手容易忽略的地方）。"
             "同时识别主要交易单位（用户真正付钱购买的东西，包含客单价、购买频率、复购周期）。",
         ),
         (
@@ -604,7 +667,7 @@ async def _run_knowledge_map_gate(
             "09-内容账号/content-accounts.md",
             "批量内容账号分析",
             "你是内容生态分析 Agent。为指定行业建立内容账号数据库。只返回 JSON，字段：title, "
-            "content（Markdown 格式，按平台分类：小红书、抖音、视频号、B站、公众号、知乎、大众点评。"
+            "content（Markdown 格式，按平台分类：小红书、抖音、视频号、B站、公众号、知乎、大众点评、行业垂直媒体。"
             "每个平台列出 3-5 个代表性账号类型，每个类型输出：账号名称、账号主体、粉丝量级、"
             "更新频率、内容方向、主要受众、主推产品或服务、转化方式、代表内容、值得学习的地方）。",
         ),
@@ -631,26 +694,28 @@ async def _run_knowledge_map_gate(
         ),
     ]
 
-    for art_id, art_type, title, path, desc, system_prompt in artifacts_spec:
+    async def _generate_one_artifact(spec):
+        art_id, art_type, title, path, desc, system_prompt = spec
         await _emit(emitter, RunEvent(
             event_type="step_start", gate=gate, step=art_id, agent="Knowledge Mapper",
             message=f"正在生成：{title}（{desc}）",
         ))
 
-        llm_result = await _llm_generate(
-            llm_provider,
-            system_prompt=system_prompt,
-            user_prompt=(
-                f"行业：{project['domain']}\n"
-                f"市场范围：{project['market_scope']}\n"
-                f"研究深度：{project['depth']}\n"
-                f"已有证据数量：{len(state['evidence'])} 条\n"
-                f"研究框架：{', '.join(a.get('title', '') for a in state['artifacts'])}\n"
-                f"{'用户方向：' + state.get('user_guidance', '') if state.get('user_guidance') else ''}"
-            ),
-            fallback={"title": title, "content": f"# {project['domain']} {title}\n\n需要配置 LLM 以生成详细内容。"},
-            emitter=emitter, gate=gate, agent="Knowledge Mapper",
-        )
+        async with _get_semaphore():
+            llm_result = await _llm_generate(
+                llm_provider,
+                system_prompt=system_prompt,
+                user_prompt=(
+                    f"行业：{project['domain']}\n"
+                    f"市场范围：{project['market_scope']}\n"
+                    f"研究深度：{project['depth']}\n"
+                    f"已有证据数量：{len(state['evidence'])} 条\n"
+                    f"研究框架：{', '.join(a.get('title', '') for a in state['artifacts'])}\n"
+                    f"{'用户方向：' + state.get('user_guidance', '') if state.get('user_guidance') else ''}"
+                ),
+                fallback={"title": title, "content": f"# {project['domain']} {title}\n\n需要配置 LLM 以生成详细内容。"},
+                emitter=emitter, gate=gate, agent="Knowledge Mapper",
+            )
 
         if isinstance(llm_result, dict):
             content = llm_result.get("content", f"# {title}\n\n内容生成中。")
@@ -664,13 +729,20 @@ async def _run_knowledge_map_gate(
             title=title, content_path=path, content=content,
             source_evidence_ids=_evidence_ids(state),
         )
-        state["artifacts"].append(artifact.model_dump(mode="json"))
 
         await _emit(emitter, RunEvent(
             event_type="artifact_created", gate=gate, agent="Knowledge Mapper",
             message=f"{title}已生成（{len(content)} 字）",
             data={"artifact_id": art_id},
         ))
+
+        return artifact
+
+    # Run artifacts in parallel (limited by semaphore)
+    results = await asyncio.gather(*[_generate_one_artifact(s) for s in artifacts_spec])
+    for artifact in results:
+        if artifact:
+            state["artifacts"].append(artifact.model_dump(mode="json"))
 
     state["coverage_checklist"]["knowledge_map"] = True
 
@@ -705,10 +777,15 @@ async def _run_opportunity_gate(
         llm_provider,
         system_prompt=(
             "你是机会分析 Agent。基于前面的行业研究，为指定行业生成机会地图。"
-            "只返回 JSON，字段：title, content（Markdown 格式，包含："
-            "第一批机会假设列表，每个假设包含：机会名称、机会逻辑、目标用户、"
-            "进入门槛、需要的资源、主要风险、第一周可以验证什么）。"
-            "至少给出 3 个机会假设。"
+            "只返回 JSON，字段：title, content（Markdown 格式，包含：\n"
+            "1. 行业整体判断：哪些细分领域增长快、哪些竞争最激烈\n"
+            "2. 第一批机会假设列表（至少 3 个），每个假设包含：\n"
+            "   - 机会名称、机会逻辑、目标用户\n"
+            "   - 哪些领域用户痛点强但供给不足、哪些领域内容供给不足\n"
+            "   - 哪些领域信任成本高、哪些领域合规风险高\n"
+            "   - 进入门槛、需要的资源、主要风险\n"
+            "   - 哪些领域适合新人进入、哪些看起来有机会但其实很危险\n"
+            "   - 第一周可以验证什么）。"
         ),
         user_prompt=(
             f"行业：{project['domain']}\n"

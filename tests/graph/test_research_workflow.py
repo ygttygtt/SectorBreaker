@@ -56,7 +56,9 @@ def test_research_workflow_uses_search_and_llm_providers() -> None:
     assert ArtifactType.MARKET_OVERVIEW in artifact_types
     assert ArtifactType.PLAYER_MAP in artifact_types
     assert ArtifactType.CONTENT_CHANNELS in artifact_types
-    assert "行业边界" in state.artifacts[0].content
+    # Find the research frame artifact (may not be first due to scope analysis)
+    research_frame = next(a for a in state.artifacts if a.id == "ART-RESEARCH-FRAME")
+    assert "行业边界" in research_frame.content
 
 
 def test_research_workflow_blocks_export_when_research_frame_is_empty() -> None:

@@ -467,8 +467,8 @@ export function App() {
     setReviewingGate(null);
     setReviewingEvents([]);
 
-    // Timeout safety: if still loading after 30s, unlock the button
-    const timeout = setTimeout(() => setIsLoading(false), 30000);
+    // Timeout safety: if still loading after 120s, unlock the button
+    const timeout = setTimeout(() => setIsLoading(false), 120000);
 
     try {
       const proj = await api.createProject({

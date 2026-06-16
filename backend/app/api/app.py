@@ -177,7 +177,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="run not found") from exc
 
     @app.post("/api/runs/{run_id}/resume")
-    async def resume_run(run_id: str, payload: ResumeRequest):
+    async def resume_run(run_id: str, payload: ResumeRequest, background_tasks: BackgroundTasks):
         """Resume workflow after human review.
 
         Stores user inputs and continues execution from the next gate.
@@ -273,7 +273,7 @@ def create_app(
                 ))
                 repository.update_run(run_id, status=RunStatus.FAILED, completed_at=datetime.now(UTC))
 
-        asyncio.create_task(resume_in_background())
+        background_tasks.add_task(resume_in_background)
 
         return {"status": "resumed", "run_id": run_id}
 
