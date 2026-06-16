@@ -1,146 +1,52 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import gsap from "gsap";
 import {
-  ArrowRight,
-  Bot,
-  CheckCircle2,
-  Circle,
-  ClipboardCheck,
-  Database,
-  Download,
-  FileText,
-  Loader2,
-  Map,
   Play,
+  Loader2,
+  CheckCircle2,
+  Download,
   Search,
   Settings,
-  ShieldCheck,
-  Target,
-  UserCheck,
+  ArrowLeft,
+  FileText,
+  Database,
 } from "lucide-react";
 
 import "./styles.css";
 import { ToastContainer, useToast } from "./components/Toast";
 import { ConfigPanel } from "./components/ConfigPanel";
+import { Logo } from "./components/Logo";
+import { GraphFlow, GATES } from "./components/GraphFlow";
+import { LogStream } from "./components/LogStream";
+import { api } from "./api/client";
+import { useRunEvents } from "./hooks/useRunEvents";
+import type { Project, RunEvent, Artifact, Evidence, ChatResponse, ExportManifest } from "./api/client";
 
-type Project = {
-  id: string;
-  title: string;
-  domain: string;
-  market_scope: string;
-  depth: string;
-};
+type AppPhase = "landing" | "researching" | "result";
 
-type Artifact = {
-  id: string;
-  title: string;
-  content_path: string;
-  artifact_type?: string;
-};
+/* ================================================================== */
+/*  LandingView                                                        */
+/* ================================================================== */
 
-type Evidence = {
-  id: string;
-  source_title: string;
-  snippet: string;
-};
-
-type ResearchState = {
-  current_gate: string;
-  artifacts: Artifact[];
-  evidence?: Evidence[];
-  qa_issues?: string[];
-};
-
-type ChatResponse = {
-  answer: string;
-  citations: string[];
-};
-
-type ExportManifest = {
-  artifact_paths: string[];
-  evidence_ids: string[];
-};
-
-/**
- * 6 fixed gates from the architecture.
- * `humanReview` marks gates that pause for user confirmation.
- */
-const gateLabels = [
-  { key: "scope", name: "范围确认", icon: Target, humanReview: true },
-  { key: "research_frame", name: "研究框架", icon: ClipboardCheck, humanReview: true },
-  { key: "evidence", name: "资料证据", icon: Database, humanReview: false },
-  { key: "knowledge_map", name: "知识地图", icon: Map, humanReview: false },
-  { key: "opportunity", name: "机会地图", icon: Search, humanReview: true },
-  { key: "export", name: "知识库导出", icon: Download, humanReview: false },
-];
-
-type AppPhase = "landing" | "running" | "done";
-
-async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
-    ...init,
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: "请求失败" }));
-    throw new Error(error.detail || `API 请求失败: ${response.status}`);
-  }
-  return response.json() as Promise<T>;
-}
-
-/* ------------------------------------------------------------------ */
-/*  Gate stepper                                                       */
-/* ------------------------------------------------------------------ */
-
-function GateStepper({ currentGate, phase }: { currentGate: string; phase: AppPhase }) {
-  const currentIdx = gateLabels.findIndex((g) => g.key === currentGate);
-
-  return (
-    <div className="stepper">
-      {gateLabels.map((gate, idx) => {
-        let status: "done" | "current" | "next" = "next";
-        if (phase === "done") status = "done";
-        else if (idx < currentIdx) status = "done";
-        else if (idx === currentIdx) status = "current";
-
-        const Icon = gate.icon;
-        return (
-          <div className={`step step--${status}`} key={gate.key}>
-            <div className="step-indicator">
-              {status === "done" ? (
-                <CheckCircle2 size={20} />
-              ) : status === "current" ? (
-                <Loader2 size={20} className="spinner" />
-              ) : (
-                <Circle size={20} />
-              )}
-            </div>
-            <div className="step-body">
-              <span className="step-label">{gate.name}</span>
-              {gate.humanReview && (
-                <span className="step-badge">
-                  <UserCheck size={12} />
-                  人工确认
-                </span>
-              )}
-            </div>
-            {idx < gateLabels.length - 1 && <ArrowRight size={14} className="step-arrow" />}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  Landing page                                                       */
-/* ------------------------------------------------------------------ */
-
-function LandingPage({ onStart, onOpenSettings, isLoading }: {
+function LandingView({ onStart, onOpenSettings, isLoading }: {
   onStart: (domain: string) => void;
   onOpenSettings: () => void;
   isLoading: boolean;
 }) {
   const [domain, setDomain] = useState("");
+  const formRef = useRef<HTMLFormElement>(null);
+
+  // Entrance animation
+  useEffect(() => {
+    const ctx = gsap.context(() => {
+      gsap.from(".landing-brand", { y: -30, opacity: 0, duration: 0.6, ease: "power2.out" });
+      gsap.from(".landing-title", { y: 20, opacity: 0, duration: 0.6, delay: 0.1, ease: "power2.out" });
+      gsap.from(".landing-subtitle", { y: 20, opacity: 0, duration: 0.6, delay: 0.2, ease: "power2.out" });
+      gsap.from(".landing-form", { y: 20, opacity: 0, duration: 0.6, delay: 0.3, ease: "power2.out" });
+      gsap.from(".landing-steps-preview", { y: 20, opacity: 0, duration: 0.6, delay: 0.5, ease: "power2.out" });
+    });
+    return () => ctx.revert();
+  }, []);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -150,7 +56,7 @@ function LandingPage({ onStart, onOpenSettings, isLoading }: {
   return (
     <div className="landing">
       <div className="landing-brand">
-        <Bot size={36} />
+        <Logo size={48} />
         <div>
           <h1>SectorBreaker</h1>
           <p>领域破壁系统</p>
@@ -162,7 +68,7 @@ function LandingPage({ onStart, onOpenSettings, isLoading }: {
         输入一个行业或领域名称，AI 将为你拆解产业链、竞品格局、内容生态和机会地图
       </p>
 
-      <form className="landing-form" onSubmit={handleSubmit}>
+      <form ref={formRef} className="landing-form" onSubmit={handleSubmit}>
         <div className="landing-input-wrap">
           <Search size={20} className="landing-input-icon" />
           <input
@@ -192,11 +98,10 @@ function LandingPage({ onStart, onOpenSettings, isLoading }: {
       <div className="landing-steps-preview">
         <p>研究流程</p>
         <div className="landing-steps-row">
-          {gateLabels.map((gate, idx) => (
+          {GATES.map((gate, idx) => (
             <div className="landing-step-chip" key={gate.key}>
               <span className="landing-step-num">{idx + 1}</span>
               <span>{gate.name}</span>
-              {gate.humanReview && <UserCheck size={12} className="landing-step-hint" />}
             </div>
           ))}
         </div>
@@ -210,72 +115,184 @@ function LandingPage({ onStart, onOpenSettings, isLoading }: {
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  Research view (running / done)                                     */
-/* ------------------------------------------------------------------ */
+/* ================================================================== */
+/*  ResearchView                                                       */
+/* ================================================================== */
 
 function ResearchView({
-  project, currentGate, phase, artifacts, evidence, qaIssues,
-  statusText, question, setQuestion, chat, askQuestion,
-  exportManifest, exportProject, onNewResearch,
+  project, runId, events, activeAgent, activeMessage,
+  onBack,
 }: {
   project: Project;
-  currentGate: string;
-  phase: AppPhase;
-  artifacts: Artifact[];
-  evidence: Evidence[];
-  qaIssues: string[];
-  statusText: string;
-  question: string;
-  setQuestion: (v: string) => void;
-  chat: ChatResponse | null;
-  askQuestion: () => void;
-  exportManifest: ExportManifest | null;
-  exportProject: () => void;
-  onNewResearch: () => void;
+  runId: string;
+  events: RunEvent[];
+  activeAgent: string | null;
+  activeMessage: string | null;
+  onBack: () => void;
 }) {
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  // Entrance animation
+  useEffect(() => {
+    if (!contentRef.current) return;
+    const ctx = gsap.context(() => {
+      gsap.from(".research-header", { y: -20, opacity: 0, duration: 0.4, ease: "power2.out" });
+      gsap.from(".research-info", { y: -10, opacity: 0, duration: 0.4, delay: 0.1, ease: "power2.out" });
+      gsap.from(".graph-flow", { y: 20, opacity: 0, duration: 0.5, delay: 0.2, ease: "power2.out" });
+      gsap.from(".log-stream", { y: 20, opacity: 0, duration: 0.5, delay: 0.3, ease: "power2.out" });
+    }, contentRef);
+    return () => ctx.revert();
+  }, []);
+
+  // Determine current gate from events
+  const currentGate = events.length > 0
+    ? [...events].reverse().find((e) => e.gate)?.gate ?? "scope"
+    : "scope";
+
+  // Scope display name
+  const scopeLabel = project.market_scope === "china" ? "中国市场"
+    : project.market_scope === "global" ? "全球市场" : "混合市场";
+
   return (
-    <div className="research">
-      {/* Top bar */}
+    <div ref={contentRef} className="research">
       <header className="research-header">
         <div className="research-header-left">
-          <Bot size={22} />
+          <Logo size={28} animate={false} />
           <h1>SectorBreaker</h1>
         </div>
-        <button className="secondary" onClick={onNewResearch}>
-          <Play size={16} />
+        <button className="secondary" onClick={onBack}>
+          <ArrowLeft size={16} />
           新研究
         </button>
       </header>
 
-      {/* Project info strip */}
       <div className="research-info">
         <div className="research-domain">
-          <Target size={18} />
           <strong>{project.domain}</strong>
+          <span className="research-scope">{scopeLabel}</span>
         </div>
-        <span className="research-scope">{project.market_scope === "china" ? "中国市场" : project.market_scope === "global" ? "全球市场" : "混合市场"}</span>
-        <span className={`research-status research-status--${phase}`}>
-          {phase === "running" && <Loader2 size={14} className="spinner" />}
-          {phase === "done" && <CheckCircle2 size={14} />}
-          {statusText}
+        <span className="research-status research-status--running">
+          <Loader2 size={14} className="spinner" />
+          研究进行中
         </span>
       </div>
 
-      {/* Stepper */}
-      <GateStepper currentGate={currentGate} phase={phase} />
+      <GraphFlow
+        currentGate={currentGate}
+        activeAgent={activeAgent}
+        activeMessage={activeMessage}
+      />
+
+      <LogStream events={events} />
+    </div>
+  );
+}
+
+/* ================================================================== */
+/*  ResultView                                                         */
+/* ================================================================== */
+
+function ResultView({
+  project, artifacts, evidence, chat, setChat, exportManifest, setExportManifest,
+  onNewResearch, toastError, toastSuccess,
+}: {
+  project: Project;
+  artifacts: Artifact[];
+  evidence: Evidence[];
+  chat: ChatResponse | null;
+  setChat: (c: ChatResponse | null) => void;
+  exportManifest: ExportManifest | null;
+  setExportManifest: (m: ExportManifest | null) => void;
+  onNewResearch: () => void;
+  toastError: (msg: string) => void;
+  toastSuccess: (msg: string) => void;
+}) {
+  const [question, setQuestion] = useState("");
+  const [selectedGate, setSelectedGate] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  // Entrance animation
+  useEffect(() => {
+    if (!contentRef.current) return;
+    const ctx = gsap.context(() => {
+      gsap.from(".result-header", { y: -20, opacity: 0, duration: 0.4, ease: "power2.out" });
+      gsap.from(".graph-flow", { y: 20, opacity: 0, duration: 0.5, delay: 0.1, ease: "power2.out" });
+      gsap.from(".result-section", {
+        y: 20, opacity: 0, duration: 0.4, stagger: 0.1, delay: 0.2, ease: "power2.out",
+      });
+    }, contentRef);
+    return () => ctx.revert();
+  }, []);
+
+  async function askQuestion() {
+    if (!question.trim()) return;
+    try {
+      const response = await api.askQuestion(project.id, question);
+      setChat(response);
+    } catch (err) {
+      toastError(err instanceof Error ? err.message : "问答请求失败");
+    }
+  }
+
+  async function exportProject() {
+    setIsExporting(true);
+    try {
+      const manifest = await api.exportProject(project.id);
+      setExportManifest(manifest);
+      toastSuccess("导出成功！");
+    } catch (err) {
+      toastError(err instanceof Error ? err.message : "导出失败");
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
+  // Filter artifacts by selected gate
+  const displayArtifacts = selectedGate
+    ? artifacts.filter((a) => a.id.toLowerCase().includes(selectedGate.replace("_", "-")))
+    : artifacts;
+
+  return (
+    <div ref={contentRef} className="result">
+      <header className="result-header">
+        <div className="result-header-left">
+          <Logo size={28} animate={false} />
+          <h1>SectorBreaker</h1>
+        </div>
+        <div className="result-header-right">
+          <span className="result-status">
+            <CheckCircle2 size={16} />
+            研究完成
+          </span>
+          <button className="secondary" onClick={onNewResearch}>
+            <Play size={16} />
+            新研究
+          </button>
+        </div>
+      </header>
+
+      <div className="result-info">
+        <strong>{project.domain}</strong>
+      </div>
+
+      {/* Flow graph - clickable to filter */}
+      <GraphFlow
+        currentGate="export"
+        onGateClick={(gate) => setSelectedGate(selectedGate === gate ? null : gate)}
+      />
 
       {/* Content area */}
-      <div className="research-content">
+      <div className="result-content">
         {/* Artifacts */}
-        <section className="research-section">
-          <div className="research-section-title">
+        <section className="result-section">
+          <div className="result-section-title">
             <FileText size={18} />
-            <h3>研究产物</h3>
+            <h3>{selectedGate ? `${GATES.find((g) => g.key === selectedGate)?.name ?? ""} 产物` : "全部产物"}</h3>
           </div>
-          {artifacts.length > 0 ? (
-            <ul className="research-artifact-list">
-              {artifacts.map((a) => (
+          {displayArtifacts.length > 0 ? (
+            <ul className="result-artifact-list">
+              {displayArtifacts.map((a) => (
                 <li key={a.id}>
                   <FileText size={14} />
                   <span className="artifact-name">{a.title || a.id}</span>
@@ -284,18 +301,18 @@ function ResearchView({
               ))}
             </ul>
           ) : (
-            <p className="research-empty">研究启动后，这里将展示生成的知识卡片和地图</p>
+            <p className="result-empty">该阶段暂无产物</p>
           )}
         </section>
 
         {/* Evidence */}
-        <section className="research-section">
-          <div className="research-section-title">
+        <section className="result-section">
+          <div className="result-section-title">
             <Database size={18} />
-            <h3>证据来源</h3>
+            <h3>证据来源 ({evidence.length})</h3>
           </div>
           {evidence.length > 0 ? (
-            <ul className="research-evidence-list">
+            <ul className="result-evidence-list">
               {evidence.map((ev) => (
                 <li key={ev.id}>
                   <strong>{ev.source_title}</strong>
@@ -304,176 +321,162 @@ function ResearchView({
               ))}
             </ul>
           ) : (
-            <p className="research-empty">证据收集完成后，来源和摘要将显示在这里</p>
+            <p className="result-empty">暂无证据</p>
           )}
         </section>
 
-        {/* QA issues */}
-        {qaIssues.length > 0 && (
-          <section className="research-section research-section--warning">
-            <div className="research-section-title">
-              <ShieldCheck size={18} />
-              <h3>质量门反馈</h3>
+        {/* Chat */}
+        <section className="result-section result-section--chat">
+          <div className="result-section-title">
+            <Search size={18} />
+            <h3>项目问答</h3>
+          </div>
+          <div className="result-chat-row">
+            <input
+              aria-label="项目问题"
+              placeholder="基于当前研究继续追问"
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && askQuestion()}
+            />
+            <button className="primary" type="button" onClick={askQuestion} disabled={!question.trim()}>
+              询问
+            </button>
+          </div>
+          {chat && (
+            <div className="result-chat-answer">
+              <p>{chat.answer}</p>
+              <span>引用：{chat.citations.join(", ")}</span>
             </div>
-            <ul className="research-qa-list">
-              {qaIssues.map((issue) => (
-                <li key={issue}>{issue}</li>
-              ))}
-            </ul>
-          </section>
-        )}
+          )}
+        </section>
 
-        {/* Chat & Export row */}
-        {phase === "done" && (
-          <section className="research-actions">
-            <div className="research-chat">
-              <div className="research-section-title">
-                <Search size={18} />
-                <h3>项目问答</h3>
-              </div>
-              <div className="research-chat-row">
-                <input
-                  aria-label="项目问题"
-                  placeholder="基于当前研究继续追问"
-                  value={question}
-                  onChange={(e) => setQuestion(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && askQuestion()}
-                />
-                <button className="primary" type="button" onClick={askQuestion} disabled={!question.trim()}>
-                  询问
-                </button>
-              </div>
-              {chat && (
-                <div className="research-chat-answer">
-                  <p>{chat.answer}</p>
-                  <span>引用：{chat.citations.join(", ")}</span>
-                </div>
-              )}
-            </div>
-
-            <div className="research-export">
-              <button className="primary" onClick={exportProject}>
+        {/* Export */}
+        <section className="result-section result-section--export">
+          <button className="primary" onClick={exportProject} disabled={isExporting}>
+            {isExporting ? (
+              <>
+                <Loader2 size={18} className="spinner" />
+                导出中…
+              </>
+            ) : (
+              <>
                 <Download size={18} />
                 导出知识库
-              </button>
-              {exportManifest && (
-                <p className="research-export-result">
-                  已导出 {exportManifest.artifact_paths.length} 个文件
-                </p>
-              )}
-            </div>
-          </section>
-        )}
+              </>
+            )}
+          </button>
+          {exportManifest && (
+            <p className="result-export-info">
+              已导出 {exportManifest.artifact_paths.length} 个文件
+            </p>
+          )}
+        </section>
       </div>
     </div>
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  App root                                                           */
-/* ------------------------------------------------------------------ */
+/* ================================================================== */
+/*  App                                                                */
+/* ================================================================== */
 
 export function App() {
   const { toasts, removeToast, success, error } = useToast();
 
   const [phase, setPhase] = useState<AppPhase>("landing");
   const [project, setProject] = useState<Project | null>(null);
-  const [currentGate, setCurrentGate] = useState("scope");
+  const [runId, setRunId] = useState<string | null>(null);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [evidence, setEvidence] = useState<Evidence[]>([]);
-  const [qaIssues, setQaIssues] = useState<string[]>([]);
-  const [statusText, setStatusText] = useState("等待启动");
-  const [question, setQuestion] = useState("");
   const [chat, setChat] = useState<ChatResponse | null>(null);
   const [exportManifest, setExportManifest] = useState<ExportManifest | null>(null);
-
   const [showConfig, setShowConfig] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [activeAgent, setActiveAgent] = useState<string | null>(null);
+  const [activeMessage, setActiveMessage] = useState<string | null>(null);
+
+  // SSE events
+  const onEvent = useCallback((event: RunEvent) => {
+    setActiveAgent(event.agent ?? null);
+    setActiveMessage(event.message);
+  }, []);
+
+  const onComplete = useCallback(async () => {
+    if (!project) return;
+    try {
+      const [artifactsData, evidenceData] = await Promise.all([
+        api.listArtifacts(project.id),
+        api.listEvidence(project.id),
+      ]);
+      setArtifacts(artifactsData);
+      setEvidence(evidenceData);
+      setPhase("result");
+      success("研究完成！");
+    } catch {
+      error("获取研究结果失败");
+    }
+  }, [project, success, error]);
+
+  const { events, reset: resetEvents } = useRunEvents({
+    runId,
+    onEvent,
+    onComplete,
+    onError: (msg) => error(msg),
+  });
 
   async function startResearch(domain: string) {
     setIsLoading(true);
-    setQaIssues([]);
     setChat(null);
     setExportManifest(null);
-    setPhase("running");
-    setStatusText("运行中");
+    setActiveAgent(null);
+    setActiveMessage(null);
 
     try {
-      const created = await requestJson<Project>("/api/projects", {
-        method: "POST",
-        body: JSON.stringify({
-          title: domain,
-          domain,
-          market_scope: "mixed",
-          depth: "quick",
-        }),
+      // Create project
+      const proj = await api.createProject({
+        title: domain,
+        domain,
+        market_scope: "mixed",
+        depth: "quick",
       });
+      setProject(proj);
+      setPhase("researching");
 
-      const state = await requestJson<ResearchState>(`/api/projects/${created.id}/runs`, {
-        method: "POST",
-      });
+      // Start run (synchronous, waits for completion)
+      const run = await api.startRun(proj.id);
 
-      const evItems = await requestJson<Evidence[]>(
-        `/api/projects/${created.id}/evidence`,
-      );
-
-      setProject(created);
-      setCurrentGate(state.current_gate);
-      setArtifacts(state.artifacts);
-      setEvidence(evItems);
-      setQaIssues(state.qa_issues ?? []);
-      setPhase("done");
-      setStatusText((state.qa_issues ?? []).length > 0 ? "等待质量处理" : "运行完成");
-      success("研究完成！");
+      // If run completed synchronously, load results directly without SSE
+      if (run.status === "completed") {
+        const [artifactsData, evidenceData] = await Promise.all([
+          api.listArtifacts(proj.id),
+          api.listEvidence(proj.id),
+        ]);
+        setArtifacts(artifactsData);
+        setEvidence(evidenceData);
+        setPhase("result");
+        success("研究完成！");
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "启动研究失败";
       error(message);
       setPhase("landing");
-      setStatusText("启动失败");
     } finally {
       setIsLoading(false);
-    }
-  }
-
-  async function askQuestion() {
-    if (!project || !question.trim()) return;
-    try {
-      const response = await requestJson<ChatResponse>(`/api/projects/${project.id}/chat`, {
-        method: "POST",
-        body: JSON.stringify({ question }),
-      });
-      setChat(response);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "问答请求失败";
-      error(message);
-    }
-  }
-
-  async function exportProject() {
-    if (!project) return;
-    try {
-      const manifest = await requestJson<ExportManifest>(`/api/projects/${project.id}/exports`, {
-        method: "POST",
-      });
-      setExportManifest(manifest);
-      success("导出成功！");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "导出失败";
-      error(message);
     }
   }
 
   function resetToLanding() {
     setPhase("landing");
     setProject(null);
-    setCurrentGate("scope");
+    setRunId(null);
     setArtifacts([]);
     setEvidence([]);
-    setQaIssues([]);
-    setStatusText("等待启动");
-    setQuestion("");
     setChat(null);
     setExportManifest(null);
+    setActiveAgent(null);
+    setActiveMessage(null);
+    resetEvents();
   }
 
   return (
@@ -486,28 +489,37 @@ export function App() {
         onError={error}
       />
 
-      {phase === "landing" || !project ? (
-        <LandingPage
+      {phase === "landing" && (
+        <LandingView
           onStart={startResearch}
           onOpenSettings={() => setShowConfig(true)}
           isLoading={isLoading}
         />
-      ) : (
+      )}
+
+      {phase === "researching" && project && (
         <ResearchView
           project={project}
-          currentGate={currentGate}
-          phase={phase}
+          runId={runId ?? ""}
+          events={events}
+          activeAgent={activeAgent}
+          activeMessage={activeMessage}
+          onBack={resetToLanding}
+        />
+      )}
+
+      {phase === "result" && project && (
+        <ResultView
+          project={project}
           artifacts={artifacts}
           evidence={evidence}
-          qaIssues={qaIssues}
-          statusText={statusText}
-          question={question}
-          setQuestion={setQuestion}
           chat={chat}
-          askQuestion={askQuestion}
+          setChat={setChat}
           exportManifest={exportManifest}
-          exportProject={exportProject}
+          setExportManifest={setExportManifest}
           onNewResearch={resetToLanding}
+          toastError={error}
+          toastSuccess={success}
         />
       )}
     </main>
