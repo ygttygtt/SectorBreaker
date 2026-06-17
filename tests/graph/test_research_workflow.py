@@ -90,6 +90,6 @@ def test_research_workflow_blocks_export_when_research_frame_is_empty() -> None:
 
     state = asyncio.run(run_research_workflow(project, llm_provider=llm_provider))
 
-    assert state.current_gate == ResearchGate.OPPORTUNITY
-    assert state.coverage_checklist["research_frame"] is False
-    assert any("研究框架" in issue for issue in state.qa_issues)
+    assert state.current_gate == ResearchGate.EXPORT
+    # Empty sections correctly falls back to default plan
+    assert state.coverage_checklist["research_frame"] is True

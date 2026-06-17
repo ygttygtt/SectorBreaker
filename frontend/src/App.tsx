@@ -20,6 +20,7 @@ import { Logo } from "./components/Logo";
 import { GraphFlow, GATES } from "./components/GraphFlow";
 import { LogStream } from "./components/LogStream";
 import { DebugPanel } from "./components/DebugPanel";
+import { WorkflowEditor } from "./components/WorkflowEditor";
 import { ReviewView } from "./components/ReviewView";
 import { api } from "./api/client";
 import { useRunEvents } from "./hooks/useRunEvents";
@@ -151,6 +152,7 @@ function ResearchView({
   onBack: () => void;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
+  const [showWorkflow, setShowWorkflow] = useState(false);
 
   useEffect(() => {
     if (!contentRef.current) return;
@@ -200,11 +202,27 @@ function ResearchView({
         )}
       </div>
 
-      <GraphFlow
-        currentGate={currentGate}
-        activeAgent={activeAgent}
-        activeMessage={activeMessage}
-      />
+      <div style={{ position: "relative" }}>
+        <GraphFlow
+          currentGate={currentGate}
+          activeAgent={activeAgent}
+          activeMessage={activeMessage}
+        />
+        <button
+          className="secondary"
+          onClick={() => setShowWorkflow(!showWorkflow)}
+          style={{ position: "absolute", top: 8, right: 8, fontSize: 12, padding: "4px 10px" }}
+          type="button"
+        >
+          {showWorkflow ? "收起" : "展开"}工作流图
+        </button>
+      </div>
+
+      {showWorkflow && (
+        <div style={{ borderBottom: "1px solid var(--gray-200)", background: "#fafafa" }}>
+          <WorkflowEditor currentGate={currentGate} />
+        </div>
+      )}
 
       <LogStream events={events} />
       <DebugPanel events={events} />
@@ -302,6 +320,10 @@ function ResultView({
         currentGate="export"
         onGateClick={(gate) => setSelectedGate(selectedGate === gate ? null : gate)}
       />
+
+      <div style={{ padding: "0 32px", background: "#fafafa", borderBottom: "1px solid var(--gray-200)" }}>
+        <WorkflowEditor currentGate="export" isCompact />
+      </div>
 
       <div className="result-content">
         <section className="result-section">
