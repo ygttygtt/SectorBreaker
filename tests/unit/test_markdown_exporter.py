@@ -39,7 +39,7 @@ def test_markdown_exporter_writes_obsidian_package(tmp_path: Path) -> None:
     assert manifest.project_id == "project-1"
     assert (tmp_path / "ai-agent-tools" / "manifest.json").exists()
     assert (tmp_path / "ai-agent-tools" / "00-研究框架" / "research-frame.md").exists()
-    content = (tmp_path / "ai-agent-tools" / "05-机会地图" / "opportunity-map.md").read_text(
+    content = (tmp_path / "ai-agent-tools" / "05-机会与验证" / "00-机会总览.md").read_text(
         encoding="utf-8"
     )
     assert "evidence_ids:" in content

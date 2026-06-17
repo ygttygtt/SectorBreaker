@@ -117,13 +117,8 @@ function LandingView({ onStart, onOpenSettings, isLoading, llmConfigured }: {
 
       <div className="landing-steps-preview">
         <p>研究流程</p>
-        <div className="landing-steps-row">
-          {GATES.map((gate, idx) => (
-            <div className="landing-step-chip" key={gate.key}>
-              <span className="landing-step-num">{idx + 1}</span>
-              <span>{gate.name}</span>
-            </div>
-          ))}
+        <div style={{ height: 280, borderRadius: 12, overflow: "hidden", border: "1px solid var(--gray-200)" }}>
+          <WorkflowEditor currentGate="scope" isCompact showControls={false} />
         </div>
       </div>
 
