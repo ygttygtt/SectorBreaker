@@ -12,6 +12,7 @@ import {
   Position,
   MarkerType,
 } from "@xyflow/react";
+import dagre from "dagre";
 import "@xyflow/react/dist/style.css";
 import {
   Target,
@@ -53,12 +54,55 @@ export type GateStatus = "done" | "current" | "next" | "error" | "waiting";
 // ── Status colors ────────────────────────────────────────────
 
 const STATUS_COLORS: Record<GateStatus, { color: string; bg: string }> = {
-  done: { color: "var(--green)", bg: "var(--green-light)" },
-  current: { color: "var(--gold)", bg: "var(--gold-light)" },
-  next: { color: "var(--gray-400)", bg: "var(--gray-100)" },
-  error: { color: "var(--red)", bg: "#fff5f5" },
-  waiting: { color: "var(--gold)", bg: "var(--gold-light)" },
+  done: { color: "#106b5d", bg: "#e9f3ef" },
+  current: { color: "#d4a017", bg: "#fff8e1" },
+  next: { color: "#c7d2df", bg: "#f6f7f9" },
+  error: { color: "#dc3545", bg: "#fff5f5" },
+  waiting: { color: "#d4a017", bg: "#fff8e1" },
 };
+
+// ── Dagre layout helper ──────────────────────────────────────
+
+function getLayoutedElements(nodes: Node[], edges: Edge[], isCompact: boolean) {
+  const dagreGraph = new dagre.graphlib.Graph();
+  dagreGraph.setDefaultEdgeLabel(() => ({}));
+
+  const nodeW = isCompact ? 140 : 220;
+  const nodeH = isCompact ? 50 : 80;
+  const rankSep = isCompact ? 60 : 100;
+  const nodeSep = isCompact ? 30 : 50;
+
+  dagreGraph.setGraph({
+    rankdir: "LR",       // left-to-right flow
+    ranksep: rankSep,    // space between ranks
+    nodesep: nodeSep,    // space between nodes in same rank
+    marginx: 20,
+    marginy: 20,
+  });
+
+  nodes.forEach((node) => {
+    dagreGraph.setNode(node.id, { width: nodeW, height: nodeH });
+  });
+
+  edges.forEach((edge) => {
+    dagreGraph.setEdge(edge.source, edge.target);
+  });
+
+  dagre.layout(dagreGraph);
+
+  const layoutedNodes = nodes.map((node) => {
+    const nodeWithPosition = dagreGraph.node(node.id);
+    return {
+      ...node,
+      position: {
+        x: nodeWithPosition.x - nodeW / 2,
+        y: nodeWithPosition.y - nodeH / 2,
+      },
+    };
+  });
+
+  return { nodes: layoutedNodes, edges };
+}
 
 // ── Gate Node ────────────────────────────────────────────────
 
@@ -83,30 +127,28 @@ function GateNodeComponent({ data }: NodeProps) {
       style={{
         background: "#fff",
         border: `2px solid ${cfg.color}`,
-        borderRadius: 12,
-        padding: isCompact ? "10px 14px" : "16px 20px",
-        minWidth: isCompact ? 120 : 200,
-        maxWidth: isCompact ? 150 : 260,
+        borderRadius: 10,
+        padding: isCompact ? "8px 12px" : "12px 16px",
+        width: isCompact ? 140 : 220,
         boxShadow: status === "current" || status === "waiting"
-          ? `0 0 24px ${cfg.color}40`
-          : "0 2px 8px rgba(0,0,0,0.06)",
+          ? `0 0 16px ${cfg.color}30`
+          : "0 1px 4px rgba(0,0,0,0.06)",
         transition: "all 0.3s ease",
-        cursor: "default",
       }}
     >
       <Handle
         type="target"
         position={Position.Left}
-        style={{ background: cfg.color, width: 10, height: 10, border: "2px solid #fff" }}
+        style={{ background: cfg.color, width: 8, height: 8, border: "2px solid #fff" }}
       />
 
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: isCompact ? 0 : 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <div
           style={{
-            width: 28,
-            height: 28,
-            borderRadius: 8,
+            width: 26,
+            height: 26,
+            borderRadius: 6,
             background: cfg.bg,
             display: "flex",
             alignItems: "center",
@@ -115,42 +157,41 @@ function GateNodeComponent({ data }: NodeProps) {
           }}
         >
           <Icon
-            size={16}
+            size={14}
             style={{
               color: cfg.color,
               animation: (status === "current" || status === "waiting") ? "spin 1s linear infinite" : "none",
             }}
           />
         </div>
-        <div>
-          <div style={{ fontWeight: 700, fontSize: isCompact ? 13 : 15, color: "var(--gray-900)", lineHeight: 1.2 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: isCompact ? 12 : 14, color: "#16191f", lineHeight: 1.2 }}>
             {label}
           </div>
           {!isCompact && (
-            <div style={{ fontSize: 11, color: "var(--gray-500)", marginTop: 1 }}>{agent}</div>
+            <div style={{ fontSize: 10, color: "#8a94a3", marginTop: 1 }}>{agent}</div>
           )}
         </div>
         {pause && (
           <span
             style={{
               fontSize: 9,
-              background: "var(--gold-light)",
-              color: "var(--gold)",
-              padding: "2px 6px",
-              borderRadius: 4,
+              background: "#fff8e1",
+              color: "#d4a017",
+              padding: "1px 5px",
+              borderRadius: 3,
               fontWeight: 700,
-              marginLeft: "auto",
-              whiteSpace: "nowrap",
+              flexShrink: 0,
             }}
           >
-            人工审阅
+            审阅
           </span>
         )}
       </div>
 
       {/* Description */}
       {!isCompact && (
-        <div style={{ fontSize: 12, color: "var(--gray-600)", lineHeight: 1.5, marginTop: 6 }}>
+        <div style={{ fontSize: 11, color: "#6d716f", lineHeight: 1.4, marginTop: 6 }}>
           {desc}
         </div>
       )}
@@ -158,13 +199,13 @@ function GateNodeComponent({ data }: NodeProps) {
       <Handle
         type="source"
         position={Position.Right}
-        style={{ background: cfg.color, width: 10, height: 10, border: "2px solid #fff" }}
+        style={{ background: cfg.color, width: 8, height: 8, border: "2px solid #fff" }}
       />
     </div>
   );
 }
 
-// ── QA Node (special) ────────────────────────────────────────
+// ── QA Node ──────────────────────────────────────────────────
 
 function QANodeComponent({ data }: NodeProps) {
   const { status, isCompact } = data as { status: GateStatus; isCompact: boolean };
@@ -178,28 +219,28 @@ function QANodeComponent({ data }: NodeProps) {
       style={{
         background: status === "error" ? "#fff5f5" : "#fff",
         border: `2px dashed ${cfg.color}`,
-        borderRadius: 12,
-        padding: isCompact ? "10px 14px" : "14px 18px",
-        minWidth: isCompact ? 100 : 160,
+        borderRadius: 10,
+        padding: isCompact ? "8px 12px" : "12px 16px",
+        width: isCompact ? 140 : 220,
         textAlign: "center",
       }}
     >
       <Handle
         type="target"
         position={Position.Left}
-        style={{ background: cfg.color, width: 10, height: 10, border: "2px solid #fff" }}
+        style={{ background: cfg.color, width: 8, height: 8, border: "2px solid #fff" }}
       />
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-        <Icon size={isCompact ? 14 : 18} style={{ color: cfg.color }} />
-        <span style={{ fontWeight: 700, fontSize: isCompact ? 12 : 14, color: "var(--gray-800)" }}>
+        <Icon size={isCompact ? 14 : 16} style={{ color: cfg.color }} />
+        <span style={{ fontWeight: 700, fontSize: isCompact ? 12 : 14, color: "#34373d" }}>
           质量门
         </span>
       </div>
 
       {!isCompact && (
-        <div style={{ fontSize: 11, color: "var(--gray-500)", marginTop: 4 }}>
-          检查产物完整性、证据引用
+        <div style={{ fontSize: 10, color: "#8a94a3", marginTop: 3 }}>
+          检查产物完整性
         </div>
       )}
 
@@ -208,36 +249,17 @@ function QANodeComponent({ data }: NodeProps) {
         type="source"
         position={Position.Right}
         id="pass"
-        style={{ background: "var(--green)", width: 10, height: 10, border: "2px solid #fff", top: "35%" }}
+        style={{ background: "#106b5d", width: 8, height: 8, border: "2px solid #fff", top: "35%" }}
       />
       {/* Fail output (bottom) */}
       <Handle
         type="source"
         position={Position.Bottom}
         id="fail"
-        style={{ background: "var(--red)", width: 10, height: 10, border: "2px solid #fff" }}
+        style={{ background: "#dc3545", width: 8, height: 8, border: "2px solid #fff" }}
       />
     </div>
   );
-}
-
-// ── Layout positions ─────────────────────────────────────────
-
-function getPositions(isCompact: boolean) {
-  const w = isCompact ? 180 : 280;
-  const h = isCompact ? 100 : 140;
-  const gap = isCompact ? 40 : 60;
-
-  // Snake layout: left-to-right, then right-to-left
-  return [
-    { x: 0, y: 0 },                                    // scope
-    { x: w + gap, y: 0 },                              // evidence
-    { x: (w + gap) * 2, y: 0 },                        // research_frame
-    { x: (w + gap) * 2, y: h + gap },                  // knowledge_map
-    { x: w + gap, y: h + gap },                        // opportunity
-    { x: 0, y: h + gap },                              // qa_critic
-    { x: 0, y: (h + gap) * 2 },                        // export
-  ];
 }
 
 // ── Main Component ───────────────────────────────────────────
@@ -267,105 +289,93 @@ export function WorkflowEditor({
     return "next";
   };
 
-  const positions = getPositions(isCompact);
+  const { nodes, edges } = useMemo(() => {
+    // Build raw nodes
+    const rawNodes: Node[] = GATE_DEFS.map((gate) => ({
+      id: gate.id,
+      type: gate.id === "qa_critic" ? "qaNode" : "gateNode",
+      position: { x: 0, y: 0 }, // dagre will compute
+      data: {
+        label: gate.label,
+        agent: gate.agent,
+        desc: gate.desc,
+        status: getStatus(gate.id),
+        pause: gate.pause,
+        isCompact,
+      },
+    }));
 
-  const nodes: Node[] = useMemo(
-    () =>
-      GATE_DEFS.map((gate, i) => ({
-        id: gate.id,
-        type: gate.id === "qa_critic" ? "qaNode" : "gateNode",
-        position: positions[i],
-        data: {
-          label: gate.label,
-          agent: gate.agent,
-          desc: gate.desc,
-          status: getStatus(gate.id),
-          pause: gate.pause,
-          isCompact,
-        },
-      })),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [currentGate, gateStatuses, isCompact]
-  );
-
-  const edges: Edge[] = useMemo(() => {
-    const baseStyle = { strokeWidth: 2.5 };
-
-    const defs: Edge[] = [
+    // Build raw edges
+    const rawEdges: Edge[] = [
       { id: "e1", source: "scope", target: "evidence" },
       { id: "e2", source: "evidence", target: "research_frame" },
       { id: "e3", source: "research_frame", target: "knowledge_map" },
       { id: "e4", source: "knowledge_map", target: "opportunity" },
       { id: "e5", source: "opportunity", target: "qa_critic" },
-      {
-        id: "e6",
-        source: "qa_critic",
-        sourceHandle: "pass",
-        target: "export",
-        label: "通过",
-      },
-      {
-        id: "e7",
-        source: "qa_critic",
-        sourceHandle: "fail",
-        target: "opportunity",
-        label: "回退",
-      },
+      { id: "e6", source: "qa_critic", sourceHandle: "pass", target: "export" },
+      { id: "e7", source: "qa_critic", sourceHandle: "fail", target: "opportunity" },
     ];
 
-    return defs.map((edge) => {
-      const sourceStatus = getStatus(edge.source);
-      const isActive = sourceStatus === "done" || sourceStatus === "current";
-      const isFail = edge.id === "e7";
-
-      return {
-        ...edge,
-        style: {
-          ...baseStyle,
-          stroke: isFail
-            ? (sourceStatus === "error" ? "var(--red)" : "var(--gray-300)")
-            : isActive
-            ? "var(--green)"
-            : "var(--gray-300)",
-          strokeDasharray: isFail ? "6,4" : undefined,
-        },
-        animated: sourceStatus === "current" && !isFail,
-        markerEnd: isFail
-          ? { type: MarkerType.ArrowClosed, color: "var(--red)", width: 16, height: 16 }
-          : undefined,
-        labelStyle: {
-          fontSize: 11,
-          fontWeight: 600,
-          color: isFail ? "var(--red)" : "var(--green)",
-        },
-      };
-    });
+    // Apply dagre layout
+    return getLayoutedElements(rawNodes, rawEdges, isCompact);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentGate, gateStatuses]);
+  }, [currentGate, gateStatuses, isCompact]);
+
+  // Style edges based on status
+  const styledEdges: Edge[] = useMemo(
+    () =>
+      edges.map((edge) => {
+        const sourceStatus = getStatus(edge.source);
+        const isActive = sourceStatus === "done" || sourceStatus === "current";
+        const isFail = edge.id === "e7";
+
+        return {
+          ...edge,
+          type: "smoothstep",
+          style: {
+            strokeWidth: 2,
+            stroke: isFail
+              ? (sourceStatus === "error" ? "#dc3545" : "#dfe5ec")
+              : isActive
+              ? "#106b5d"
+              : "#dfe5ec",
+            strokeDasharray: isFail ? "6,4" : undefined,
+          },
+          animated: sourceStatus === "current" && !isFail,
+          markerEnd: isFail
+            ? { type: MarkerType.ArrowClosed, color: "#dc3545", width: 14, height: 14 }
+            : undefined,
+          label: isFail ? "回退" : undefined,
+          labelStyle: { fontSize: 10, fontWeight: 600, color: "#dc3545" },
+        };
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [edges, currentGate, gateStatuses]
+  );
 
   const nodeTypes: NodeTypes = useMemo(
     () => ({ gateNode: GateNodeComponent, qaNode: QANodeComponent }),
     []
   );
 
-  const height = isCompact ? 280 : 480;
+  const height = isCompact ? 260 : 440;
 
   return (
     <div style={{ width: "100%", height }}>
       <ReactFlow
         nodes={nodes}
-        edges={edges}
+        edges={styledEdges}
         nodeTypes={nodeTypes}
         fitView
-        fitViewOptions={{ padding: 0.25 }}
+        fitViewOptions={{ padding: 0.3 }}
         nodesDraggable={true}
         nodesConnectable={false}
         elementsSelectable={false}
-        minZoom={0.4}
-        maxZoom={1.5}
+        minZoom={0.3}
+        maxZoom={2}
         proOptions={{ hideAttribution: true }}
       >
-        <Background color="var(--gray-200)" gap={isCompact ? 16 : 24} />
+        <Background color="#edf0f4" gap={isCompact ? 12 : 20} />
         {showControls && <Controls showInteractive={false} />}
         {showMinimap && (
           <MiniMap
@@ -373,7 +383,7 @@ export function WorkflowEditor({
               const status = (node.data as { status?: GateStatus })?.status || "next";
               return STATUS_COLORS[status]?.color || "#ccc";
             }}
-            style={{ background: "var(--gray-100)" }}
+            style={{ background: "#f6f7f9" }}
           />
         )}
       </ReactFlow>
