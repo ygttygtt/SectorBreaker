@@ -11,6 +11,9 @@ import {
   FileText,
   Database,
   Zap,
+  Network,
+  X,
+  ChevronRight,
 } from "lucide-react";
 
 import "./styles.css";
@@ -20,13 +23,38 @@ import { Logo } from "./components/Logo";
 import { GraphFlow, GATES } from "./components/GraphFlow";
 import { LogStream } from "./components/LogStream";
 import { DebugPanel } from "./components/DebugPanel";
-import { WorkflowEditor } from "./components/WorkflowEditor";
 import { ReviewView } from "./components/ReviewView";
+import { WorkflowEditor } from "./components/WorkflowEditor";
 import { api } from "./api/client";
 import { useRunEvents } from "./hooks/useRunEvents";
 import type { Project, RunEvent, Artifact, Evidence, ChatResponse, ExportManifest } from "./api/client";
 
 type AppPhase = "landing" | "researching" | "reviewing" | "result";
+
+/* ================================================================== */
+/*  Workflow Modal                                                     */
+/* ================================================================== */
+
+function WorkflowModal({ currentGate, onClose }: { currentGate: string; onClose: () => void }) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content modal-content--workflow" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <div className="modal-title">
+            <Network size={20} />
+            <h3>工作流架构</h3>
+          </div>
+          <button className="modal-close" onClick={onClose} type="button">
+            <X size={20} />
+          </button>
+        </div>
+        <div className="modal-body modal-body--workflow">
+          <WorkflowEditor currentGate={currentGate} showMinimap />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /* ================================================================== */
 /*  LandingView                                                        */
@@ -39,15 +67,13 @@ function LandingView({ onStart, onOpenSettings, isLoading, llmConfigured }: {
   llmConfigured: boolean;
 }) {
   const [domain, setDomain] = useState("");
+  const [showWorkflow, setShowWorkflow] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
     const ctx = gsap.context(() => {
-      gsap.from(".landing-brand", { y: -30, opacity: 0, duration: 0.6, ease: "power2.out" });
-      gsap.from(".landing-title", { y: 20, opacity: 0, duration: 0.6, delay: 0.1, ease: "power2.out" });
-      gsap.from(".landing-subtitle", { y: 20, opacity: 0, duration: 0.6, delay: 0.2, ease: "power2.out" });
-      gsap.from(".landing-form", { y: 20, opacity: 0, duration: 0.6, delay: 0.3, ease: "power2.out" });
-      gsap.from(".landing-steps-preview", { y: 20, opacity: 0, duration: 0.6, delay: 0.5, ease: "power2.out" });
+      gsap.from(".landing-left", { x: -40, opacity: 0, duration: 0.6, ease: "power2.out" });
+      gsap.from(".landing-right", { x: 40, opacity: 0, duration: 0.6, delay: 0.15, ease: "power2.out" });
     });
     return () => ctx.revert();
   }, []);
@@ -59,73 +85,105 @@ function LandingView({ onStart, onOpenSettings, isLoading, llmConfigured }: {
 
   return (
     <div className="landing">
-      <div className="landing-brand">
-        <Logo size={80} />
-        <h1>SectorBreaker</h1>
-        <p>领 域 破 壁 系 统</p>
+      {/* Left: brand + input */}
+      <div className="landing-left">
+        <div className="landing-brand">
+          <Logo size={56} />
+          <div>
+            <h1>SectorBreaker</h1>
+            <p>领域破壁系统</p>
+          </div>
+        </div>
+
+        <h2 className="landing-title">你想了解什么领域？</h2>
+        <p className="landing-subtitle">
+          输入一个行业或领域名称，AI 将为你拆解产业链、竞品格局、内容生态和机会地图
+        </p>
+
+        {!llmConfigured && (
+          <div className="landing-warning" onClick={onOpenSettings}>
+            <Settings size={16} />
+            <span>LLM 未配置 — 点击此处设置 API 密钥</span>
+          </div>
+        )}
+
+        <form ref={formRef} className="landing-form" onSubmit={handleSubmit}>
+          <div className="landing-input-wrap">
+            <Search size={18} className="landing-input-icon" />
+            <input
+              className="landing-input"
+              type="text"
+              value={domain}
+              onChange={(e) => setDomain(e.target.value)}
+              placeholder="例如：AI Agent 工具、本地生活服务、跨境电商…"
+              autoFocus
+            />
+          </div>
+          <div className="landing-btn-row">
+            <button
+              className="primary landing-btn"
+              type="submit"
+              disabled={!domain.trim() || isLoading || !llmConfigured}
+            >
+              {isLoading ? (
+                <><Loader2 size={16} className="spinner" /> 启动中…</>
+              ) : (
+                <><Play size={16} /> 开始破壁</>
+              )}
+            </button>
+            <button
+              className="secondary landing-btn"
+              type="button"
+              disabled={!domain.trim() || isLoading || !llmConfigured}
+              onClick={() => { if (domain.trim()) onStart(domain.trim(), true); }}
+            >
+              <Zap size={14} /> 一键执行
+            </button>
+          </div>
+        </form>
+
+        <button className="landing-settings" onClick={onOpenSettings} type="button">
+          <Settings size={14} />
+          LLM 设置
+        </button>
       </div>
 
-      <h2 className="landing-title">你想了解什么领域？</h2>
-      <p className="landing-subtitle">
-        输入一个行业或领域名称，AI 将为你拆解产业链、竞品格局、内容生态和机会地图
-      </p>
-
-      {!llmConfigured && (
-        <div className="landing-warning" onClick={onOpenSettings}>
-          <Settings size={16} />
-          <span>LLM 未配置 — 点击此处设置 API 密钥后才能开始研究</span>
+      {/* Right: workflow preview */}
+      <div className="landing-right">
+        <div className="landing-preview-card">
+          <div className="landing-preview-header">
+            <Network size={16} />
+            <span>研究流程</span>
+            <button className="link-btn" onClick={() => setShowWorkflow(true)} type="button">
+              查看大图 <ChevronRight size={14} />
+            </button>
+          </div>
+          <div className="landing-preview-flow">
+            <WorkflowEditor currentGate="scope" isCompact showControls={false} />
+          </div>
         </div>
+
+        <div className="landing-features">
+          {[
+            { icon: "📊", title: "结构化研究", desc: "7 个 Gate 逐步深入" },
+            { icon: "🤖", title: "多智能体协作", desc: "11 个专业 Agent 各司其职" },
+            { icon: "👤", title: "人工审阅", desc: "关键节点暂停确认" },
+            { icon: "📦", title: "Obsidian 导出", desc: "一键生成知识库" },
+          ].map((f) => (
+            <div className="landing-feature" key={f.title}>
+              <span className="landing-feature-icon">{f.icon}</span>
+              <div>
+                <strong>{f.title}</strong>
+                <span>{f.desc}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {showWorkflow && (
+        <WorkflowModal currentGate="scope" onClose={() => setShowWorkflow(false)} />
       )}
-
-      <form ref={formRef} className="landing-form" onSubmit={handleSubmit}>
-        <div className="landing-input-wrap">
-          <Search size={20} className="landing-input-icon" />
-          <input
-            className="landing-input"
-            type="text"
-            value={domain}
-            onChange={(e) => setDomain(e.target.value)}
-            placeholder="例如：AI Agent 工具、本地生活服务、跨境电商…"
-            autoFocus
-          />
-        </div>
-        <div className="landing-btn-row">
-          <button className="primary landing-btn" type="submit" disabled={!domain.trim() || isLoading || !llmConfigured}>
-            {isLoading ? (
-              <>
-                <Loader2 size={18} className="spinner" />
-                启动中…
-              </>
-            ) : (
-              <>
-                <Play size={18} />
-                开始破壁
-              </>
-            )}
-          </button>
-          <button
-            className="secondary landing-btn landing-btn--auto"
-            type="button"
-            disabled={!domain.trim() || isLoading}
-            onClick={() => { if (domain.trim()) onStart(domain.trim(), true); }}
-          >
-            <Zap size={16} />
-            一键执行
-          </button>
-        </div>
-      </form>
-
-      <div className="landing-steps-preview">
-        <p>研究流程</p>
-        <div style={{ height: 280, borderRadius: 12, overflow: "hidden", border: "1px solid var(--gray-200)" }}>
-          <WorkflowEditor currentGate="scope" isCompact showControls={false} />
-        </div>
-      </div>
-
-      <button className="landing-settings" onClick={onOpenSettings} type="button">
-        <Settings size={16} />
-        LLM 设置
-      </button>
     </div>
   );
 }
@@ -135,27 +193,22 @@ function LandingView({ onStart, onOpenSettings, isLoading, llmConfigured }: {
 /* ================================================================== */
 
 function ResearchView({
-  project, runId, events, activeAgent, activeMessage, isConnected,
-  onBack,
+  project, runId, events, activeAgent, activeMessage, isConnected, onBack,
 }: {
-  project: Project;
-  runId: string;
-  events: RunEvent[];
-  activeAgent: string | null;
-  activeMessage: string | null;
-  isConnected: boolean;
-  onBack: () => void;
+  project: Project; runId: string; events: RunEvent[];
+  activeAgent: string | null; activeMessage: string | null;
+  isConnected: boolean; onBack: () => void;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const [showWorkflow, setShowWorkflow] = useState(false);
+  const [activeTab, setActiveTab] = useState<"log" | "debug">("log");
 
   useEffect(() => {
     if (!contentRef.current) return;
     const ctx = gsap.context(() => {
-      gsap.from(".research-header", { y: -20, opacity: 0, duration: 0.4, ease: "power2.out" });
-      gsap.from(".research-info", { y: -10, opacity: 0, duration: 0.4, delay: 0.1, ease: "power2.out" });
-      gsap.from(".graph-flow", { y: 20, opacity: 0, duration: 0.5, delay: 0.2, ease: "power2.out" });
-      gsap.from(".log-stream", { y: 20, opacity: 0, duration: 0.5, delay: 0.3, ease: "power2.out" });
+      gsap.from(".research-header", { y: -16, opacity: 0, duration: 0.35, ease: "power2.out" });
+      gsap.from(".research-sidebar", { x: -20, opacity: 0, duration: 0.4, delay: 0.1, ease: "power2.out" });
+      gsap.from(".research-main", { x: 20, opacity: 0, duration: 0.4, delay: 0.15, ease: "power2.out" });
     }, contentRef);
     return () => ctx.revert();
   }, []);
@@ -169,58 +222,73 @@ function ResearchView({
 
   return (
     <div ref={contentRef} className="research">
+      {/* Header bar */}
       <header className="research-header">
         <div className="research-header-left">
-          <Logo size={28} animate={false} />
+          <Logo size={24} animate={false} />
           <h1>SectorBreaker</h1>
         </div>
-        <button className="secondary" onClick={onBack}>
-          <ArrowLeft size={16} />
-          新研究
-        </button>
-      </header>
-
-      <div className="research-info">
-        <div className="research-domain">
+        <div className="research-header-center">
           <strong>{project.domain}</strong>
           <span className="research-scope">{scopeLabel}</span>
         </div>
-        {isConnected ? (
-          <span className="research-status research-status--running">
-            <Loader2 size={14} className="spinner" />
-            研究进行中
-          </span>
-        ) : (
-          <span className="research-status research-status--disconnected">
-            连接已断开
-          </span>
-        )}
-      </div>
+        <div className="research-header-right">
+          {isConnected ? (
+            <span className="research-status research-status--running">
+              <Loader2 size={12} className="spinner" /> 研究中
+            </span>
+          ) : (
+            <span className="research-status research-status--disconnected">断开</span>
+          )}
+          <button className="secondary btn-sm" onClick={() => setShowWorkflow(true)} type="button">
+            <Network size={14} /> 工作流
+          </button>
+          <button className="secondary btn-sm" onClick={onBack} type="button">
+            <ArrowLeft size={14} /> 新研究
+          </button>
+        </div>
+      </header>
 
-      <div style={{ position: "relative" }}>
-        <GraphFlow
-          currentGate={currentGate}
-          activeAgent={activeAgent}
-          activeMessage={activeMessage}
-        />
-        <button
-          className="secondary"
-          onClick={() => setShowWorkflow(!showWorkflow)}
-          style={{ position: "absolute", top: 8, right: 8, fontSize: 12, padding: "4px 10px" }}
-          type="button"
-        >
-          {showWorkflow ? "收起" : "展开"}工作流图
-        </button>
+      {/* Two-column layout */}
+      <div className="research-body">
+        {/* Sidebar: flow graph */}
+        <aside className="research-sidebar">
+          <div className="research-sidebar-title">研究进度</div>
+          <GraphFlow
+            currentGate={currentGate}
+            activeAgent={activeAgent}
+            activeMessage={activeMessage}
+            compact
+          />
+        </aside>
+
+        {/* Main: logs + debug */}
+        <main className="research-main">
+          <div className="research-tabs">
+            <button
+              className={`tab ${activeTab === "log" ? "tab--active" : ""}`}
+              onClick={() => setActiveTab("log")}
+              type="button"
+            >
+              事件日志
+            </button>
+            <button
+              className={`tab ${activeTab === "debug" ? "tab--active" : ""}`}
+              onClick={() => setActiveTab("debug")}
+              type="button"
+            >
+              调试
+            </button>
+          </div>
+          <div className="research-tab-content">
+            {activeTab === "log" ? <LogStream events={events} /> : <DebugPanel events={events} />}
+          </div>
+        </main>
       </div>
 
       {showWorkflow && (
-        <div style={{ borderBottom: "1px solid var(--gray-200)", background: "#fafafa" }}>
-          <WorkflowEditor currentGate={currentGate} />
-        </div>
+        <WorkflowModal currentGate={currentGate} onClose={() => setShowWorkflow(false)} />
       )}
-
-      <LogStream events={events} />
-      <DebugPanel events={events} />
     </div>
   );
 }
@@ -233,30 +301,23 @@ function ResultView({
   project, artifacts, evidence, chat, setChat, exportManifest, setExportManifest,
   onNewResearch, toastError, toastSuccess,
 }: {
-  project: Project;
-  artifacts: Artifact[];
-  evidence: Evidence[];
-  chat: ChatResponse | null;
-  setChat: (c: ChatResponse | null) => void;
-  exportManifest: ExportManifest | null;
-  setExportManifest: (m: ExportManifest | null) => void;
-  onNewResearch: () => void;
-  toastError: (msg: string) => void;
-  toastSuccess: (msg: string) => void;
+  project: Project; artifacts: Artifact[]; evidence: Evidence[];
+  chat: ChatResponse | null; setChat: (c: ChatResponse | null) => void;
+  exportManifest: ExportManifest | null; setExportManifest: (m: ExportManifest | null) => void;
+  onNewResearch: () => void; toastError: (msg: string) => void; toastSuccess: (msg: string) => void;
 }) {
   const [question, setQuestion] = useState("");
   const [selectedGate, setSelectedGate] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [showWorkflow, setShowWorkflow] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!contentRef.current) return;
     const ctx = gsap.context(() => {
-      gsap.from(".result-header", { y: -20, opacity: 0, duration: 0.4, ease: "power2.out" });
-      gsap.from(".graph-flow", { y: 20, opacity: 0, duration: 0.5, delay: 0.1, ease: "power2.out" });
-      gsap.from(".result-section", {
-        y: 20, opacity: 0, duration: 0.4, stagger: 0.1, delay: 0.2, ease: "power2.out",
-      });
+      gsap.from(".result-header", { y: -16, opacity: 0, duration: 0.35, ease: "power2.out" });
+      gsap.from(".result-sidebar", { x: -20, opacity: 0, duration: 0.4, delay: 0.1, ease: "power2.out" });
+      gsap.from(".result-card", { y: 20, opacity: 0, duration: 0.35, stagger: 0.08, delay: 0.15, ease: "power2.out" });
     }, contentRef);
     return () => ctx.revert();
   }, []);
@@ -290,122 +351,130 @@ function ResultView({
 
   return (
     <div ref={contentRef} className="result">
+      {/* Header */}
       <header className="result-header">
         <div className="result-header-left">
-          <Logo size={28} animate={false} />
+          <Logo size={24} animate={false} />
           <h1>SectorBreaker</h1>
         </div>
-        <div className="result-header-right">
+        <div className="result-header-center">
+          <strong>{project.domain}</strong>
           <span className="result-status">
-            <CheckCircle2 size={16} />
-            研究完成
+            <CheckCircle2 size={14} /> 研究完成
           </span>
-          <button className="secondary" onClick={onNewResearch}>
-            <Play size={16} />
-            新研究
+        </div>
+        <div className="result-header-right">
+          <button className="secondary btn-sm" onClick={() => setShowWorkflow(true)} type="button">
+            <Network size={14} /> 工作流
+          </button>
+          <button className="secondary btn-sm" onClick={onNewResearch} type="button">
+            <Play size={14} /> 新研究
           </button>
         </div>
       </header>
 
-      <div className="result-info">
-        <strong>{project.domain}</strong>
-      </div>
-
-      <GraphFlow
-        currentGate="export"
-        onGateClick={(gate) => setSelectedGate(selectedGate === gate ? null : gate)}
-      />
-
-      <div style={{ padding: "0 32px", background: "#fafafa", borderBottom: "1px solid var(--gray-200)" }}>
-        <WorkflowEditor currentGate="export" isCompact />
-      </div>
-
-      <div className="result-content">
-        <section className="result-section">
-          <div className="result-section-title">
-            <FileText size={18} />
-            <h3>{selectedGate ? `${GATES.find((g) => g.key === selectedGate)?.name ?? ""} 产物` : "全部产物"}</h3>
-          </div>
-          {displayArtifacts.length > 0 ? (
-            <ul className="result-artifact-list">
-              {displayArtifacts.map((a) => (
-                <li key={a.id}>
-                  <FileText size={14} />
-                  <span className="artifact-name">{a.title || a.id}</span>
-                  <span className="artifact-path">{a.content_path}</span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="result-empty">该阶段暂无产物</p>
-          )}
-        </section>
-
-        <section className="result-section">
-          <div className="result-section-title">
-            <Database size={18} />
-            <h3>证据来源 ({evidence.length})</h3>
-          </div>
-          {evidence.length > 0 ? (
-            <ul className="result-evidence-list">
-              {evidence.map((ev) => (
-                <li key={ev.id}>
-                  <strong>{ev.source_title}</strong>
-                  <p>{ev.snippet}</p>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="result-empty">暂无证据</p>
-          )}
-        </section>
-
-        <section className="result-section result-section--chat">
-          <div className="result-section-title">
-            <Search size={18} />
-            <h3>项目问答</h3>
-          </div>
-          <div className="result-chat-row">
-            <input
-              aria-label="项目问题"
-              placeholder="基于当前研究继续追问"
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && askQuestion()}
-            />
-            <button className="primary" type="button" onClick={askQuestion} disabled={!question.trim()}>
-              询问
+      {/* Two-column layout */}
+      <div className="result-body">
+        {/* Sidebar: flow graph + export */}
+        <aside className="result-sidebar">
+          <div className="result-sidebar-title">研究进度</div>
+          <GraphFlow
+            currentGate="export"
+            onGateClick={(gate) => setSelectedGate(selectedGate === gate ? null : gate)}
+            compact
+          />
+          <div className="result-sidebar-actions">
+            <button className="primary" onClick={exportProject} disabled={isExporting} type="button">
+              {isExporting ? (
+                <><Loader2 size={16} className="spinner" /> 导出中…</>
+              ) : (
+                <><Download size={16} /> 导出知识库</>
+              )}
             </button>
-          </div>
-          {chat && (
-            <div className="result-chat-answer">
-              <p>{chat.answer}</p>
-              <span>引用：{chat.citations.join(", ")}</span>
-            </div>
-          )}
-        </section>
-
-        <section className="result-section result-section--export">
-          <button className="primary" onClick={exportProject} disabled={isExporting}>
-            {isExporting ? (
-              <>
-                <Loader2 size={18} className="spinner" />
-                导出中…
-              </>
-            ) : (
-              <>
-                <Download size={18} />
-                导出知识库
-              </>
+            {exportManifest && (
+              <p className="result-export-info">
+                已导出 {exportManifest.artifact_paths.length} 个文件
+              </p>
             )}
-          </button>
-          {exportManifest && (
-            <p className="result-export-info">
-              已导出 {exportManifest.artifact_paths.length} 个文件
-            </p>
-          )}
-        </section>
+          </div>
+        </aside>
+
+        {/* Main: cards grid */}
+        <main className="result-main">
+          {/* Artifacts card */}
+          <section className="result-card">
+            <div className="result-card-title">
+              <FileText size={16} />
+              <h3>{selectedGate ? `${GATES.find((g) => g.key === selectedGate)?.name ?? ""} 产物` : "全部产物"}</h3>
+              <span className="result-card-count">{displayArtifacts.length}</span>
+            </div>
+            {displayArtifacts.length > 0 ? (
+              <ul className="result-artifact-list">
+                {displayArtifacts.map((a) => (
+                  <li key={a.id}>
+                    <FileText size={14} />
+                    <span className="artifact-name">{a.title || a.id}</span>
+                    <span className="artifact-path">{a.content_path}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="result-empty">该阶段暂无产物</p>
+            )}
+          </section>
+
+          {/* Evidence card */}
+          <section className="result-card">
+            <div className="result-card-title">
+              <Database size={16} />
+              <h3>证据来源</h3>
+              <span className="result-card-count">{evidence.length}</span>
+            </div>
+            {evidence.length > 0 ? (
+              <ul className="result-evidence-list">
+                {evidence.map((ev) => (
+                  <li key={ev.id}>
+                    <strong>{ev.source_title}</strong>
+                    <p>{ev.snippet}</p>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="result-empty">暂无证据</p>
+            )}
+          </section>
+
+          {/* Chat card */}
+          <section className="result-card result-card--chat">
+            <div className="result-card-title">
+              <Search size={16} />
+              <h3>项目问答</h3>
+            </div>
+            <div className="result-chat-row">
+              <input
+                aria-label="项目问题"
+                placeholder="基于当前研究继续追问"
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && askQuestion()}
+              />
+              <button className="primary btn-sm" type="button" onClick={askQuestion} disabled={!question.trim()}>
+                询问
+              </button>
+            </div>
+            {chat && (
+              <div className="result-chat-answer">
+                <p>{chat.answer}</p>
+                <span>引用：{chat.citations.join(", ")}</span>
+              </div>
+            )}
+          </section>
+        </main>
       </div>
+
+      {showWorkflow && (
+        <WorkflowModal currentGate="export" onClose={() => setShowWorkflow(false)} />
+      )}
     </div>
   );
 }
@@ -430,17 +499,14 @@ export function App() {
   const [activeMessage, setActiveMessage] = useState<string | null>(null);
   const [reviewingGate, setReviewingGate] = useState<string | null>(null);
   const [reviewingEvents, setReviewingEvents] = useState<RunEvent[]>([]);
-  const [llmConfigured, setLlmConfigured] = useState(true); // Assume configured until check fails
+  const [llmConfigured, setLlmConfigured] = useState(true);
 
-  // Check LLM config on mount
   useEffect(() => {
     api.getLLMConfig().then((cfg) => {
       setLlmConfigured(cfg.configured);
     }).catch(() => setLlmConfigured(false));
   }, []);
 
-
-  // SSE event handlers
   const onEvent = useCallback((event: RunEvent) => {
     setActiveAgent(event.agent ?? null);
     setActiveMessage(event.message);
@@ -449,7 +515,6 @@ export function App() {
   const onComplete = useCallback(async () => {
     if (!project || !runId) return;
     try {
-      // Fetch run status to determine which gate we're at
       const run = await api.getRun(runId);
       const [artifactsData, evidenceData] = await Promise.all([
         api.listArtifacts(project.id),
@@ -457,9 +522,6 @@ export function App() {
       ]);
       setArtifacts(artifactsData);
       setEvidence(evidenceData);
-
-      // Always set to reviewing — the waiting_for_human effect may have
-      // already done this, but setting it again is idempotent
       setReviewingGate(run.current_gate || "export");
       setPhase("reviewing");
     } catch {
@@ -467,29 +529,18 @@ export function App() {
     }
   }, [project, runId, error]);
 
-  // Handle waiting_for_human events — show review for specific gate
-  const onWaitingForHuman = useCallback((event: RunEvent) => {
-    setReviewingGate(event.gate);
-    setPhase("reviewing");
-  }, []);
-
   const onError = useCallback((msg: string) => {
     error(msg);
   }, [error]);
 
   const { events, isConnected, reset: resetEvents } = useRunEvents({
-    runId,
-    onEvent,
-    onComplete,
-    onError,
+    runId, onEvent, onComplete, onError,
   });
 
-  // Detect waiting_for_human events from the event stream
   useEffect(() => {
     const waitingEvent = events.find((e) => e.event_type === "waiting_for_human");
     if (waitingEvent && phase === "researching") {
       setReviewingGate(waitingEvent.gate);
-      // Collect events for this gate
       const gateEvents = events.filter((e) => e.gate === waitingEvent.gate);
       setReviewingEvents(gateEvents);
       setPhase("reviewing");
@@ -505,18 +556,13 @@ export function App() {
     setReviewingGate(null);
     setReviewingEvents([]);
 
-    // Timeout safety: if still loading after 120s, unlock the button
     const timeout = setTimeout(() => setIsLoading(false), 120000);
 
     try {
       const proj = await api.createProject({
-        title: domain,
-        domain,
-        market_scope: "mixed",
-        depth: "quick",
+        title: domain, domain, market_scope: "mixed", depth: "quick",
       });
       setProject(proj);
-
       const run = await api.startRun(proj.id, autoRun);
       setRunId(run.id);
       setPhase("researching");
@@ -545,7 +591,6 @@ export function App() {
     resetEvents();
   }
 
-  // Resume workflow after human review
   async function handleReviewContinue(guidance?: string, evidenceData?: string) {
     if (!runId) return;
     try {
@@ -574,8 +619,7 @@ export function App() {
     }
   }
 
-  // Handle final review (after all gates complete)
-  async function handleFinalContinue(guidance?: string, evidenceData?: string) {
+  function handleFinalContinue(guidance?: string, evidenceData?: string) {
     if (guidance || evidenceData) {
       success("已保存补充信息，研究完成！");
     }
@@ -587,7 +631,6 @@ export function App() {
     success("研究完成！");
   }
 
-  // Check if this is the final review (export gate) or intermediate
   const isFinalReview = reviewingGate === "export";
 
   return (
