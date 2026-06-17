@@ -13,6 +13,7 @@ SQLite stores structured state and metadata. Files store human-readable research
 - `domain`
 - `market_scope`
 - `depth`
+- `source_policy`
 - `status`
 - `created_at`
 - `updated_at`
@@ -35,11 +36,36 @@ SQLite stores structured state and metadata. Files store human-readable research
 - `source_url`
 - `source_title`
 - `source_type`
+- `source_channel`
+- `source_policy`
+- `raw_excerpt`
 - `snippet`
 - `summary`
+- `claims`
+- `source_quality`
+- `claim_strength`
+- `bias_risk`
+- `recency`
+- `corroborating_evidence_ids`
+- `conflicting_evidence_ids`
+- `needs_counterevidence`
+- `collected_by`
+- `used_by_artifact_ids`
 - `confidence`
 - `verification_status`
 - `collected_at`
+
+### EvidenceClaim
+
+- `claim_id`
+- `text`
+- `claim_type`
+- `support_level`
+- `requires_verification`
+- `verification_status`
+- `evidence_ids`
+- `counterevidence_ids`
+- `notes`
 
 ### Artifact
 
@@ -60,11 +86,22 @@ SQLite stores structured state and metadata. Files store human-readable research
 - current gate;
 - coverage checklist;
 - task queue;
+- supervisor plan;
 - evidence index;
 - draft artifacts;
 - QA issues;
+- QA report;
 - human review decisions;
 - export manifest.
+
+## Source Policy
+
+`source_policy` values:
+
+- `open_web`: broad exploration; weak sources are allowed but downgraded.
+- `reliable_first`: reliable sources first, open web as fallback.
+- `reliable_only`: only reliable public/official/company-disclosure/user-trusted sources may support facts.
+- `user_materials_only`: no open search unless the user later changes policy.
 
 ## File Layout
 

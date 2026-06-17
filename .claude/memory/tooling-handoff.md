@@ -17,24 +17,21 @@ metadata:
 
 当前基线：
 
-- 最近完成提交：`8384628 实现本地研究闭环与前端联通`
 - conda 环境：`sectorbreaker`
-- 后端：FastAPI + LangGraph + SQLite + provider factory
-- 前端：Vite + React + TypeScript，工作台名为“破壁工作台”
-- 测试基线：Python 21 passed；前端 4 passed；前端 build passed；npm audit high 0
+- 后端：FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger
+- 前端：Vite + React + TypeScript，可解释研究工作台，真实 workflow graph
+- 测试基线：Python 23 passed；前端 3 passed；前端 build passed
 
 最高风险任务：
 
-- Research Planner Pydantic 输出 schema 和 prompt
-- Evidence Curator 可信度/冲突规则
-- QA Critic unsupported-claim 检测
+- 剩余业务 Agent Pydantic 输出 schema 和 prompt
+- 可靠信源包、真实 Counterevidence 搜索、Evidence Curator 可信度/冲突规则
+- QA Critic artifact prose unsupported-claim 检测
 - LangGraph interrupt/resume/checkpoint
 - public schema / graph state / export format / provider interface 变更
 
 适合分发任务：
 
-- 前端可编辑项目表单
-- typed API client 抽取
 - artifact detail viewer
 - evidence filters
 - export 样式优化

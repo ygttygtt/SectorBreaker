@@ -16,12 +16,15 @@ class RunStatus(StrEnum):
 
 
 class RunEvent(BaseModel):
-    event_type: str  # gate_start | step_start | step_complete | artifact_created | evidence_collected | gate_complete | waiting_for_human | error
+    event_type: str  # node_started | node_progress | node_completed | artifact_created | evidence_collected | human_input_required | error
     gate: str
     step: str | None = None
     agent: str | None = None
     message: str
     data: dict[str, Any] | None = None
+    progress_current: int | None = None
+    progress_total: int | None = None
+    severity: str = "info"
     timestamp: float = Field(default_factory=lambda: datetime.now(UTC).timestamp())
 
 
@@ -49,3 +52,5 @@ class ResumeRequest(BaseModel):
     """User confirms a gate review, optionally providing supplementary information."""
     guidance: str | None = None  # free-text direction for next steps
     evidence_data: str | None = None  # structured data to inject as evidence
+    assistant_brief: str | None = None  # optional external AI report in md/txt
+    plan_confirmed: bool = True

@@ -3,11 +3,11 @@ import { afterEach, expect, test, vi } from "vitest";
 
 // Use vi.hoisted so variables are available in vi.mock factories
 const { mockGetLLMConfig, mockCreateProject, mockStartRun, mockGetRun,
-        mockListArtifacts, mockListEvidence, mockAskQuestion, mockExportProject } = vi.hoisted(() => ({
+        mockListArtifacts, mockListEvidence, mockAskQuestion, mockExportProject, mockGetWorkflow } = vi.hoisted(() => ({
   mockGetLLMConfig: vi.fn().mockResolvedValue({ configured: true, base_url: "http://test", model: "test" }),
   mockCreateProject: vi.fn().mockResolvedValue({
     id: "project-1", title: "AI Agent 工具", domain: "AI Agent 工具",
-    market_scope: "mixed", depth: "quick", status: "draft",
+    market_scope: "mixed", depth: "quick", source_policy: "reliable_first", status: "draft",
   }),
   mockStartRun: vi.fn().mockResolvedValue({
     id: "run-1", project_id: "project-1", status: "running",
@@ -28,6 +28,7 @@ const { mockGetLLMConfig, mockCreateProject, mockStartRun, mockGetRun,
     export_version: "1", project_id: "project-1",
     artifact_paths: ["00-研究框架/research-frame.md"], evidence_ids: ["EV-USER-SCOPE"],
   }),
+  mockGetWorkflow: vi.fn().mockResolvedValue({ schema_version: "1", nodes: [], edges: [] }),
 }));
 
 let onCompleteRef: (() => Promise<void> | void) | null = null;
@@ -44,6 +45,8 @@ vi.mock("./api/client", () => ({
     createProject: mockCreateProject,
     startRun: mockStartRun,
     getRun: mockGetRun,
+    getRunWorkflowDefinition: mockGetWorkflow,
+    getProjectWorkflowDefinition: mockGetWorkflow,
     getLLMConfig: mockGetLLMConfig,
     listArtifacts: mockListArtifacts,
     listEvidence: mockListEvidence,
@@ -68,24 +71,23 @@ test("renders the landing page with search input", () => {
   render(<App />);
   expect(screen.getByRole("heading", { name: "SectorBreaker" })).toBeInTheDocument();
   expect(screen.getByPlaceholderText(/AI Agent 工具/)).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: /开始破壁/ })).toBeInTheDocument();
-  expect(screen.getByText("范围确认")).toBeInTheDocument();
-  expect(screen.getByText("导出")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /生成计划/ })).toBeInTheDocument();
+  expect(screen.getByText("可靠优先")).toBeInTheDocument();
 });
 
 test("startRun is called when button is clicked", async () => {
   render(<App />);
   fireEvent.change(screen.getByPlaceholderText(/AI Agent 工具/), { target: { value: "AI Agent 工具" } });
-  await waitFor(() => expect(screen.getByRole("button", { name: /开始破壁/ })).not.toBeDisabled());
-  fireEvent.click(screen.getByRole("button", { name: /开始破壁/ }));
+  await waitFor(() => expect(screen.getByRole("button", { name: /生成计划/ })).not.toBeDisabled());
+  fireEvent.click(screen.getByRole("button", { name: /生成计划/ }));
   await waitFor(() => expect(mockStartRun).toHaveBeenCalled());
 });
 
 test("onComplete fetches artifacts and transitions to reviewing", async () => {
   render(<App />);
   fireEvent.change(screen.getByPlaceholderText(/AI Agent 工具/), { target: { value: "AI Agent 工具" } });
-  await waitFor(() => expect(screen.getByRole("button", { name: /开始破壁/ })).not.toBeDisabled());
-  fireEvent.click(screen.getByRole("button", { name: /开始破壁/ }));
+  await waitFor(() => expect(screen.getByRole("button", { name: /生成计划/ })).not.toBeDisabled());
+  fireEvent.click(screen.getByRole("button", { name: /生成计划/ }));
   await waitFor(() => expect(onCompleteRef).toBeTruthy());
 
   // Trigger onComplete

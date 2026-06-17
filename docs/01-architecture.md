@@ -8,12 +8,15 @@ The goal is not to simulate a free-form Agent meeting. The goal is stable resear
 
 ## Fixed Gates
 
-1. Scope Gate: normalize domain, market scope, research depth, and user constraints.
-2. Research Frame Gate: produce directory structure, key questions, and learning path.
-3. Evidence Gate: collect and normalize sources, detect missing evidence, tag confidence.
-4. Knowledge Map Gate: build industry map, player map, transaction units, risk boundaries, and content/channel patterns.
-5. Opportunity Gate: produce opportunity hypotheses with evidence, assumptions, risks, and first validation actions.
-6. Export Gate: write Markdown/Obsidian artifacts and index them for project Q&A.
+1. Scope Gate: normalize domain, market scope, research depth, source policy, and user constraints.
+2. Supervisor Plan Gate: generate an explainable research plan, selected/skipped agents, verification plan, assumptions, and success criteria.
+3. Human Confirm Plan: pause for user confirmation. The user may add direction, materials, or an external AI brief; the system still owns research and verification.
+4. Source Strategy Gate: apply `open_web`, `reliable_first`, `reliable_only`, or `user_materials_only`.
+5. Source Intake Gate: collect search results, user materials, reliable-source candidates, and optional assistant briefs.
+6. Evidence Ledger Gate: normalize evidence, extract claims, grade source quality, and mark counterevidence needs.
+7. Business Analysis Fan-out: run market, player, transaction, opportunity, and optional content/policy agents based on the plan.
+8. QA Critic Gate: block unsupported claims, weak-source misuse, missing coverage, and unverified critical claims.
+9. Export/RAG Gate: export Markdown/Obsidian artifacts and index approved evidence for local retrieval.
 
 ## Supervisor Boundary
 
@@ -23,6 +26,7 @@ The Supervisor may:
 - assign tasks to specialist agents;
 - request retry or extra evidence;
 - decide that a gate is ready for human review.
+- generate an explainable `SupervisorPlan` using the rule matrix plus LLM explanation.
 
 The Supervisor may not:
 
@@ -31,12 +35,18 @@ The Supervisor may not:
 - call external APIs directly;
 - mutate storage outside repository/service interfaces;
 - change public schemas without documentation and tests.
+- treat assistant briefs, marketing articles, or community posts as verified facts.
 
 ## Agent Pool
 
 - Research Planner: creates research frame and learning path.
+- Supervisor Agent: creates the plan and explains selected/skipped agents.
+- Source Strategy Agent: applies source policy and source scope.
 - Search Scout: queries external search providers.
+- Assistant Brief Agent: turns pasted external AI reports into low-trust claims and leads.
+- User Materials Agent: normalizes user-provided notes and documents.
 - Evidence Curator: normalizes sources and confidence metadata.
+- Counterevidence Agent: marks and challenges weak critical claims.
 - Market Mapper: summarizes market size, growth drivers, and constraints.
 - Player Analyst: maps roles, players, bargaining power, and business models.
 - Transaction Analyst: identifies transaction units, pricing, frequency, risk, and margin logic.
@@ -45,10 +55,13 @@ The Supervisor may not:
 - Opportunity Analyst: creates opportunity hypotheses and validation paths.
 - QA Critic: blocks unsupported claims and detects missing coverage.
 - Export Writer: writes Markdown/Obsidian artifacts.
+- RAG Indexer: indexes approved evidence and artifacts through the retrieval interface.
 
 ## Data Flow
 
-User input enters the API as structured project configuration. The workflow stores normalized state in SQLite and graph checkpoints. Agents read state, produce structured outputs, attach evidence references, and write artifacts through services. The frontend observes stage status and asks the user to confirm interrupts before the graph continues.
+User input enters the API as structured project configuration. The workflow stores normalized state in SQLite and graph checkpoints. Agents read state, produce structured outputs, attach evidence references, and write artifacts through services. The frontend observes node-level events and asks the user to confirm the Supervisor plan before the graph continues.
+
+External AI reports are optional. When provided, they are stored as `assistant_brief` evidence, split into claims, downgraded by default, and used only as leads until verified by allowed sources.
 
 ## Upgrade Points
 

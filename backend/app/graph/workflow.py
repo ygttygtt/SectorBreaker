@@ -14,15 +14,24 @@ from typing import Any, Callable, Awaitable, TypedDict
 from langgraph.graph import END, StateGraph
 
 from backend.app.providers.interfaces import ChatMessage, LLMProvider, SearchProvider, SearchQuery
+from backend.app.graph.planner import build_supervisor_plan
 from backend.app.schemas import (
     Artifact,
     ArtifactType,
+    ClaimStrength,
+    ClaimType,
+    EvidenceClaim,
     EvidenceItem,
+    QAReport,
     ResearchGate,
     ResearchProject,
     ResearchState,
     RunEvent,
     RunStatus,
+    SourceChannel,
+    SourcePolicy,
+    SourceQuality,
+    SupervisorPlan,
     VerificationStatus,
 )
 
@@ -38,28 +47,30 @@ class WorkflowState(TypedDict, total=False):
     current_gate: str
     evidence: list[dict[str, Any]]
     artifacts: list[dict[str, Any]]
+    supervisor_plan: dict[str, Any] | None
     coverage_checklist: dict[str, bool]
     qa_issues: list[str]
+    qa_report: dict[str, Any] | None
     user_guidance: str | None
     user_evidence_items: list[dict[str, Any]]
+    assistant_brief: str | None
 
 
 # ── Constants ──────────────────────────────────────────────────
 
 GATE_ORDER: list[str] = [
     ResearchGate.SCOPE.value,
+    ResearchGate.SUPERVISOR_PLAN.value,
+    ResearchGate.SOURCE_STRATEGY.value,
     ResearchGate.EVIDENCE.value,
-    ResearchGate.RESEARCH_FRAME.value,
+    ResearchGate.EVIDENCE_LEDGER.value,
     ResearchGate.KNOWLEDGE_MAP.value,
-    ResearchGate.OPPORTUNITY.value,
     "qa_critic",
     ResearchGate.EXPORT.value,
 ]
 
 HUMAN_REVIEW_GATES: set[str] = {
-    ResearchGate.SCOPE.value,
-    ResearchGate.RESEARCH_FRAME.value,
-    ResearchGate.OPPORTUNITY.value,
+    ResearchGate.SUPERVISOR_PLAN.value,
 }
 
 _LLM_CONCURRENCY = 3
@@ -114,6 +125,43 @@ async def _llm_generate(
 
 def _evidence_ids(state: WorkflowState) -> list[str]:
     return [item["id"] for item in state.get("evidence", [])]
+
+
+def _plan_from_state(state: WorkflowState) -> SupervisorPlan | None:
+    raw = state.get("supervisor_plan")
+    if not raw:
+        return None
+    return SupervisorPlan(**raw)
+
+
+def _project_from_state(state: WorkflowState) -> ResearchProject:
+    return ResearchProject(**state["project"])
+
+
+def _source_policy_from_project(project: dict[str, Any]) -> SourcePolicy:
+    return SourcePolicy(project.get("source_policy") or SourcePolicy.RELIABLE_FIRST.value)
+
+
+def _source_quality_for(source_type: str | None, source_channel: SourceChannel) -> SourceQuality:
+    if source_type in {"official", "government", "public_database", "company_disclosure"}:
+        return SourceQuality.HIGH
+    if source_type in {"industry_report", "web"}:
+        return SourceQuality.MEDIUM
+    if source_channel == SourceChannel.ASSISTANT_BRIEF or source_type in {"assistant_brief", "community", "media"}:
+        return SourceQuality.LOW
+    return SourceQuality.UNKNOWN
+
+
+def _claim_from_text(evidence_id: str, text: str, claim_type: ClaimType = ClaimType.GENERAL_FACT) -> EvidenceClaim:
+    return EvidenceClaim(
+        claim_id=f"CL-{evidence_id}",
+        text=text[:500],
+        claim_type=claim_type,
+        support_level=0.3,
+        requires_verification=True,
+        verification_status=VerificationStatus.UNVERIFIED,
+        evidence_ids=[evidence_id],
+    )
 
 
 def _extract_content(llm_result: dict | str, title: str, domain: str) -> str:
@@ -175,7 +223,7 @@ def make_nodes(
         gate = ResearchGate.SCOPE.value
 
         await _emit(emitter, RunEvent(
-            event_type="gate_start", gate=gate,
+            event_type="node_started", gate=gate, agent="Scope Agent",
             message=f"正在确认研究范围：{project['domain']}",
         ))
 
@@ -185,6 +233,10 @@ def make_nodes(
             evidence.append(EvidenceItem(
                 id=f"EV-USER-{item.get('id', 'SUPPLEMENT')}",
                 project_id=state["project_id"],
+                source_channel=SourceChannel.USER_UPLOAD,
+                source_policy=project.get("source_policy"),
+                source_quality=SourceQuality.MEDIUM,
+                claim_strength=ClaimStrength.FACT,
                 source_title=item.get("source_title", "用户补充信息"),
                 snippet=item.get("snippet", ""),
                 summary=item.get("summary"),
@@ -196,6 +248,10 @@ def make_nodes(
             id="EV-USER-SCOPE",
             project_id=state["project_id"],
             source_title="User project scope",
+            source_channel=SourceChannel.SYSTEM,
+            source_policy=project.get("source_policy"),
+            source_quality=SourceQuality.HIGH,
+            claim_strength=ClaimStrength.FACT,
             snippet=f"User wants to research {project['domain']} with {project['market_scope']} scope.",
             summary="User-provided scope and intent.",
             confidence=1.0,
@@ -204,8 +260,9 @@ def make_nodes(
 
         # LLM scope analysis
         await _emit(emitter, RunEvent(
-            event_type="step_start", gate=gate, step="scope_analysis", agent="Research Planner",
+            event_type="node_progress", gate=gate, step="scope_analysis", agent="Research Planner",
             message="正在分析领域边界和研究范围...",
+            progress_current=1, progress_total=2,
         ))
 
         scope_analysis = await _llm_generate(
@@ -281,11 +338,12 @@ def make_nodes(
             message=f"范围分析完成：{content[:80]}...",
         ))
         await _emit(emitter, RunEvent(
-            event_type="gate_complete", gate=gate, message="研究范围已确认",
+            event_type="node_completed", gate=gate, agent="Scope Agent", message="研究范围已确认",
+            progress_current=2, progress_total=2,
         ))
 
         return {
-            "current_gate": ResearchGate.EVIDENCE.value,
+            "current_gate": ResearchGate.SUPERVISOR_PLAN.value,
             "evidence": evidence,
             "artifacts": artifacts,
             "coverage_checklist": {
@@ -297,15 +355,102 @@ def make_nodes(
             },
         }
 
+    async def supervisor_plan_gate(state: WorkflowState) -> dict[str, Any]:
+        project = _project_from_state(state)
+        gate = ResearchGate.SUPERVISOR_PLAN.value
+        await _emit(emitter, RunEvent(
+            event_type="node_started", gate=gate, agent="Supervisor Agent",
+            message="正在生成可解释研究作战计划",
+        ))
+
+        has_user_materials = bool(state.get("user_evidence_items"))
+        has_assistant_brief = bool(state.get("assistant_brief"))
+        plan = build_supervisor_plan(
+            project,
+            user_guidance=state.get("user_guidance"),
+            has_assistant_brief=has_assistant_brief,
+            has_user_materials=has_user_materials,
+        )
+
+        await _emit(emitter, RunEvent(
+            event_type="node_completed", gate=gate, agent="Supervisor Agent",
+            message=f"主管计划已生成：启用 {len(plan.selected_agents)} 个 Agent，跳过 {len(plan.skipped_agents)} 个 Agent",
+            data=plan.model_dump(mode="json"),
+            progress_current=1, progress_total=1,
+        ))
+        return {
+            "current_gate": ResearchGate.SOURCE_STRATEGY.value,
+            "supervisor_plan": plan.model_dump(mode="json"),
+        }
+
+    async def source_strategy_gate(state: WorkflowState) -> dict[str, Any]:
+        project = state["project"]
+        plan = _plan_from_state(state)
+        gate = ResearchGate.SOURCE_STRATEGY.value
+        await _emit(emitter, RunEvent(
+            event_type="node_started", gate=gate, agent="Source Strategy Agent",
+            message=f"正在应用信源模式：{project.get('source_policy', SourcePolicy.RELIABLE_FIRST.value)}",
+            data=plan.model_dump(mode="json") if plan else None,
+        ))
+
+        await _emit(emitter, RunEvent(
+            event_type="node_completed", gate=gate, agent="Source Strategy Agent",
+            message=plan.source_policy_reason if plan else "信源策略已确认",
+            progress_current=1, progress_total=1,
+        ))
+        return {"current_gate": ResearchGate.EVIDENCE.value}
+
     async def evidence_gate(state: WorkflowState) -> dict[str, Any]:
         project = state["project"]
         gate = ResearchGate.EVIDENCE.value
+        source_policy = _source_policy_from_project(project)
 
         await _emit(emitter, RunEvent(
-            event_type="gate_start", gate=gate, message="正在收集行业证据",
+            event_type="node_started", gate=gate, agent="Source Intake",
+            message="正在接入搜索、用户材料和外部报告线索",
         ))
 
         evidence = list(state.get("evidence", []))
+        if state.get("assistant_brief"):
+            brief_id = "EV-ASSISTANT-BRIEF-001"
+            brief_text = state["assistant_brief"] or ""
+            evidence.append(EvidenceItem(
+                id=brief_id,
+                project_id=state["project_id"],
+                source_title="外部 AI 调研报告",
+                source_type="assistant_brief",
+                source_channel=SourceChannel.ASSISTANT_BRIEF,
+                source_policy=source_policy.value,
+                raw_excerpt=brief_text[:3000],
+                snippet=brief_text[:800],
+                summary="用户手动提供的外部 AI 调研报告，仅作为线索。",
+                claims=[
+                    _claim_from_text(brief_id, line.strip())
+                    for line in brief_text.splitlines()
+                    if line.strip() and not line.strip().startswith("#")
+                ][:8],
+                source_quality=SourceQuality.LOW,
+                claim_strength=ClaimStrength.OPINION,
+                bias_risk="外部 AI 报告可能混入二手资料、营销内容或未标注来源的判断。",
+                needs_counterevidence=True,
+                collected_by="assistant_brief_agent",
+                confidence=0.25,
+                verification_status=VerificationStatus.UNVERIFIED,
+            ).model_dump(mode="json"))
+            await _emit(emitter, RunEvent(
+                event_type="claim_extracted", gate=gate, agent="Assistant Brief Agent",
+                message="外部 AI 报告已拆为低可信线索，后续关键结论需验证",
+                progress_current=1, progress_total=4,
+            ))
+
+        if source_policy == SourcePolicy.USER_MATERIALS_ONLY:
+            await _emit(emitter, RunEvent(
+                event_type="node_skipped", gate=gate, agent="Search Scout",
+                message="当前为仅用户材料模式，跳过开放搜索",
+                progress_current=2, progress_total=4,
+            ))
+            return {"current_gate": ResearchGate.EVIDENCE_LEDGER.value, "evidence": evidence}
+
         search_queries = [
             f"{project['domain']} 行业概况 市场规模 趋势",
             f"{project['domain']} 主要玩家 竞争格局",
@@ -314,8 +459,9 @@ def make_nodes(
 
         for query_idx, query_text in enumerate(search_queries):
             await _emit(emitter, RunEvent(
-                event_type="step_start", gate=gate, step=f"search_{query_idx}", agent="Search Scout",
+                event_type="node_progress", gate=gate, step=f"search_{query_idx}", agent="Search Scout",
                 message=f"正在搜索：{query_text}",
+                progress_current=query_idx + 1, progress_total=len(search_queries),
             ))
             if search_provider is not None:
                 try:
@@ -327,7 +473,19 @@ def make_nodes(
                             id=f"EV-SEARCH-{query_idx}-{index:03d}",
                             project_id=state["project_id"],
                             source_title=result.title, source_url=result.url, source_type="web",
+                            source_channel=SourceChannel.SEARCH,
+                            source_policy=source_policy.value,
                             snippet=result.snippet, summary=result.snippet,
+                            claims=[
+                                _claim_from_text(
+                                    f"EV-SEARCH-{query_idx}-{index:03d}",
+                                    result.snippet,
+                                )
+                            ],
+                            source_quality=_source_quality_for("web", SourceChannel.SEARCH),
+                            claim_strength=ClaimStrength.OPINION,
+                            needs_counterevidence=False,
+                            collected_by="search_scout",
                             confidence=0.65, verification_status=VerificationStatus.PARTIALLY_VERIFIED,
                         ).model_dump(mode="json"))
                         await _emit(emitter, RunEvent(
@@ -340,14 +498,83 @@ def make_nodes(
                     ))
             else:
                 await _emit(emitter, RunEvent(
-                    event_type="step_complete", gate=gate, step=f"search_{query_idx}", agent="Search Scout",
+                    event_type="node_degraded", gate=gate, step=f"search_{query_idx}", agent="Search Scout",
                     message="未配置搜索提供商，跳过",
+                    severity="warning",
                 ))
 
         await _emit(emitter, RunEvent(
-            event_type="gate_complete", gate=gate, message="证据收集完成",
+            event_type="node_completed", gate=gate, agent="Source Intake", message="证据接入完成",
         ))
-        return {"current_gate": ResearchGate.RESEARCH_FRAME.value, "evidence": evidence}
+        return {"current_gate": ResearchGate.EVIDENCE_LEDGER.value, "evidence": evidence}
+
+    async def evidence_ledger_gate(state: WorkflowState) -> dict[str, Any]:
+        gate = ResearchGate.EVIDENCE_LEDGER.value
+        evidence = list(state.get("evidence", []))
+        await _emit(emitter, RunEvent(
+            event_type="node_started", gate=gate, agent="Evidence Curator",
+            message=f"正在整理证据账本：{len(evidence)} 条材料",
+        ))
+
+        high = medium = low = counter = 0
+        curated: list[dict[str, Any]] = []
+        for item in evidence:
+            quality = item.get("source_quality", SourceQuality.UNKNOWN.value)
+            if quality == SourceQuality.HIGH.value:
+                high += 1
+            elif quality == SourceQuality.MEDIUM.value:
+                medium += 1
+            elif quality == SourceQuality.LOW.value:
+                low += 1
+
+            weak_source = item.get("source_type") in {"assistant_brief", "community", "media"}
+            critical_claim = any(
+                claim.get("claim_type") in {
+                    ClaimType.MARKET_SIZE.value,
+                    ClaimType.GROWTH_TREND.value,
+                    ClaimType.PLAYER_STATUS.value,
+                    ClaimType.OPPORTUNITY.value,
+                    ClaimType.POLICY_RISK.value,
+                }
+                for claim in item.get("claims", [])
+            )
+            if weak_source or critical_claim or item.get("needs_counterevidence"):
+                item["needs_counterevidence"] = True
+                counter += 1
+            curated.append(item)
+
+        await _emit(emitter, RunEvent(
+            event_type="node_progress", gate=gate, agent="Evidence Curator",
+            message=f"证据评级：高 {high} / 中 {medium} / 低 {low}，需反证 {counter}",
+            data={"high": high, "medium": medium, "low": low, "counterevidence": counter},
+            progress_current=1, progress_total=2,
+        ))
+
+        if counter:
+            await _emit(emitter, RunEvent(
+                event_type="node_progress", gate=gate, agent="Counterevidence Agent",
+                message=f"发现 {counter} 条需要反证或复核的线索，已标记为待验证",
+                progress_current=2, progress_total=2,
+            ))
+        else:
+            await _emit(emitter, RunEvent(
+                event_type="node_skipped", gate=gate, agent="Counterevidence Agent",
+                message="暂无触发反证的关键低可信结论",
+            ))
+
+        await _emit(emitter, RunEvent(
+            event_type="node_completed", gate=gate, agent="Evidence Ledger",
+            message="证据账本已更新",
+        ))
+        return {
+            "current_gate": ResearchGate.KNOWLEDGE_MAP.value,
+            "evidence": curated,
+            "coverage_checklist": {
+                **state.get("coverage_checklist", {}),
+                "evidence_ledger": True,
+                "counterevidence_marked": True,
+            },
+        }
 
     async def research_frame_gate(state: WorkflowState) -> dict[str, Any]:
         project = state["project"]
@@ -417,10 +644,13 @@ def make_nodes(
         gate = ResearchGate.KNOWLEDGE_MAP.value
 
         await _emit(emitter, RunEvent(
-            event_type="gate_start", gate=gate, message="正在构建知识地图",
+            event_type="node_started", gate=gate, agent="Business Analysis Fan-out",
+            message="正在并行构建商业数据库、知识地图和机会基础",
         ))
 
         artifacts_spec = [
+            ("ART-RESEARCH-FRAME", ArtifactType.RESEARCH_FRAME, "研究框架", "00-研究框架/research-frame.md", "研究板块、关键问题与学习路径",
+             "你是行业研究规划 Agent。为用户指定的行业生成研究框架。返回 JSON，字段：sections（研究板块列表）, key_questions（关键问题列表）, learning_path（学习路径列表）, content（Markdown，可选）。"),
             ("ART-INDUSTRY-MAP", ArtifactType.INDUSTRY_MAP, "行业地图", "01-行业地图", "行业地图与产业链结构",
              "你是行业研究 Agent。为指定行业生成结构化知识地图。返回 JSON，字段：nodes（一级节点列表，每个含 name/type/definition/children/questions/misconceptions，type 可选 supply/demand/channel/risk）、learning_order（学习顺序）、misconceptions（新手常见误解至少5个）。每个一级节点下至少2个二级节点。"),
             ("ART-MARKET-OVERVIEW", ArtifactType.MARKET_OVERVIEW, "市场现状", "02-市场分析/00-市场总览.md", "市场规模、增长驱动与约束",
@@ -443,6 +673,8 @@ def make_nodes(
              "你是内容分析 Agent。分析：哪些选题反复出现、哪些问题被反复提问、哪些内容收藏率高、哪些接近成交、哪些标题结构有效、哪些争议点说明决策焦虑。返回 JSON，字段：title, content（Markdown）。"),
             ("ART-KNOWLEDGE-CARD-TEMPLATE", ArtifactType.EXPORT_MANIFEST, "知识卡片模板", "06-知识卡片模板.md", "Obsidian 知识卡片结构化模板",
              "你是知识管理 Agent。创建 Obsidian 知识卡片模板。返回 JSON，字段：title, content（Markdown，含示例卡片、卡片结构说明、frontmatter 格式、使用说明）。"),
+            ("ART-OPPORTUNITY-MAP", ArtifactType.OPPORTUNITY_MAP, "机会地图", "05-机会与验证/00-机会总览.md", "机会假设与验证动作",
+             "你是机会分析 Agent。基于前面的行业研究，为指定行业生成机会地图。返回 JSON，字段：title, content（Markdown，包含至少3个机会假设，每个含机会名称、逻辑、目标用户、进入门槛、资源、风险、第一周可验证什么；必须区分事实、假设和待验证问题）。"),
         ]
 
         # Artifacts that produce structured cards (not single files)
@@ -454,7 +686,7 @@ def make_nodes(
         async def _gen(spec):
             art_id, art_type, title, path, desc, sys_prompt = spec
             await _emit(emitter, RunEvent(
-                event_type="step_start", gate=gate, step=art_id, agent="Knowledge Mapper",
+                event_type="node_progress", gate=gate, step=art_id, agent="Knowledge Mapper",
                 message=f"正在生成：{title}（{desc}）",
             ))
             try:
@@ -551,14 +783,16 @@ def make_nodes(
                     new_artifacts.append(art.model_dump(mode="json"))
 
         await _emit(emitter, RunEvent(
-            event_type="gate_complete", gate=gate, message="知识地图构建完成",
+            event_type="node_completed", gate=gate, agent="Business Analysis Fan-out", message="商业数据库和知识地图构建完成",
         ))
         return {
-            "current_gate": ResearchGate.OPPORTUNITY.value,
+            "current_gate": "qa_critic",
             "artifacts": new_artifacts,
             "coverage_checklist": {
                 **state.get("coverage_checklist", {}),
+                "research_frame": True,
                 "knowledge_map": True,
+                "opportunity_map": True,
             },
         }
 
@@ -629,51 +863,93 @@ def make_nodes(
     async def qa_critic_gate(state: WorkflowState) -> dict[str, Any]:
         gate = "qa_critic"
         await _emit(emitter, RunEvent(
-            event_type="gate_start", gate=gate, message="质量门检查中",
+            event_type="node_started", gate=gate, agent="QA Critic", message="质量门检查中",
         ))
 
         checklist = state.get("coverage_checklist", {})
-        required = ["scope_confirmed", "research_frame", "knowledge_map", "opportunity_map"]
+        required = ["scope_confirmed", "evidence_ledger", "research_frame", "knowledge_map", "opportunity_map"]
         missing = [k for k in required if not checklist.get(k)]
         qa_issues = list(state.get("qa_issues", []))
+        retry_tasks: list[str] = []
+        user_action_needed: list[str] = []
         if missing:
             qa_issues.append(f"研究框架或关键产物 coverage 不完整: {', '.join(missing)}")
+            retry_tasks.append("重新运行缺失 coverage 对应的 Agent。")
 
         unsupported = [a["id"] for a in state.get("artifacts", []) if not a.get("source_evidence_ids")]
         if unsupported:
             qa_issues.append(f"存在缺少证据引用的产物: {', '.join(unsupported)}")
+            retry_tasks.append("让产物重新绑定 evidence_id 后再导出。")
+
+        weak_counter = [
+            item["id"]
+            for item in state.get("evidence", [])
+            if item.get("needs_counterevidence")
+            and item.get("verification_status") == VerificationStatus.UNVERIFIED.value
+        ]
+        if weak_counter:
+            qa_issues.append(f"存在待反证或未验证的关键线索: {', '.join(weak_counter[:5])}")
+            retry_tasks.append("对未验证关键线索运行 Counterevidence Agent 或降级为待验证问题。")
+
+        policy = _source_policy_from_project(state["project"])
+        if policy == SourcePolicy.RELIABLE_ONLY:
+            disallowed = [
+                item["id"]
+                for item in state.get("evidence", [])
+                if item.get("source_type") in {"assistant_brief", "community", "media", "web"}
+            ]
+            if disallowed:
+                qa_issues.append(f"严格可靠模式下存在弱来源证据: {', '.join(disallowed[:5])}")
+                retry_tasks.append("移除弱来源事实支撑，或切换为可靠优先模式。")
+
+        if weak_counter:
+            user_action_needed.append("如果你手头有可靠报告或公开来源，可上传补充；否则系统会把相关结论标为待验证。")
+
+        report = QAReport(
+            passed=not qa_issues,
+            blocking_issues=qa_issues,
+            retry_tasks=retry_tasks,
+            user_action_needed=user_action_needed,
+            can_continue_with_warning=bool(weak_counter) and not missing and not unsupported,
+        )
 
         if qa_issues:
             await _emit(emitter, RunEvent(
-                event_type="error", gate=gate, agent="QA Critic",
+                event_type="node_blocked", gate=gate, agent="QA Critic",
                 message=f"质量门发现问题：{'; '.join(qa_issues)}",
+                data=report.model_dump(mode="json"),
+                severity="error",
             ))
         else:
             await _emit(emitter, RunEvent(
-                event_type="gate_complete", gate=gate,
+                event_type="node_completed", gate=gate, agent="QA Critic",
                 message=f"质量门检查通过（{len(state.get('artifacts', []))} 个产物，{len(state.get('evidence', []))} 条证据）",
+                data=report.model_dump(mode="json"),
             ))
 
         # If QA passes, move to export; if blocked, stay at opportunity
-        next_g = ResearchGate.EXPORT.value if not qa_issues else ResearchGate.OPPORTUNITY.value
-        return {"current_gate": next_g, "qa_issues": qa_issues}
+        next_g = ResearchGate.EXPORT.value if not qa_issues else ResearchGate.KNOWLEDGE_MAP.value
+        return {"current_gate": next_g, "qa_issues": qa_issues, "qa_report": report.model_dump(mode="json")}
 
     async def export_gate(state: WorkflowState) -> dict[str, Any]:
         await _emit(emitter, RunEvent(
-            event_type="gate_start", gate="export", message="正在导出知识库",
+            event_type="node_started", gate="export", agent="Export Writer", message="正在导出知识库",
         ))
         await _emit(emitter, RunEvent(
-            event_type="step_complete", gate="export", step="write", agent="Export Writer",
+            event_type="node_progress", gate="export", step="write", agent="Export Writer",
             message=f"已生成 {len(state.get('artifacts', []))} 个产物，{len(state.get('evidence', []))} 条证据",
         ))
         await _emit(emitter, RunEvent(
-            event_type="gate_complete", gate="export", message="研究完成！",
+            event_type="node_completed", gate="export", agent="RAG Indexer", message="研究完成，已预留项目检索索引",
         ))
         return {"current_gate": ResearchGate.EXPORT.value}
 
     return {
         "scope_gate": scope_gate,
+        "supervisor_plan_gate": supervisor_plan_gate,
+        "source_strategy_gate": source_strategy_gate,
         "evidence_gate": evidence_gate,
+        "evidence_ledger_gate": evidence_ledger_gate,
         "research_frame_gate": research_frame_gate,
         "knowledge_map_gate": knowledge_map_gate,
         "opportunity_gate": opportunity_gate,
@@ -702,10 +978,11 @@ def build_graph(
 
     # Add nodes
     graph.add_node("scope_gate", nodes["scope_gate"])
+    graph.add_node("supervisor_plan_gate", nodes["supervisor_plan_gate"])
+    graph.add_node("source_strategy_gate", nodes["source_strategy_gate"])
     graph.add_node("evidence_gate", nodes["evidence_gate"])
-    graph.add_node("research_frame_gate", nodes["research_frame_gate"])
+    graph.add_node("evidence_ledger_gate", nodes["evidence_ledger_gate"])
     graph.add_node("knowledge_map_gate", nodes["knowledge_map_gate"])
-    graph.add_node("opportunity_gate", nodes["opportunity_gate"])
     graph.add_node("qa_critic_gate", nodes["qa_critic_gate"])
     graph.add_node("export_gate", nodes["export_gate"])
 
@@ -713,11 +990,12 @@ def build_graph(
     graph.set_entry_point("scope_gate")
 
     # Add edges
-    graph.add_edge("scope_gate", "evidence_gate")
-    graph.add_edge("evidence_gate", "research_frame_gate")
-    graph.add_edge("research_frame_gate", "knowledge_map_gate")
-    graph.add_edge("knowledge_map_gate", "opportunity_gate")
-    graph.add_edge("opportunity_gate", "qa_critic_gate")
+    graph.add_edge("scope_gate", "supervisor_plan_gate")
+    graph.add_edge("supervisor_plan_gate", "source_strategy_gate")
+    graph.add_edge("source_strategy_gate", "evidence_gate")
+    graph.add_edge("evidence_gate", "evidence_ledger_gate")
+    graph.add_edge("evidence_ledger_gate", "knowledge_map_gate")
+    graph.add_edge("knowledge_map_gate", "qa_critic_gate")
 
     # Conditional edge after QA
     graph.add_conditional_edges(
@@ -741,10 +1019,13 @@ def _initial_state(project: ResearchProject) -> WorkflowState:
         "current_gate": ResearchGate.SCOPE.value,
         "evidence": [],
         "artifacts": [],
+        "supervisor_plan": None,
         "coverage_checklist": {},
         "qa_issues": [],
+        "qa_report": None,
         "user_guidance": None,
         "user_evidence_items": [],
+        "assistant_brief": None,
     }
 
 
@@ -762,8 +1043,10 @@ def _to_research_state(raw: WorkflowState) -> ResearchState:
         current_gate=ResearchGate(raw.get("current_gate", ResearchGate.EXPORT.value)),
         evidence=[EvidenceItem(**item) for item in raw.get("evidence", [])],
         artifacts=[Artifact(**item) for item in raw.get("artifacts", [])],
+        supervisor_plan=SupervisorPlan(**raw["supervisor_plan"]) if raw.get("supervisor_plan") else None,
         coverage_checklist=raw.get("coverage_checklist", {}),
         qa_issues=raw.get("qa_issues", []),
+        qa_report=QAReport(**raw["qa_report"]) if raw.get("qa_report") else None,
     )
 
 
@@ -774,11 +1057,13 @@ async def run_research_workflow(
     emitter: EventEmitter | None = None,
     user_guidance: str | None = None,
     user_evidence_items: list[dict[str, Any]] | None = None,
+    assistant_brief: str | None = None,
 ) -> ResearchState:
     """Run all gates without pausing (for tests and auto-run mode)."""
     state = _initial_state(project)
     state["user_guidance"] = user_guidance
     state["user_evidence_items"] = user_evidence_items or []
+    state["assistant_brief"] = assistant_brief
 
     graph = build_graph(llm_provider, search_provider, emitter)
     raw_state = await graph.ainvoke(state)
@@ -794,6 +1079,7 @@ async def run_workflow_until_pause(
     state: WorkflowState | None = None,
     user_guidance: str | None = None,
     user_evidence_items: list[dict[str, Any]] | None = None,
+    assistant_brief: str | None = None,
     auto_run: bool = False,
 ) -> tuple[WorkflowState, str | None, bool]:
     """Run gates sequentially until one requires human review or all complete.
@@ -806,6 +1092,15 @@ async def run_workflow_until_pause(
         state["user_guidance"] = user_guidance
     if user_evidence_items:
         state["user_evidence_items"] = user_evidence_items
+    if assistant_brief:
+        state["assistant_brief"] = assistant_brief
+    if state.get("supervisor_plan") and (assistant_brief or user_evidence_items or user_guidance):
+        state["supervisor_plan"] = build_supervisor_plan(
+            project,
+            user_guidance=state.get("user_guidance"),
+            has_assistant_brief=bool(state.get("assistant_brief")),
+            has_user_materials=bool(state.get("user_evidence_items")),
+        ).model_dump(mode="json")
 
     nodes = make_nodes(llm_provider, search_provider, emitter)
     current = state.get("current_gate", GATE_ORDER[0])

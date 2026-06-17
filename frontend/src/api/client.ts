@@ -8,6 +8,7 @@ export interface Project {
   domain: string;
   market_scope: string;
   depth: string;
+  source_policy?: string;
   status: string;
 }
 
@@ -28,6 +29,9 @@ export interface RunEvent {
   agent: string | null;
   message: string;
   data: Record<string, unknown> | null;
+  progress_current?: number | null;
+  progress_total?: number | null;
+  severity?: string;
   timestamp: number;
 }
 
@@ -45,6 +49,67 @@ export interface Evidence {
   snippet: string;
   source_url?: string;
   confidence?: number;
+  source_type?: string;
+  source_channel?: string;
+  source_quality?: string;
+  verification_status?: string;
+  needs_counterevidence?: boolean;
+}
+
+export interface AgentTask {
+  agent_id: string;
+  display_name: string;
+  role: string;
+  reason: string;
+  run_mode: string;
+  execution_group: string;
+  depends_on: string[];
+  source_scope: string[];
+  output_contract: string;
+  verification_level: string;
+  fallback: string;
+}
+
+export interface SupervisorPlan {
+  intent_summary: string;
+  source_policy: string;
+  source_policy_reason: string;
+  selected_agents: AgentTask[];
+  skipped_agents: { agent_id: string; display_name: string; reason: string }[];
+  verification_plan: {
+    key_claim_types: string[];
+    counterevidence_triggers: string[];
+    downgraded_source_types: string[];
+    notes?: string;
+  };
+  human_review_points: string[];
+  success_criteria: string[];
+  assumptions: string[];
+  risks: string[];
+}
+
+export interface WorkflowNode {
+  id: string;
+  label: string;
+  node_type: string;
+  agent_id?: string | null;
+  group: string;
+  status: string;
+  reason?: string | null;
+  details: Record<string, unknown>;
+}
+
+export interface WorkflowEdge {
+  id: string;
+  source: string;
+  target: string;
+  label?: string | null;
+}
+
+export interface WorkflowDefinition {
+  schema_version: string;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
 }
 
 export interface ChatResponse {
@@ -82,7 +147,7 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   // Projects
-  createProject(data: { title: string; domain: string; market_scope: string; depth: string }) {
+  createProject(data: { title: string; domain: string; market_scope: string; depth: string; source_policy: string }) {
     return requestJson<Project>("/api/projects", { method: "POST", body: JSON.stringify(data) });
   },
 
@@ -102,6 +167,14 @@ export const api = {
 
   getRun(runId: string) {
     return requestJson<RunResponse>(`/api/runs/${runId}`);
+  },
+
+  getRunWorkflowDefinition(runId: string) {
+    return requestJson<WorkflowDefinition>(`/api/runs/${runId}/workflow-definition`);
+  },
+
+  getProjectWorkflowDefinition(projectId: string) {
+    return requestJson<WorkflowDefinition>(`/api/projects/${projectId}/workflow-definition`);
   },
 
   // Evidence & Artifacts
@@ -154,7 +227,7 @@ export const api = {
   },
 
   // Resume after human review
-  resumeRun(runId: string, data: { guidance?: string; evidence_data?: string }) {
+  resumeRun(runId: string, data: { guidance?: string; evidence_data?: string; assistant_brief?: string; plan_confirmed?: boolean }) {
     return requestJson<{ status: string; run_id: string }>(`/api/runs/${runId}/resume`, {
       method: "POST",
       body: JSON.stringify(data),

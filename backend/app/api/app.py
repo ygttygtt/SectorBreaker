@@ -22,6 +22,7 @@ from backend.app.graph.workflow import (
     run_research_workflow,
     run_workflow_until_pause,
 )
+from backend.app.graph.planner import build_workflow_definition
 from backend.app.providers.factory import build_llm_provider, build_search_provider
 from backend.app.providers.interfaces import LLMProvider, SearchProvider
 from backend.app.providers.openai_compatible import OpenAICompatibleLLMProvider
@@ -97,6 +98,15 @@ def create_app(
             return repository.get_project(project_id).model_dump(mode="json")
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="project not found") from exc
+
+    @app.get("/api/projects/{project_id}/workflow-definition")
+    def get_workflow_definition(project_id: str):
+        try:
+            repository.get_project(project_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="project not found") from exc
+        definition = build_workflow_definition()
+        return definition.model_dump(mode="json")
 
     # ── Runs ──────────────────────────────────────────────────────
 
@@ -176,6 +186,20 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="run not found") from exc
 
+    @app.get("/api/runs/{run_id}/workflow-definition")
+    def get_run_workflow_definition(run_id: str):
+        try:
+            run = repository.get_run(run_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="run not found") from exc
+        plan = None
+        if run.workflow_state:
+            raw_state = _state_from_json(run.workflow_state)
+            if raw_state.get("supervisor_plan"):
+                from backend.app.schemas import SupervisorPlan
+                plan = SupervisorPlan(**raw_state["supervisor_plan"])
+        return build_workflow_definition(plan).model_dump(mode="json")
+
     @app.post("/api/runs/{run_id}/resume")
     async def resume_run(run_id: str, payload: ResumeRequest, background_tasks: BackgroundTasks):
         """Resume workflow after human review.
@@ -207,6 +231,14 @@ def create_app(
                 input_type="evidence_data",
                 content=payload.evidence_data,
             ))
+        if payload.assistant_brief:
+            repository.add_user_input(UserInput(
+                id=f"ui-{uuid4().hex}",
+                run_id=run_id,
+                gate=run.current_gate or "unknown",
+                input_type="assistant_brief",
+                content=payload.assistant_brief,
+            ))
 
         # Load workflow state and resume
         try:
@@ -231,6 +263,9 @@ def create_app(
                     {"source_title": "用户补充", "snippet": inp.content}
                     for inp in user_inputs if inp.input_type == "evidence_data"
                 ]
+                assistant_brief = "\n\n".join(
+                    inp.content for inp in user_inputs if inp.input_type == "assistant_brief"
+                )
 
                 new_state, paused_gate, completed = await run_workflow_until_pause(
                     project,
@@ -240,6 +275,7 @@ def create_app(
                     state=state,
                     user_guidance=guidance or None,
                     user_evidence_items=evidence_items or None,
+                    assistant_brief=assistant_brief or None,
                 )
 
                 repository.update_run(run_id, workflow_state=_state_to_json(new_state))

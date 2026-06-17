@@ -30,6 +30,20 @@ All Agent outputs that include factual claims must support:
 - Must not: invent market facts.
 - Failure mode: ask for missing scope only when project config cannot be normalized.
 
+### Supervisor Agent
+
+- Input: project config, source policy, user guidance, optional assistant brief/user material flags.
+- Output: `SupervisorPlan` with intent summary, selected/skipped agents, verification plan, human review points, assumptions, risks, and success criteria.
+- Must not: invent new agent IDs outside the registry or bypass QA.
+- Failure mode: pause for intent clarification when the user goal is too ambiguous.
+
+### Source Strategy Agent
+
+- Input: `SupervisorPlan`, project source policy.
+- Output: source scope for each agent and source-use explanation.
+- Must not: upgrade weak sources into reliable sources.
+- Failure mode: degrade to allowed user/system materials and record source gaps.
+
 ### Search Scout
 
 - Input: search tasks, market scope, language preference, source constraints.
@@ -37,12 +51,26 @@ All Agent outputs that include factual claims must support:
 - Must not: scrape restricted sources or summarize as final evidence.
 - Failure mode: return empty result with query diagnostics.
 
+### Assistant Brief Agent
+
+- Input: user-pasted Markdown/text from Gemini, Kimi, Qwen, DeepSeek, or similar external research tools.
+- Output: low-trust `EvidenceItem` records with extracted claims and leads.
+- Must not: treat an assistant brief as a verified factual source.
+- Failure mode: store the raw brief as unverified user-provided lead material.
+
 ### Evidence Curator
 
 - Input: source candidates and extracted snippets.
-- Output: normalized evidence items, confidence, source type, scope notes.
+- Output: normalized evidence items, evidence claims, source quality, claim strength, bias risk, verification status, and counterevidence flags.
 - Must not: upgrade low-quality snippets into verified claims.
 - Failure mode: mark source as unusable with reason.
+
+### Counterevidence Agent
+
+- Input: critical claims from weak, conflicting, or assistant-brief sources.
+- Output: counterevidence tasks, conflicting evidence links, and verification downgrade notes.
+- Must not: erase claims; it marks status and required checks.
+- Failure mode: mark unresolved claims as `unverified`.
 
 ### Knowledge Mapper
 
@@ -61,7 +89,7 @@ All Agent outputs that include factual claims must support:
 ### QA Critic
 
 - Input: any gate output.
-- Output: pass/fail, blocking issues, suggested retries.
+- Output: `QAReport` with pass/fail, blocking issues, retry tasks, user action needed, and whether warning-only continuation is possible.
 - Must not: rewrite final artifacts directly.
 - Failure mode: fail closed when evidence references are missing.
 

@@ -12,10 +12,11 @@ SectorBreaker 不是给你写一篇行业报告，而是帮你搭建一个**可�
 
 ## Features
 
-- **结构化行业研究** — 从范围确认到知识地图，6 个 Gate 逐步深入
-- **多智能体协同** — 11 个专业 Agent 各司其职（规划、搜索、证据、分析、质检、导出）
-- **人工审阅机制** — 关键节点暂停等待确认，支持注入已有信息补充 AI 研究
-- **实时进度流** — SSE 推送研究事件，全程可视化
+- **可解释主管计划** — Supervisor 先生成作战计划，说明启用/跳过哪些 Agent 以及原因
+- **信源策略可选** — 支持开放网络、可靠优先、严格可靠、仅用户材料四种模式
+- **外部 AI 报告借力** — 可手动粘贴 Gemini/Kimi/Qwen/DeepSeek 报告，但只作为低可信线索
+- **证据账本与反证** — Evidence Ledger 记录来源质量、claim、偏见风险和反证标记
+- **实时运行图** — 前端展示真实 workflow、节点状态、加载进度和 SSE 事件流
 - **Obsidian 导出** — 一键生成 Markdown 知识库，直接导入 Obsidian
 
 ## Quick Start
@@ -41,32 +42,38 @@ cd frontend && npm run dev
 ## Architecture
 
 ```
-用户输入领域
+用户输入领域 + 信源模式
     ↓
 ┌─────────────────────────────────────────────┐
-│  LangGraph Adaptive Research Workflow        │
+│  LangGraph Explainable Research Workflow     │
 │                                              │
-│  [范围确认] → [证据收集] → [研究框架]         │
+│  [范围确认] → [主管计划] → [人工确认]         │
 │       ↓           ↓           ↓              │
-│  人工审阅     搜索引擎      LLM 规划          │
+│   研究边界    Agent 选择    用户补方向/材料   │
 │                                              │
-│  → [知识地图] → [机会地图] → [质量门] → [导出] │
-│       ↓           ↓                        │
-│   行业/玩家     机会假设                     │
+│  → [信源策略] → [证据账本] → [商业分析]       │
+│       ↓             ↓             ↓          │
+│   搜索/材料/报告  来源评级/反证   市场/玩家/交易│
+│                                              │
+│  → [QA 质量门] → [导出] → [RAG 索引]          │
 └─────────────────────────────────────────────┘
     ↓
 Obsidian 知识库 + SQLite 结构化存储
 ```
 
-核心设计：**固定质量门 + 动态 Supervisor 任务分配**。Gate 外壳保证研究质量，内部 Agent 灵活应对不同行业。
+核心设计：**固定大阶段 + 阶段内动态 Agent + 证据优先质量门**。系统不是把长 Prompt 串起来，而是用 LangGraph 管理状态、分支、并行、人工确认、QA 阻塞和实时进度。
 
 ## Agent Pool
 
 | Agent | 职责 |
 |-------|------|
+| Supervisor Agent | 研究意图归纳、Agent 选择、作战计划 |
+| Source Strategy Agent | 信源模式与来源范围 |
 | Research Planner | 研究框架与学习路径 |
 | Search Scout | 外部搜索 |
-| Evidence Curator | 证据规范化与置信度标注 |
+| Assistant Brief Agent | 外部 AI 报告 claim 拆解，低可信线索 |
+| Evidence Curator | 证据规范化、来源评级、claim 标注 |
+| Counterevidence Agent | 关键低可信结论反证标记 |
 | Market Mapper | 市场规模、增长、约束 |
 | Player Analyst | 玩家角色、议价能力、商业模式 |
 | Transaction Analyst | 交易单位、定价、频率、风险 |
@@ -75,6 +82,7 @@ Obsidian 知识库 + SQLite 结构化存储
 | Opportunity Analyst | 机会假设与验证路径 |
 | QA Critic | 质量门禁、证据链检查 |
 | Export Writer | Markdown/Obsidian 导出 |
+| RAG Indexer | 本地 FTS/RAG 接口预留 |
 
 ## Tech Stack
 

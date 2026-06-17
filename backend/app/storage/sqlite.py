@@ -12,6 +12,8 @@ from backend.app.providers.interfaces import RetrievalResult
 from backend.app.schemas import (
     Artifact,
     ArtifactType,
+    ClaimStrength,
+    EvidenceClaim,
     EvidenceItem,
     MarketScope,
     ProjectStatus,
@@ -21,6 +23,9 @@ from backend.app.schemas import (
     ResearchRun,
     RunEvent,
     RunStatus,
+    SourceChannel,
+    SourcePolicy,
+    SourceQuality,
     UserInput,
     VerificationStatus,
 )
@@ -54,6 +59,7 @@ class SQLiteRepository:
             domain=payload.domain,
             market_scope=payload.market_scope,
             depth=payload.depth,
+            source_policy=payload.source_policy,
             custom_market_scope=payload.custom_market_scope,
             created_at=now,
             updated_at=now,
@@ -63,8 +69,8 @@ class SQLiteRepository:
                 """
                 INSERT INTO projects (
                     id, title, domain, market_scope, depth, status,
-                    custom_market_scope, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    source_policy, custom_market_scope, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     project.id,
@@ -73,6 +79,7 @@ class SQLiteRepository:
                     project.market_scope.value,
                     project.depth.value,
                     project.status.value,
+                    project.source_policy.value,
                     project.custom_market_scope,
                     project.created_at.isoformat(),
                     project.updated_at.isoformat(),
@@ -91,6 +98,7 @@ class SQLiteRepository:
             domain=row["domain"],
             market_scope=MarketScope(row["market_scope"]),
             depth=ResearchDepth(row["depth"]),
+            source_policy=SourcePolicy(row["source_policy"] or SourcePolicy.RELIABLE_FIRST.value),
             status=ProjectStatus(row["status"]),
             custom_market_scope=row["custom_market_scope"],
             created_at=datetime.fromisoformat(row["created_at"]),
@@ -107,6 +115,7 @@ class SQLiteRepository:
                 domain=row["domain"],
                 market_scope=MarketScope(row["market_scope"]),
                 depth=ResearchDepth(row["depth"]),
+                source_policy=SourcePolicy(row["source_policy"] or SourcePolicy.RELIABLE_FIRST.value),
                 status=ProjectStatus(row["status"]),
                 custom_market_scope=row["custom_market_scope"],
                 created_at=datetime.fromisoformat(row["created_at"]),
@@ -121,8 +130,12 @@ class SQLiteRepository:
                 """
                 INSERT INTO evidence (
                     id, project_id, source_title, source_url, source_type,
-                    snippet, summary, confidence, verification_status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    source_channel, source_policy, raw_excerpt, snippet, summary,
+                    claims, source_quality, claim_strength, bias_risk, recency,
+                    corroborating_evidence_ids, conflicting_evidence_ids,
+                    needs_counterevidence, collected_by, used_by_artifact_ids,
+                    confidence, verification_status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     evidence.id,
@@ -130,8 +143,21 @@ class SQLiteRepository:
                     evidence.source_title,
                     evidence.source_url,
                     evidence.source_type,
+                    evidence.source_channel.value,
+                    evidence.source_policy,
+                    evidence.raw_excerpt,
                     evidence.snippet,
                     evidence.summary,
+                    json.dumps([claim.model_dump(mode="json") for claim in evidence.claims], ensure_ascii=False),
+                    evidence.source_quality.value,
+                    evidence.claim_strength.value,
+                    evidence.bias_risk,
+                    evidence.recency,
+                    json.dumps(evidence.corroborating_evidence_ids, ensure_ascii=False),
+                    json.dumps(evidence.conflicting_evidence_ids, ensure_ascii=False),
+                    1 if evidence.needs_counterevidence else 0,
+                    evidence.collected_by,
+                    json.dumps(evidence.used_by_artifact_ids, ensure_ascii=False),
                     evidence.confidence,
                     evidence.verification_status.value,
                 ),
@@ -208,8 +234,21 @@ class SQLiteRepository:
             source_title=row["source_title"],
             source_url=row["source_url"],
             source_type=row["source_type"],
+            source_channel=SourceChannel(row["source_channel"] or SourceChannel.SEARCH.value),
+            source_policy=row["source_policy"],
+            raw_excerpt=row["raw_excerpt"],
             snippet=row["snippet"],
             summary=row["summary"],
+            claims=[EvidenceClaim(**item) for item in json.loads(row["claims"] or "[]")],
+            source_quality=SourceQuality(row["source_quality"] or SourceQuality.UNKNOWN.value),
+            claim_strength=ClaimStrength(row["claim_strength"] or ClaimStrength.OPINION.value),
+            bias_risk=row["bias_risk"],
+            recency=row["recency"],
+            corroborating_evidence_ids=json.loads(row["corroborating_evidence_ids"] or "[]"),
+            conflicting_evidence_ids=json.loads(row["conflicting_evidence_ids"] or "[]"),
+            needs_counterevidence=bool(row["needs_counterevidence"]),
+            collected_by=row["collected_by"],
+            used_by_artifact_ids=json.loads(row["used_by_artifact_ids"] or "[]"),
             confidence=row["confidence"],
             verification_status=VerificationStatus(row["verification_status"]),
         )
@@ -304,8 +343,11 @@ class SQLiteRepository:
         with self._connect() as connection:
             cursor = connection.execute(
                 """
-                INSERT INTO run_events (run_id, event_type, gate, step, agent, message, data, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO run_events (
+                    run_id, event_type, gate, step, agent, message, data,
+                    progress_current, progress_total, severity, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
@@ -315,6 +357,9 @@ class SQLiteRepository:
                     event.agent,
                     event.message,
                     json.dumps(event.data, ensure_ascii=False) if event.data else None,
+                    event.progress_current,
+                    event.progress_total,
+                    event.severity,
                     datetime.fromtimestamp(event.timestamp, tz=UTC).isoformat(),
                 ),
             )
@@ -334,6 +379,9 @@ class SQLiteRepository:
                 agent=row["agent"],
                 message=row["message"],
                 data=json.loads(row["data"]) if row["data"] else None,
+                progress_current=row["progress_current"],
+                progress_total=row["progress_total"],
+                severity=row["severity"] or "info",
                 timestamp=datetime.fromisoformat(row["created_at"]).timestamp(),
             )
             for row in rows

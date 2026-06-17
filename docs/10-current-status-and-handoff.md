@@ -19,28 +19,34 @@ For Cursor, Windsurf, Gemini, Codex, Claude Code, or other tools, also read `doc
 ### Backend Foundation
 
 - Pydantic schemas exist for projects, evidence, artifacts, and research state.
+- Project creation now includes `source_policy`.
+- Supervisor planning schemas exist: `SupervisorPlan`, `AgentTask`, `VerificationPlan`, `QAReport`, and workflow definition nodes/edges.
 - Provider interfaces exist for LLM, search, retrieval, and fake test providers.
 - OpenAI-compatible LLM provider exists and is created from environment variables when configured.
 - Provider factory returns `None` by default when no real credentials are configured, so tests and local demos stay deterministic.
 - Tavily provider exists and is tested with fake HTTP.
 - SQLite migrations exist for projects, evidence, FTS, and artifacts.
+- Evidence Ledger fields now store source channel, source policy, claims, source quality, claim strength, bias risk, counterevidence flags, and artifact usage.
 - Repository supports project creation, evidence storage, artifact storage, FTS search.
 - Repository supports project listing and detail lookup.
 
 ### Workflow And Export
 
-- LangGraph is installed and used in a minimal deterministic workflow.
+- LangGraph workflow now includes Scope, Supervisor Plan, Source Strategy, Source Intake, Evidence Ledger, Business Analysis fan-out, QA Critic, Export, and RAG Indexer gates.
+- Runs pause at `supervisor_plan` for user confirmation unless `auto_run=true`.
+- Assistant briefs are optional manual Markdown/text inputs and are treated as low-trust lead material.
 - Workflow can use injected search and LLM providers.
 - Workflow produces evidence-linked research frame, industry map, market overview, player map, content/channel map, and opportunity map.
-- QA Critic blocks export when required coverage is missing or artifacts lack evidence references.
+- QA Critic emits structured `QAReport` and blocks missing coverage, missing evidence references, weak-source misuse, and unverified counterevidence needs.
 - Markdown exporter writes an Obsidian-friendly package and `manifest.json`.
 
 ### API And Frontend
 
 - FastAPI app factory exists with project create/list/detail, run, evidence, artifact, export, and chat endpoints.
+- API exposes `/api/projects/{project_id}/workflow-definition` and `/api/runs/{run_id}/workflow-definition`.
+- SSE emits node-level progress, degraded, blocked, completed, evidence, and claim events.
 - Module-level ASGI app exists at `backend.app.api.app:app`.
-- React/Vite workbench exists with the current name "破壁工作台".
-- Frontend is wired to backend API for run start, evidence/artifact rendering, project chat, and export.
+- React/Vite workbench has been rebuilt around a real workflow graph, source policy selection, optional assistant brief input, Supervisor Plan review, live node status, event stream, elapsed time, QA blocking view, evidence/artifact rendering, chat, and export.
 - Vite proxies `/api` to `http://127.0.0.1:8000`.
 
 ## Verification Commands
@@ -89,25 +95,25 @@ Why: these parts control hallucination risk, evidence integrity, workflow stabil
 
 ## Recommended Next Steps
 
-### Step 1: Research Planner Contract Hardening
+### Step 1: Planner And Agent Output Hardening
 
-Replace the planner's raw `dict` response with a dedicated Pydantic output schema. The output must include research sections, key questions, learning path, and coverage checklist items.
+Replace remaining raw `dict` LLM outputs in business agents with dedicated Pydantic output schemas.
 
 ### Step 2: Search Scout And Evidence Curator
 
-Enhance Tavily query planning and Evidence Curator rules. Convert source candidates into richer `EvidenceItem` metadata with confidence, scope notes, source quality, and conflict markers.
+Enhance Tavily query planning, reliable-source packs, source-quality rules, and real counterevidence search.
 
 ### Step 3: QA Critic Gate
 
-Current QA blocks missing coverage and missing evidence references. Next, add unsupported-claim detection and retry suggestions.
+Current QA blocks structural and weak-source issues. Next, add unsupported-claim detection inside generated artifact prose and automatic retry suggestions.
 
 ### Step 4: Human Review
 
-Add real LangGraph interrupt/resume behavior for gate review. The API should expose `waiting_for_human` state and a resume endpoint.
+Human review exists for Supervisor Plan confirmation. Next, add richer decisions such as "degrade and continue" for unresolved low-trust claims.
 
 ### Step 5: Frontend Productization
 
-Add editable project settings, artifact detail view, progress/error states, and downloadable export links.
+Add artifact detail viewer, evidence filters, source policy editing before run, and workflow node detail drill-down backed by real run state.
 
 ### Step 6: Acceptance Examples
 

@@ -151,3 +151,68 @@ def test_api_run_uses_injected_search_and_llm_providers(tmp_path: Path) -> None:
 
     evidence_response = client.get(f"/api/projects/{project_id}/evidence")
     assert evidence_response.json()[1]["source_title"] == "宠物服务市场"
+
+
+def test_api_exposes_workflow_definition_and_source_policy(tmp_path: Path) -> None:
+    client = TestClient(
+        create_app(
+            database_path=tmp_path / "sectorbreaker.sqlite3",
+            export_root=tmp_path / "exports",
+            llm_provider=_default_fake_llm(),
+        )
+    )
+    project = client.post(
+        "/api/projects",
+        json={
+            "title": "政策机会",
+            "domain": "政策机会",
+            "market_scope": "china",
+            "depth": "quick",
+            "source_policy": "reliable_only",
+        },
+    ).json()
+
+    assert project["source_policy"] == "reliable_only"
+
+    definition = client.get(f"/api/projects/{project['id']}/workflow-definition")
+    assert definition.status_code == 200
+    node_ids = {node["id"] for node in definition.json()["nodes"]}
+    assert "supervisor_plan" in node_ids
+    assert "evidence_ledger" in node_ids
+
+
+def test_api_pauses_for_supervisor_plan_confirmation(tmp_path: Path) -> None:
+    client = TestClient(
+        create_app(
+            database_path=tmp_path / "sectorbreaker.sqlite3",
+            export_root=tmp_path / "exports",
+            llm_provider=_default_fake_llm(),
+        )
+    )
+    project_id = client.post(
+        "/api/projects",
+        json={
+            "title": "编程教育",
+            "domain": "编程教育",
+            "market_scope": "china",
+            "depth": "quick",
+            "source_policy": "reliable_first",
+        },
+    ).json()["id"]
+
+    run = client.post(f"/api/projects/{project_id}/runs").json()
+    deadline = time.monotonic() + 5
+    result = run
+    while time.monotonic() < deadline:
+        result = client.get(f"/api/runs/{run['id']}").json()
+        if result["status"] == "waiting_for_human":
+            break
+        time.sleep(0.1)
+
+    assert result["status"] == "waiting_for_human"
+    assert result["current_gate"] == "supervisor_plan"
+
+    definition = client.get(f"/api/runs/{run['id']}/workflow-definition")
+    assert definition.status_code == 200
+    node_ids = {node["id"] for node in definition.json()["nodes"]}
+    assert "market_agent" in node_ids

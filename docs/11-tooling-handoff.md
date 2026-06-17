@@ -27,9 +27,8 @@ Claude Code should also read `CLAUDE.md` and `.claude/memory/MEMORY.md`.
 
 The latest completed implementation milestone is:
 
-- Commit: `8384628 实现本地研究闭环与前端联通`
-- Backend: FastAPI + LangGraph + SQLite + provider factory.
-- Frontend: Vite + React + TypeScript workbench named "破壁工作台".
+- Backend: FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger.
+- Frontend: Vite + React + TypeScript explainable research workbench with real workflow graph.
 - Environment: conda environment `sectorbreaker`.
 
 Verified commands at this baseline:
@@ -41,10 +40,10 @@ cd frontend && npm run build
 cd frontend && npm audit --audit-level=high
 ```
 
-Expected result:
+Expected result after the explainable multi-Agent upgrade:
 
-- Python: 21 tests pass, with one FastAPI/TestClient deprecation warning.
-- Frontend: 4 tests pass.
+- Python: 23 tests pass, with one FastAPI/TestClient deprecation warning.
+- Frontend: 3 tests pass.
 - Build passes.
 - npm audit reports 0 high vulnerabilities.
 
@@ -76,23 +75,25 @@ npm run dev -- --host 127.0.0.1 --port 3010
 ## What Has Been Implemented
 
 - Structured schemas for projects, evidence, artifacts, and graph state.
+- Source policy, SupervisorPlan, AgentTask, EvidenceClaim, QAReport, and workflow definition schemas.
 - Provider interfaces and fake providers.
 - OpenAI-compatible LLM provider.
 - Tavily search provider.
 - Environment-backed provider factory.
 - SQLite project/evidence/artifact persistence and FTS evidence search.
-- LangGraph workflow with provider injection, evidence-linked artifacts, QA gate, and export gate.
-- FastAPI project create/list/detail, run, evidence, artifacts, export, and chat endpoints.
+- LangGraph workflow with Scope, Supervisor Plan, Source Strategy, Source Intake, Evidence Ledger, Business Analysis fan-out, QA gate, Export, and RAG Indexer.
+- FastAPI project create/list/detail, run, workflow-definition, evidence, artifacts, export, and chat endpoints.
 - Markdown/Obsidian export manifest and files.
-- React workbench wired to backend API for run, evidence/artifact display, chat, and export.
+- React workbench wired to backend API for source policy selection, optional assistant brief, plan review, live graph, event stream, evidence/artifact display, chat, and export.
 
 ## Highest-Risk Remaining Work
 
 Architecture review is required before implementing:
 
 - Research Planner dedicated Pydantic output schema and prompts.
-- Evidence Curator source-quality rules and conflict handling.
-- QA Critic unsupported-claim detection and retry strategy.
+- Real reliable-source packs and source-quality rules.
+- Real Counterevidence search.
+- QA Critic unsupported-claim detection inside artifact prose and retry strategy.
 - LangGraph interrupt/resume/checkpoint design.
 - Any public schema, graph state, export format, or provider interface change.
 

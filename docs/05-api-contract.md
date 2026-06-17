@@ -13,7 +13,9 @@ FastAPI owns backend contracts. Pydantic schemas are the source of truth. The fr
 - `GET /api/projects/{project_id}`: get project.
 - `PATCH /api/projects/{project_id}`: update project configuration before a run starts.
 
-Current v1 implementation supports create/list/detail. Patch/update remains a contract target.
+Create accepts `source_policy` (`open_web`, `reliable_first`, `reliable_only`, `user_materials_only`). Current v1 implementation supports create/list/detail and workflow definition. Patch/update remains a contract target.
+
+- `GET /api/projects/{project_id}/workflow-definition`: returns the baseline workflow graph definition.
 
 ### Runs
 
@@ -21,8 +23,9 @@ Current v1 implementation supports create/list/detail. Patch/update remains a co
 - `GET /api/runs/{run_id}`: get run status.
 - `POST /api/runs/{run_id}/resume`: resume after human review.
 - `GET /api/runs/{run_id}/events`: stream run events with SSE.
+- `GET /api/runs/{run_id}/workflow-definition`: returns the run graph expanded with Supervisor-selected/skipped agents when available.
 
-Current v1 implementation runs synchronously from the project endpoint. Run status, resume, and SSE remain upgrade targets.
+Current v1 implementation creates a background run, pauses for Supervisor plan confirmation unless `auto_run=true`, supports resume, and streams SSE node events.
 
 ### Evidence And Artifacts
 
@@ -55,3 +58,28 @@ Errors should include:
 ## Human Review
 
 When the graph interrupts for review, the run status becomes `waiting_for_human`. The frontend must show the gate output and send the user's decision through the resume endpoint.
+
+`POST /api/runs/{run_id}/resume` accepts:
+
+- `guidance`: optional research direction.
+- `evidence_data`: optional user material.
+- `assistant_brief`: optional Markdown/text external AI report. It is treated as low-trust lead material.
+- `plan_confirmed`: confirms the Supervisor plan.
+
+## SSE Events
+
+Node events include:
+
+- `node_started`
+- `node_progress`
+- `node_completed`
+- `node_skipped`
+- `node_degraded`
+- `node_blocked`
+- `node_failed`
+- `evidence_collected`
+- `claim_extracted`
+- `qa_issue_found`
+- `human_input_required`
+
+Events may include `progress_current`, `progress_total`, `severity`, and structured `data`.
