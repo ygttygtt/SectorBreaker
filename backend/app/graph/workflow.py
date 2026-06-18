@@ -66,6 +66,10 @@ GATE_ORDER: list[str] = [
     "claim_extractor_gate",
     "counterevidence_gate",
     ResearchGate.EVIDENCE_LEDGER.value,
+    "market_agent",
+    "player_agent",
+    "transaction_agent",
+    "synthesis",
     ResearchGate.KNOWLEDGE_MAP.value,
     "qa_critic",
     ResearchGate.EXPORT.value,
@@ -180,6 +184,46 @@ def _extract_content(llm_result: dict | str, title: str, domain: str) -> str:
             content = f"# {domain} {title}\n\n{content}"
         return str(content)
     return f"# {domain} {title}\n\n{llm_result}"
+
+
+def _artifact_from_result(
+    *,
+    state: WorkflowState,
+    project: dict[str, Any],
+    art_id: str,
+    art_type: ArtifactType,
+    title: str,
+    path: str,
+    result: dict | str,
+) -> list[Artifact]:
+    ev_ids = _evidence_ids(state)
+    if isinstance(result, dict) and "hypotheses" in result:
+        from backend.app.exporters import cards as card_gen
+        card_map = card_gen.generate_opportunity_cards(project["domain"], result, project["title"], ev_ids)
+        return [
+            Artifact(
+                id=f"{art_id}-{card_name}",
+                project_id=state["project_id"],
+                artifact_type=art_type,
+                title=f"{title}/{card_name}",
+                content_path=f"{path}/{card_name}.md",
+                content=card_content,
+                source_evidence_ids=ev_ids,
+            )
+            for card_name, card_content in card_map.items()
+        ]
+    content = _extract_content(result, title, project["domain"])
+    return [
+        Artifact(
+            id=art_id,
+            project_id=state["project_id"],
+            artifact_type=art_type,
+            title=title,
+            content_path=path,
+            content=content,
+            source_evidence_ids=ev_ids,
+        )
+    ]
 
 
 def _default_plan() -> dict[str, list[str]]:
@@ -697,145 +741,48 @@ def make_nodes(
 
         await _emit(emitter, RunEvent(
             event_type="node_started", gate=gate, agent="Business Analysis Fan-out",
-            message="正在并行构建商业数据库、知识地图和机会基础",
+            message="正在整理前面各业务子 Agent 的结果，沉淀知识地图",
         ))
-
-        artifacts_spec = [
-            ("ART-RESEARCH-FRAME", ArtifactType.RESEARCH_FRAME, "研究框架", "00-研究框架/research-frame.md", "研究板块、关键问题与学习路径",
-             "你是行业研究规划 Agent。为用户指定的行业生成研究框架。返回 JSON，字段：sections（研究板块列表）, key_questions（关键问题列表）, learning_path（学习路径列表）, content（Markdown，可选）。"),
-            ("ART-INDUSTRY-MAP", ArtifactType.INDUSTRY_MAP, "行业地图", "01-行业地图", "行业地图与产业链结构",
-             "你是行业研究 Agent。为指定行业生成结构化知识地图。返回 JSON，字段：nodes（一级节点列表，每个含 name/type/definition/children/questions/misconceptions，type 可选 supply/demand/channel/risk）、learning_order（学习顺序）、misconceptions（新手常见误解至少5个）。每个一级节点下至少2个二级节点。"),
-            ("ART-MARKET-OVERVIEW", ArtifactType.MARKET_OVERVIEW, "市场现状", "02-市场分析/00-市场总览.md", "市场规模、增长驱动与约束",
-             "你是市场分析 Agent。为指定行业生成市场现状分析。返回 JSON，字段：title, content（Markdown，包含市场规模、增长速度、核心细分市场、供给规模、增长驱动、限制因素、数据来源可信度、区分事实/推测/观点）。"),
-            ("ART-PLAYER-MAP", ArtifactType.PLAYER_MAP, "玩家与交易单位", "03-玩家与竞品/00-玩家总览.md", "玩家角色与交易单位",
-             "你是竞品分析 Agent。按角色分类分析玩家：提供服务/拥有用户/拥有渠道/掌握资源/负责交付/监管/从交易赚钱。每类给代表玩家、商业价值、议价能力、新手忽略的地方。返回 JSON，字段：title, content（Markdown）。"),
-            ("ART-CONTENT-CHANNELS", ArtifactType.CONTENT_CHANNELS, "内容与渠道", "04-内容生态/00-内容总览.md", "内容生态与转化路径",
-             "你是内容生态分析 Agent。分析搜索关键词（6类）、内容平台（小红书/抖音/B站/公众号/知乎）、转化路径、6种内容分类（曝光/信任/收藏/转化/案例/专家IP）。返回 JSON，字段：title, content（Markdown）。"),
-            ("ART-TRANSACTION-UNITS", ArtifactType.TRANSACTION_UNITS, "交易单位数据库", "02-市场分析/交易单位", "用户真正付钱购买的东西",
-             "你是商业模式分析 Agent。返回 JSON，字段：units（数组，每个含 name/why_buy/price_range/frequency/repurchase_cycle/decision_cost/delivery_difficulty/risks/margin_source/selling_points/user_keywords）。至少列出5个交易单位。"),
-            ("ART-COMPETITOR-ANALYSIS", ArtifactType.COMPETITOR_ANALYSIS, "竞品数据库", "03-玩家与竞品", "代表玩家商业结构拆解",
-             "你是竞品分析 Agent。返回 JSON，字段：players（数组，每个含 name/role/positioning/target_users/products/pricing/channels/conversion/trust_assets/retention/content_strategy/differentiation/risks/learn/avoid）。选5-10个代表性玩家。"),
-            ("ART-REVENUE-STRUCTURE", ArtifactType.REVENUE_STRUCTURE, "收入结构", "02-市场分析/00-收入结构.md", "引流/转化/利润/复购",
-             "你是商业模式分析 Agent。将收入拆成4类（引流/转化/利润/复购），每类给：常见形式、用户心理、价格区间、渠道、话术、风险、案例。返回 JSON，字段：title, content（Markdown）。"),
-            ("ART-TRUST-ASSETS", ArtifactType.TRUST_ASSETS, "信任资产", "04-内容生态/00-信任资产.md", "用户信任建立机制",
-             "你是信任分析 Agent。分析：用户最担心什么、凭什么相信、哪些证据最有说服力、哪些是包装、哪些资质必须查、哪些案例推动成交、新进入者缺什么。返回 JSON，字段：title, content（Markdown）。"),
-            ("ART-CONTENT-ACCOUNTS", ArtifactType.CONTENT_ACCOUNTS, "内容账号数据库", "04-内容生态/内容账号", "批量内容账号分析",
-             "你是内容生态分析 Agent。返回 JSON，字段：platforms（数组，每个含 platform/accounts，accounts 含 name/followers/direction/conversion/learn）。覆盖小红书/抖音/B站/公众号/知乎。"),
-            ("ART-CONTENT-TOPICS", ArtifactType.CONTENT_TOPICS, "高频选题分析", "04-内容生态/00-高频选题.md", "反复出现的选题和用户问题",
-             "你是内容分析 Agent。分析：哪些选题反复出现、哪些问题被反复提问、哪些内容收藏率高、哪些接近成交、哪些标题结构有效、哪些争议点说明决策焦虑。返回 JSON，字段：title, content（Markdown）。"),
-            ("ART-KNOWLEDGE-CARD-TEMPLATE", ArtifactType.EXPORT_MANIFEST, "知识卡片模板", "06-知识卡片模板.md", "Obsidian 知识卡片结构化模板",
-             "你是知识管理 Agent。创建 Obsidian 知识卡片模板。返回 JSON，字段：title, content（Markdown，含示例卡片、卡片结构说明、frontmatter 格式、使用说明）。"),
-            ("ART-OPPORTUNITY-MAP", ArtifactType.OPPORTUNITY_MAP, "机会地图", "05-机会与验证/00-机会总览.md", "机会假设与验证动作",
-             "你是机会分析 Agent。基于前面的行业研究，为指定行业生成机会地图。返回 JSON，字段：title, content（Markdown，包含至少3个机会假设，每个含机会名称、逻辑、目标用户、进入门槛、资源、风险、第一周可验证什么；必须区分事实、假设和待验证问题）。"),
-        ]
-
-        # Artifacts that produce structured cards (not single files)
-        STRUCTURED_ARTIFACTS = {
-            "ART-INDUSTRY-MAP", "ART-COMPETITOR-ANALYSIS",
-            "ART-TRANSACTION-UNITS", "ART-CONTENT-ACCOUNTS",
-        }
-
-        async def _gen(spec):
-            art_id, art_type, title, path, desc, sys_prompt = spec
-            await _emit(emitter, RunEvent(
-                event_type="node_progress", gate=gate, step=art_id, agent="Knowledge Mapper",
-                message=f"正在生成：{title}（{desc}）",
-            ))
-            try:
-                async with _get_semaphore():
-                    result = await _llm_generate(
-                        llm_provider, system_prompt=sys_prompt,
-                        user_prompt=(
-                            f"行业：{project['domain']}\n市场范围：{project['market_scope']}\n"
-                            f"研究深度：{project['depth']}\n证据数：{len(state.get('evidence', []))}\n"
-                            f"已有产物：{', '.join(a.get('title', '') for a in state.get('artifacts', []))}\n"
-                            f"{'用户方向：' + state.get('user_guidance', '') if state.get('user_guidance') else ''}"
-                        ),
-                        emitter=emitter, gate=gate, agent="Knowledge Mapper",
-                    )
-
-                ev_ids = _evidence_ids(state)
-                generated = []
-
-                if art_id in STRUCTURED_ARTIFACTS and isinstance(result, dict):
-                    # Generate multiple cards from structured data
-                    from backend.app.exporters import cards as card_gen
-
-                    if art_id == "ART-INDUSTRY-MAP":
-                        card_map = card_gen.generate_industry_map_cards(
-                            project['domain'], result, project['title'], ev_ids)
-                        for card_name, card_content in card_map.items():
-                            generated.append(Artifact(
-                                id=f"{art_id}-{card_name}", project_id=state["project_id"],
-                                artifact_type=art_type, title=f"行业地图/{card_name}",
-                                content_path=f"{path}/{card_name}.md", content=card_content,
-                                source_evidence_ids=ev_ids,
-                            ))
-                    elif art_id == "ART-COMPETITOR-ANALYSIS":
-                        card_map = card_gen.generate_competitor_cards(
-                            project['domain'], result, project['title'], ev_ids)
-                        for card_name, card_content in card_map.items():
-                            generated.append(Artifact(
-                                id=f"{art_id}-{card_name}", project_id=state["project_id"],
-                                artifact_type=art_type, title=f"竞品/{card_name}",
-                                content_path=f"{path}/{card_name}.md", content=card_content,
-                                source_evidence_ids=ev_ids,
-                            ))
-                    elif art_id == "ART-TRANSACTION-UNITS":
-                        card_map = card_gen.generate_transaction_unit_cards(
-                            project['domain'], result, project['title'], ev_ids)
-                        for card_name, card_content in card_map.items():
-                            generated.append(Artifact(
-                                id=f"{art_id}-{card_name}", project_id=state["project_id"],
-                                artifact_type=art_type, title=f"交易单位/{card_name}",
-                                content_path=f"{path}/{card_name}.md", content=card_content,
-                                source_evidence_ids=ev_ids,
-                            ))
-                    elif art_id == "ART-CONTENT-ACCOUNTS":
-                        card_map = card_gen.generate_content_account_cards(
-                            project['domain'], result, project['title'], ev_ids)
-                        for card_name, card_content in card_map.items():
-                            generated.append(Artifact(
-                                id=f"{art_id}-{card_name}", project_id=state["project_id"],
-                                artifact_type=art_type, title=f"内容账号/{card_name}",
-                                content_path=f"{path}/{card_name}.md", content=card_content,
-                                source_evidence_ids=ev_ids,
-                            ))
-                else:
-                    # Single file artifact
-                    content = _extract_content(result, title, project['domain'])
-                    generated.append(Artifact(
-                        id=art_id, project_id=state["project_id"], artifact_type=art_type,
-                        title=title, content_path=path, content=content,
-                        source_evidence_ids=ev_ids,
-                    ))
-
-                await _emit(emitter, RunEvent(
-                    event_type="artifact_created", gate=gate, agent="Knowledge Mapper",
-                    message=f"{title}已生成（{len(generated)} 个卡片）",
-                ))
-                return generated
-            except Exception as exc:
-                await _emit(emitter, RunEvent(
-                    event_type="error", gate=gate, agent="Knowledge Mapper",
-                    message=f"{title}生成失败：{exc}",
-                ))
-                return [Artifact(
-                    id=art_id, project_id=state["project_id"], artifact_type=art_type,
-                    title=title, content_path=path,
-                    content=f"# {project['domain']} {title}\n\n生成失败，请稍后重试。",
-                    source_evidence_ids=_evidence_ids(state),
-                )]
-
-        results = await asyncio.gather(*[_gen(s) for s in artifacts_spec])
+        result = await _llm_generate(
+            llm_provider,
+            system_prompt=(
+                "你是知识管理 Agent。根据已经产出的市场、玩家、交易单位、机会等研究结果，"
+                "生成行业地图和知识卡片模板。只返回 JSON，字段：title, content（Markdown）。"
+            ),
+            user_prompt=(
+                f"行业：{project['domain']}\n市场范围：{project['market_scope']}\n"
+                f"已有产物：{', '.join(a.get('title', '') for a in state.get('artifacts', []))}\n"
+                f"证据数：{len(state.get('evidence', []))}\n"
+                f"{'用户方向：' + state.get('user_guidance', '') if state.get('user_guidance') else ''}"
+            ),
+            emitter=emitter, gate=gate, agent="Knowledge Mapper",
+        )
         new_artifacts = list(state.get("artifacts", []))
-        for art_list in results:
-            if art_list:
-                for art in art_list:
-                    new_artifacts.append(art.model_dump(mode="json"))
+        new_artifacts.append(
+            Artifact(
+                id="ART-INDUSTRY-MAP",
+                project_id=state["project_id"],
+                artifact_type=ArtifactType.INDUSTRY_MAP,
+                title="行业地图",
+                content_path="01-行业地图/00-行业总览.md",
+                content=_extract_content(result, "行业地图", project["domain"]),
+                source_evidence_ids=_evidence_ids(state),
+            ).model_dump(mode="json")
+        )
+        new_artifacts.append(
+            Artifact(
+                id="ART-KNOWLEDGE-CARD-TEMPLATE",
+                project_id=state["project_id"],
+                artifact_type=ArtifactType.EXPORT_MANIFEST,
+                title="知识卡片模板",
+                content_path="06-知识卡片模板.md",
+                content=_extract_content(result, "知识卡片模板", project["domain"]),
+                source_evidence_ids=_evidence_ids(state),
+            ).model_dump(mode="json")
+        )
 
         await _emit(emitter, RunEvent(
-            event_type="node_completed", gate=gate, agent="Business Analysis Fan-out", message="商业数据库和知识地图构建完成",
+            event_type="node_completed", gate=gate, agent="Knowledge Mapper", message="知识地图收口完成",
         ))
         return {
             "current_gate": "qa_critic",
@@ -844,73 +791,273 @@ def make_nodes(
                 **state.get("coverage_checklist", {}),
                 "research_frame": True,
                 "knowledge_map": True,
+                "market": True,
+                "player": True,
+                "transaction": True,
                 "opportunity_map": True,
             },
         }
 
-    async def opportunity_gate(state: WorkflowState) -> dict[str, Any]:
+    async def market_gate(state: WorkflowState) -> dict[str, Any]:
         project = state["project"]
-        gate = ResearchGate.OPPORTUNITY.value
-
+        gate = "market_agent"
         await _emit(emitter, RunEvent(
-            event_type="gate_start", gate=gate, message="正在分析机会地图",
+            event_type="node_started", gate=gate, agent="Market Agent",
+            message="正在分析市场规模、增长驱动与约束",
         ))
-
-        artifact_titles = [a.get("title", "") for a in state.get("artifacts", [])]
-
-        llm_result = await _llm_generate(
+        artifacts = list(state.get("artifacts", []))
+        if not any(item.get("id") == "ART-RESEARCH-FRAME" for item in artifacts):
+            default = _default_plan()
+            artifacts.append(
+                Artifact(
+                    id="ART-RESEARCH-FRAME",
+                    project_id=state["project_id"],
+                    artifact_type=ArtifactType.RESEARCH_FRAME,
+                    title="研究框架",
+                    content_path="00-研究框架/research-frame.md",
+                    content=(
+                        f"# {project['domain']} 研究框架\n\n## 先学什么\n\n"
+                        + "\n".join(f"- {s}" for s in default["sections"])
+                        + "\n\n## 关键问题\n\n"
+                        + "\n".join(f"- {q}" for q in default["key_questions"])
+                        + "\n"
+                    ),
+                    source_evidence_ids=_evidence_ids(state),
+                ).model_dump(mode="json")
+            )
+        result = await _llm_generate(
             llm_provider,
             system_prompt=(
-                "你是机会分析 Agent。基于前面的行业研究，为指定行业生成机会地图。"
-                "只返回 JSON，字段：title, content（Markdown，包含：行业整体判断（增长快/竞争激烈）、"
-                "至少3个机会假设，每个含：机会名称、逻辑、目标用户、痛点强但供给不足的领域、"
-                "信任成本高的领域、进入门槛、资源、风险、适合新人的领域、第一周可验证什么）。"
+                "你是市场分析 Agent。为指定行业生成市场现状分析。"
+                "只返回 JSON，字段：title, content（Markdown，包含市场规模、增长速度、核心细分市场、供给规模、增长驱动、限制因素、数据来源可信度、区分事实/推测/观点）。"
             ),
             user_prompt=(
                 f"行业：{project['domain']}\n市场范围：{project['market_scope']}\n"
-                f"已完成研究：{', '.join(artifact_titles)}\n"
-                f"证据数：{len(state.get('evidence', []))}\n"
+                f"研究深度：{project['depth']}\n证据数：{len(state.get('evidence', []))}\n"
                 f"{'用户方向：' + state.get('user_guidance', '') if state.get('user_guidance') else ''}"
             ),
-            emitter=emitter, gate=gate, agent="Opportunity Analyst",
+            emitter=emitter, gate=gate, agent="Market Agent",
         )
-
-        ev_ids = _evidence_ids(state)
-        artifacts = list(state.get("artifacts", []))
-
-        if isinstance(llm_result, dict) and "hypotheses" in llm_result:
-            # Structured opportunity cards
-            from backend.app.exporters import cards as card_gen
-            card_map = card_gen.generate_opportunity_cards(
-                project['domain'], llm_result, project['title'], ev_ids)
-            for card_name, card_content in card_map.items():
-                artifacts.append(Artifact(
-                    id=f"ART-OPPORTUNITY-MAP-{card_name}", project_id=state["project_id"],
-                    artifact_type=ArtifactType.OPPORTUNITY_MAP, title=f"机会/{card_name}",
-                    content_path=f"05-机会与验证/{card_name}.md", content=card_content,
-                    source_evidence_ids=ev_ids,
-                ).model_dump(mode="json"))
-        else:
-            # Fallback to single file
-            content = _extract_content(llm_result, "机会地图", project['domain'])
-            artifacts.append(Artifact(
-                id="ART-OPPORTUNITY-MAP", project_id=state["project_id"],
-                artifact_type=ArtifactType.OPPORTUNITY_MAP, title="机会地图",
-                content_path="05-机会与验证/00-机会总览.md", content=content,
-                source_evidence_ids=ev_ids,
-            ).model_dump(mode="json"))
-
+        if any(item.get("id") == "ART-RESEARCH-FRAME" for item in artifacts):
+            rf_text = _extract_content(result, "研究框架", project["domain"])
+            artifacts = [
+                art
+                if art.get("id") != "ART-RESEARCH-FRAME"
+                else {
+                    **art,
+                    "content": rf_text,
+                }
+                for art in artifacts
+            ]
+        artifacts.extend(
+            [
+                art.model_dump(mode="json")
+                for art in _artifact_from_result(
+                    state=state,
+                    project=project,
+                    art_id="ART-MARKET-OVERVIEW",
+                    art_type=ArtifactType.MARKET_OVERVIEW,
+                    title="市场现状",
+                    path="02-市场分析/00-市场总览.md",
+                    result=result,
+                )
+            ]
+        )
         await _emit(emitter, RunEvent(
-            event_type="gate_complete", gate=gate, message="机会地图分析完成",
+            event_type="node_completed", gate=gate, agent="Market Agent",
+            message="市场分析完成",
         ))
-        return {
-            "current_gate": "qa_critic",
-            "artifacts": artifacts,
-            "coverage_checklist": {
-                **state.get("coverage_checklist", {}),
-                "opportunity_map": True,
-            },
-        }
+        return {"artifacts": artifacts}
+
+    async def player_gate(state: WorkflowState) -> dict[str, Any]:
+        project = state["project"]
+        gate = "player_agent"
+        await _emit(emitter, RunEvent(
+            event_type="node_started", gate=gate, agent="Player Agent",
+            message="正在分析玩家角色与竞品结构",
+        ))
+        result = await _llm_generate(
+            llm_provider,
+            system_prompt=(
+                "你是竞品分析 Agent。按角色分类分析玩家：提供服务/拥有用户/拥有渠道/掌握资源/负责交付/监管/从交易赚钱。"
+                "每类给代表玩家、商业价值、议价能力、新手忽略的地方。返回 JSON，字段：title, content（Markdown）。"
+            ),
+            user_prompt=(
+                f"行业：{project['domain']}\n市场范围：{project['market_scope']}\n"
+                f"研究深度：{project['depth']}\n证据数：{len(state.get('evidence', []))}\n"
+                f"{'用户方向：' + state.get('user_guidance', '') if state.get('user_guidance') else ''}"
+            ),
+            emitter=emitter, gate=gate, agent="Player Agent",
+        )
+        artifacts = list(state.get("artifacts", []))
+        artifacts.extend(
+            [
+                art.model_dump(mode="json")
+                for art in _artifact_from_result(
+                    state=state,
+                    project=project,
+                    art_id="ART-COMPETITOR-ANALYSIS",
+                    art_type=ArtifactType.COMPETITOR_ANALYSIS,
+                    title="竞品数据库",
+                    path="03-玩家与竞品",
+                    result=result,
+                )
+            ]
+        )
+        artifacts.append(
+            Artifact(
+                id="ART-PLAYER-MAP",
+                project_id=state["project_id"],
+                artifact_type=ArtifactType.PLAYER_MAP,
+                title="玩家与交易单位",
+                content_path="03-玩家与竞品/00-玩家总览.md",
+                content=_extract_content(result, "玩家与交易单位", project["domain"]),
+                source_evidence_ids=_evidence_ids(state),
+            ).model_dump(mode="json")
+        )
+        await _emit(emitter, RunEvent(
+            event_type="node_completed", gate=gate, agent="Player Agent",
+            message="玩家分析完成",
+        ))
+        return {"artifacts": artifacts}
+
+    async def transaction_gate(state: WorkflowState) -> dict[str, Any]:
+        project = state["project"]
+        gate = "transaction_agent"
+        await _emit(emitter, RunEvent(
+            event_type="node_started", gate=gate, agent="Transaction Agent",
+            message="正在拆解交易单位与付费逻辑",
+        ))
+        result = await _llm_generate(
+            llm_provider,
+            system_prompt=(
+                "你是商业模式分析 Agent。返回 JSON，字段：units（数组，每个含 name/why_buy/price_range/frequency/repurchase_cycle/decision_cost/delivery_difficulty/risks/margin_source/selling_points/user_keywords）。"
+                "至少列出5个交易单位。"
+            ),
+            user_prompt=(
+                f"行业：{project['domain']}\n市场范围：{project['market_scope']}\n"
+                f"研究深度：{project['depth']}\n证据数：{len(state.get('evidence', []))}\n"
+                f"{'用户方向：' + state.get('user_guidance', '') if state.get('user_guidance') else ''}"
+            ),
+            emitter=emitter, gate=gate, agent="Transaction Agent",
+        )
+        artifacts = list(state.get("artifacts", []))
+        artifacts.extend(
+            [
+                art.model_dump(mode="json")
+                for art in _artifact_from_result(
+                    state=state,
+                    project=project,
+                    art_id="ART-TRANSACTION-UNITS",
+                    art_type=ArtifactType.TRANSACTION_UNITS,
+                    title="交易单位数据库",
+                    path="02-市场分析/交易单位",
+                    result=result,
+                )
+            ]
+        )
+        artifacts.append(
+            Artifact(
+                id="ART-REVENUE-STRUCTURE",
+                project_id=state["project_id"],
+                artifact_type=ArtifactType.REVENUE_STRUCTURE,
+                title="收入结构",
+                content_path="02-市场分析/00-收入结构.md",
+                content=_extract_content(result, "收入结构", project["domain"]),
+                source_evidence_ids=_evidence_ids(state),
+            ).model_dump(mode="json")
+        )
+        artifacts.append(
+            Artifact(
+                id="ART-TRUST-ASSETS",
+                project_id=state["project_id"],
+                artifact_type=ArtifactType.TRUST_ASSETS,
+                title="信任资产",
+                content_path="04-内容生态/00-信任资产.md",
+                content=_extract_content(result, "信任资产", project["domain"]),
+                source_evidence_ids=_evidence_ids(state),
+            ).model_dump(mode="json")
+        )
+        await _emit(emitter, RunEvent(
+            event_type="node_completed", gate=gate, agent="Transaction Agent",
+            message="交易单位分析完成",
+        ))
+        return {"artifacts": artifacts}
+
+    async def synthesis_gate(state: WorkflowState) -> dict[str, Any]:
+        project = state["project"]
+        gate = "synthesis"
+        await _emit(emitter, RunEvent(
+            event_type="node_started", gate=gate, agent="Opportunity Agent",
+            message="正在汇总结论并生成机会地图",
+        ))
+        result = await _llm_generate(
+            llm_provider,
+            system_prompt=(
+                "你是机会分析 Agent。基于前面的行业研究，为指定行业生成机会地图。"
+                "只返回 JSON，字段：title, content（Markdown，包含至少3个机会假设，每个含机会名称、逻辑、目标用户、进入门槛、资源、风险、第一周可验证什么；必须区分事实、假设和待验证问题）。"
+            ),
+            user_prompt=(
+                f"行业：{project['domain']}\n市场范围：{project['market_scope']}\n"
+                f"证据数：{len(state.get('evidence', []))}\n"
+                f"已有产物：{', '.join(a.get('title', '') for a in state.get('artifacts', []))}\n"
+                f"{'用户方向：' + state.get('user_guidance', '') if state.get('user_guidance') else ''}"
+            ),
+            emitter=emitter, gate=gate, agent="Opportunity Agent",
+        )
+        artifacts = list(state.get("artifacts", []))
+        artifacts.extend(
+            [
+                art.model_dump(mode="json")
+                for art in _artifact_from_result(
+                    state=state,
+                    project=project,
+                    art_id="ART-OPPORTUNITY-MAP",
+                    art_type=ArtifactType.OPPORTUNITY_MAP,
+                    title="机会地图",
+                    path="05-机会与验证/00-机会总览.md",
+                    result=result,
+                )
+            ]
+        )
+        artifacts.append(
+            Artifact(
+                id="ART-CONTENT-CHANNELS",
+                project_id=state["project_id"],
+                artifact_type=ArtifactType.CONTENT_CHANNELS,
+                title="内容与渠道",
+                content_path="04-内容生态/00-内容总览.md",
+                content=_extract_content(result, "内容与渠道", project["domain"]),
+                source_evidence_ids=_evidence_ids(state),
+            ).model_dump(mode="json")
+        )
+        artifacts.append(
+            Artifact(
+                id="ART-CONTENT-TOPICS",
+                project_id=state["project_id"],
+                artifact_type=ArtifactType.CONTENT_TOPICS,
+                title="高频选题分析",
+                content_path="04-内容生态/00-高频选题.md",
+                content=_extract_content(result, "高频选题分析", project["domain"]),
+                source_evidence_ids=_evidence_ids(state),
+            ).model_dump(mode="json")
+        )
+        artifacts.append(
+            Artifact(
+                id="ART-KNOWLEDGE-CARD-TEMPLATE",
+                project_id=state["project_id"],
+                artifact_type=ArtifactType.EXPORT_MANIFEST,
+                title="知识卡片模板",
+                content_path="06-知识卡片模板.md",
+                content=_extract_content(result, "知识卡片模板", project["domain"]),
+                source_evidence_ids=_evidence_ids(state),
+            ).model_dump(mode="json")
+        )
+        await _emit(emitter, RunEvent(
+            event_type="node_completed", gate=gate, agent="Opportunity Agent",
+            message="机会综合完成",
+        ))
+        return {"artifacts": artifacts}
 
     async def qa_critic_gate(state: WorkflowState) -> dict[str, Any]:
         gate = "qa_critic"
@@ -919,7 +1066,7 @@ def make_nodes(
         ))
 
         checklist = state.get("coverage_checklist", {})
-        required = ["scope_confirmed", "evidence_ledger", "research_frame", "knowledge_map", "opportunity_map"]
+        required = ["scope_confirmed", "evidence_ledger", "research_frame", "market", "player", "transaction", "knowledge_map", "opportunity_map"]
         missing = [k for k in required if not checklist.get(k)]
         qa_issues = list(state.get("qa_issues", []))
         retry_tasks: list[str] = []
@@ -1005,8 +1152,11 @@ def make_nodes(
         "claim_extractor_gate": claim_extractor_gate,
         "counterevidence_gate": counterevidence_gate,
         "research_frame_gate": research_frame_gate,
+        "market_gate": market_gate,
+        "player_gate": player_gate,
+        "transaction_gate": transaction_gate,
+        "synthesis_gate": synthesis_gate,
         "knowledge_map_gate": knowledge_map_gate,
-        "opportunity_gate": opportunity_gate,
         "qa_critic_gate": qa_critic_gate,
         "export_gate": export_gate,
     }
@@ -1038,6 +1188,10 @@ def build_graph(
     graph.add_node("claim_extractor_gate", nodes["claim_extractor_gate"])
     graph.add_node("counterevidence_gate", nodes["counterevidence_gate"])
     graph.add_node("evidence_ledger_gate", nodes["evidence_ledger_gate"])
+    graph.add_node("market_gate", nodes["market_gate"])
+    graph.add_node("player_gate", nodes["player_gate"])
+    graph.add_node("transaction_gate", nodes["transaction_gate"])
+    graph.add_node("synthesis_gate", nodes["synthesis_gate"])
     graph.add_node("knowledge_map_gate", nodes["knowledge_map_gate"])
     graph.add_node("qa_critic_gate", nodes["qa_critic_gate"])
     graph.add_node("export_gate", nodes["export_gate"])
@@ -1052,7 +1206,11 @@ def build_graph(
     graph.add_edge("evidence_gate", "claim_extractor_gate")
     graph.add_edge("claim_extractor_gate", "counterevidence_gate")
     graph.add_edge("counterevidence_gate", "evidence_ledger_gate")
-    graph.add_edge("evidence_ledger_gate", "knowledge_map_gate")
+    graph.add_edge("evidence_ledger_gate", "market_gate")
+    graph.add_edge("market_gate", "player_gate")
+    graph.add_edge("player_gate", "transaction_gate")
+    graph.add_edge("transaction_gate", "synthesis_gate")
+    graph.add_edge("synthesis_gate", "knowledge_map_gate")
     graph.add_edge("knowledge_map_gate", "qa_critic_gate")
 
     # Conditional edge after QA

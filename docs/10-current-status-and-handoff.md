@@ -21,7 +21,7 @@ For Cursor, Windsurf, Gemini, Codex, Claude Code, or other tools, also read `doc
 
 - Pydantic schemas exist for projects, evidence, artifacts, and research state.
 - Project creation now includes `source_policy`.
-- Supervisor planning schemas exist: `SupervisorPlan`, `AgentTask`, `VerificationPlan`, `QAReport`, and workflow definition nodes/edges.
+- Supervisor planning schemas exist: `SupervisorPlan`, `AgentTask`, `VerificationPlan`, `QAReport`, `AgentSelectionDecision`, `AgentSelectionSignal`, and workflow definition nodes/edges.
 - Provider interfaces exist for LLM, search, retrieval, and fake test providers.
 - OpenAI-compatible LLM provider exists and is created from environment variables when configured.
 - Provider factory returns `None` by default when no real credentials are configured, so tests and local demos stay deterministic.
@@ -33,11 +33,12 @@ For Cursor, Windsurf, Gemini, Codex, Claude Code, or other tools, also read `doc
 
 ### Workflow And Export
 
-- LangGraph workflow now includes Scope, Supervisor Plan, Source Strategy, Source Intake, Claim Extractor, Counterevidence, Evidence Ledger, Business Analysis fan-out, QA Critic, Export, and RAG Indexer gates.
+- LangGraph workflow now includes Scope, Supervisor Plan, Source Strategy, Source Intake, Claim Extractor, Counterevidence, Evidence Ledger, Market, Player, Transaction, Synthesis, Knowledge Map, QA Critic, Export, and RAG Indexer gates.
 - Runs pause at `supervisor_plan` for user confirmation unless `auto_run=true`.
 - Assistant briefs are optional manual Markdown/text inputs and are treated as low-trust lead material.
 - Workflow can use injected search and LLM providers.
 - Workflow produces evidence-linked research frame, industry map, market overview, player map, content/channel map, and opportunity map.
+- Supervisor Plan now includes structured selection traces for explainability.
 - QA Critic emits structured `QAReport` and blocks missing coverage, missing evidence references, weak-source misuse, and unverified counterevidence needs.
 - Markdown exporter writes an Obsidian-friendly package and `manifest.json`.
 

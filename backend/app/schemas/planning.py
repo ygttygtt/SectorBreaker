@@ -59,6 +59,24 @@ class VerificationPlan(BaseModel):
     notes: str | None = None
 
 
+class AgentSelectionSignal(BaseModel):
+    signal: str
+    matched: bool
+    weight: int = 0
+    reason: str
+
+
+class AgentSelectionDecision(BaseModel):
+    agent_id: str
+    display_name: str
+    enabled: bool
+    score: int = 0
+    rationale: list[str] = Field(default_factory=list)
+    disqualifiers: list[str] = Field(default_factory=list)
+    signals: list[AgentSelectionSignal] = Field(default_factory=list)
+    source_scope: list[str] = Field(default_factory=list)
+
+
 class SupervisorPlan(BaseModel):
     schema_version: str = "1"
     intent_summary: str
@@ -71,6 +89,7 @@ class SupervisorPlan(BaseModel):
     success_criteria: list[str] = Field(default_factory=list)
     assumptions: list[str] = Field(default_factory=list)
     risks: list[str] = Field(default_factory=list)
+    selection_trace: list[AgentSelectionDecision] = Field(default_factory=list)
 
 
 class QAReport(BaseModel):
@@ -103,4 +122,3 @@ class WorkflowDefinition(BaseModel):
     schema_version: str = "1"
     nodes: list[WorkflowNode]
     edges: list[WorkflowEdge]
-

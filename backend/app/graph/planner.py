@@ -2,6 +2,8 @@
 
 from backend.app.schemas import (
     AgentRunMode,
+    AgentSelectionDecision,
+    AgentSelectionSignal,
     AgentTask,
     ResearchProject,
     SkippedAgent,
@@ -18,17 +20,42 @@ from backend.app.schemas import (
 
 def _source_scope(policy: SourcePolicy, include_brief: bool, include_user_materials: bool) -> list[str]:
     scope: list[str] = []
-    if policy in (SourcePolicy.OPEN_WEB, SourcePolicy.RELIABLE_FIRST):
+    if policy == SourcePolicy.OPEN_WEB:
         scope.append("open_web")
+    if policy == SourcePolicy.RELIABLE_FIRST:
+        scope.extend(["open_web", "government_sites", "company_disclosures", "public_databases"])
     if policy in (SourcePolicy.RELIABLE_FIRST, SourcePolicy.RELIABLE_ONLY):
-        scope.append("reliable_sources")
+        scope.extend(["reliable_sources", "government_sites", "company_disclosures", "public_databases"])
     if policy == SourcePolicy.USER_MATERIALS_ONLY or include_user_materials:
         scope.append("user_materials")
     if include_brief:
         scope.append("assistant_brief")
     if "project_rag" not in scope:
         scope.append("project_rag")
-    return scope
+    return list(dict.fromkeys(scope))
+
+
+def _build_selection_decision(
+    *,
+    agent_id: str,
+    display_name: str,
+    enabled: bool,
+    score: int,
+    source_scope: list[str],
+    signals: list[AgentSelectionSignal],
+    rationale: list[str],
+    disqualifiers: list[str] | None = None,
+) -> AgentSelectionDecision:
+    return AgentSelectionDecision(
+        agent_id=agent_id,
+        display_name=display_name,
+        enabled=enabled,
+        score=score,
+        source_scope=source_scope,
+        signals=signals,
+        rationale=rationale,
+        disqualifiers=disqualifiers or [],
+    )
 
 
 def build_supervisor_plan(
@@ -58,6 +85,7 @@ def build_supervisor_plan(
 
     source_scope = _source_scope(policy, has_assistant_brief, has_user_materials)
     degraded_for_learning = learning_bias and not venture_bias
+    selection_trace: list[AgentSelectionDecision] = []
 
     selected: list[AgentTask] = [
         AgentTask(
@@ -148,6 +176,97 @@ def build_supervisor_plan(
     ]
 
     skipped: list[SkippedAgent] = []
+    base_score = 100
+    selection_trace.extend(
+        [
+            _build_selection_decision(
+                agent_id="search_scout",
+                display_name="搜索侦察 Agent",
+                enabled=True,
+                score=base_score,
+                source_scope=source_scope,
+                signals=[
+                    AgentSelectionSignal(signal="commercial_default", matched=True, weight=50, reason="商业情报默认需要建立候选资料池。"),
+                    AgentSelectionSignal(signal=f"source_policy:{policy.value}", matched=True, weight=30, reason="信源模式决定搜索范围和可信度边界。"),
+                ],
+                rationale=["先建立候选资料池，再进入证据整理和业务分析。"],
+            ),
+            _build_selection_decision(
+                agent_id="evidence_curator",
+                display_name="证据整理 Agent",
+                enabled=True,
+                score=base_score,
+                source_scope=source_scope,
+                signals=[
+                    AgentSelectionSignal(signal="evidence_first", matched=True, weight=60, reason="所有下游结论必须挂证据。"),
+                    AgentSelectionSignal(signal=f"source_policy:{policy.value}", matched=True, weight=20, reason="不同信源模式都需要统一证据账本。"),
+                ],
+                rationale=["证据账本是质量门的前置条件。"],
+            ),
+            _build_selection_decision(
+                agent_id="market_agent",
+                display_name="市场分析 Agent",
+                enabled=True,
+                score=92,
+                source_scope=source_scope,
+                signals=[
+                    AgentSelectionSignal(signal="commercial_default", matched=True, weight=45, reason="商业情报默认需要市场视角。"),
+                    AgentSelectionSignal(signal="learning_bias", matched=learning_bias, weight=10 if learning_bias else 0, reason="学习型任务也需要行业边界和市场概况。"),
+                ],
+                rationale=["市场规模、驱动和约束是后续机会假设的前提。"],
+            ),
+            _build_selection_decision(
+                agent_id="player_agent",
+                display_name="玩家分析 Agent",
+                enabled=True,
+                score=90,
+                source_scope=source_scope,
+                signals=[
+                    AgentSelectionSignal(signal="commercial_default", matched=True, weight=45, reason="理解谁在行业里分工和分钱。"),
+                    AgentSelectionSignal(signal="venture_bias", matched=venture_bias, weight=10 if venture_bias else 0, reason="创业/入局目标更依赖玩家格局。"),
+                ],
+                rationale=["玩家地图决定对标对象和价值链位置。"],
+            ),
+            _build_selection_decision(
+                agent_id="transaction_agent",
+                display_name="交易单位 Agent",
+                enabled=True,
+                score=82 if degraded_for_learning else 95,
+                source_scope=source_scope,
+                signals=[
+                    AgentSelectionSignal(signal="commercial_default", matched=True, weight=35, reason="交易单位揭示真实付费逻辑。"),
+                    AgentSelectionSignal(signal="learning_bias", matched=learning_bias, weight=-15 if learning_bias else 0, reason="纯学习导向可降级交易单位深度。"),
+                    AgentSelectionSignal(signal="venture_bias", matched=venture_bias, weight=15 if venture_bias else 0, reason="创业/变现目标强化交易单位分析。"),
+                ],
+                rationale=["交易单位决定商业可行性。"],
+            ),
+            _build_selection_decision(
+                agent_id="opportunity_agent",
+                display_name="机会分析 Agent",
+                enabled=True,
+                score=84 if degraded_for_learning else 96,
+                source_scope=source_scope,
+                signals=[
+                    AgentSelectionSignal(signal="venture_bias", matched=venture_bias, weight=25 if venture_bias else 0, reason="创业/变现目标强化机会假设输出。"),
+                    AgentSelectionSignal(signal="learning_bias", matched=learning_bias, weight=-10 if learning_bias else 0, reason="学习型任务可以降级机会判断。"),
+                    AgentSelectionSignal(signal="commercial_default", matched=True, weight=30, reason="商业研究最终需要形成可验证机会。"),
+                ],
+                rationale=["机会不是拍脑袋结论，必须由前面数据库支撑。"],
+            ),
+            _build_selection_decision(
+                agent_id="knowledge_mapper",
+                display_name="知识地图 Agent",
+                enabled=True,
+                score=88,
+                source_scope=["project_rag"],
+                signals=[
+                    AgentSelectionSignal(signal="knowledge_base_goal", matched=True, weight=50, reason="项目目标是沉淀可更新知识库。"),
+                ],
+                rationale=["把研究结果组织成长期可复用的知识结构。"],
+            ),
+        ]
+    )
+
     if has_assistant_brief:
         selected.insert(
             0,
@@ -163,8 +282,34 @@ def build_supervisor_plan(
                 fallback="无法拆解时保留原文材料，但不作为事实证据。",
             ),
         )
+        selection_trace.append(
+            _build_selection_decision(
+                agent_id="assistant_brief_agent",
+                display_name="外部报告线索 Agent",
+                enabled=True,
+                score=78,
+                source_scope=["assistant_brief"],
+                signals=[
+                    AgentSelectionSignal(signal="assistant_brief_uploaded", matched=True, weight=40, reason="用户上传了外部 AI 报告。"),
+                    AgentSelectionSignal(signal="low_trust_leads_only", matched=True, weight=20, reason="外部 AI 报告只能提供线索。"),
+                ],
+                rationale=["保留外部报告的启发价值，但不让它直接变成事实依据。"],
+            )
+        )
     else:
         skipped.append(SkippedAgent(agent_id="assistant_brief_agent", display_name="外部报告线索 Agent", reason="未上传外部 AI 报告。"))
+        selection_trace.append(
+            _build_selection_decision(
+                agent_id="assistant_brief_agent",
+                display_name="外部报告线索 Agent",
+                enabled=False,
+                score=0,
+                source_scope=["assistant_brief"],
+                signals=[AgentSelectionSignal(signal="assistant_brief_uploaded", matched=False, weight=0, reason="未上传外部 AI 报告。")],
+                rationale=[],
+                disqualifiers=["没有外部 AI 报告输入。"],
+            )
+        )
 
     if has_user_materials:
         selected.insert(
@@ -181,8 +326,31 @@ def build_supervisor_plan(
                 fallback="资料结构不清晰时转为待验证用户材料。",
             ),
         )
+        selection_trace.append(
+            _build_selection_decision(
+                agent_id="user_materials_agent",
+                display_name="用户材料 Agent",
+                enabled=True,
+                score=80,
+                source_scope=["user_materials"],
+                signals=[AgentSelectionSignal(signal="user_materials_uploaded", matched=True, weight=35, reason="用户提供了补充材料。")],
+                rationale=["优先保留用户已有知识，但仍进入证据账本统一处理。"],
+            )
+        )
     else:
         skipped.append(SkippedAgent(agent_id="user_materials_agent", display_name="用户材料 Agent", reason="未上传用户材料。"))
+        selection_trace.append(
+            _build_selection_decision(
+                agent_id="user_materials_agent",
+                display_name="用户材料 Agent",
+                enabled=False,
+                score=0,
+                source_scope=["user_materials"],
+                signals=[AgentSelectionSignal(signal="user_materials_uploaded", matched=False, weight=0, reason="未上传用户材料。")],
+                rationale=[],
+                disqualifiers=["没有用户材料输入。"],
+            )
+        )
 
     if enable_content:
         selected.append(
@@ -200,8 +368,33 @@ def build_supervisor_plan(
                 fallback="平台数据不足时输出人工补料建议。",
             )
         )
+        selection_trace.append(
+            _build_selection_decision(
+                agent_id="content_channel_agent",
+                display_name="内容渠道 Agent",
+                enabled=True,
+                score=86,
+                source_scope=source_scope,
+                signals=[
+                    AgentSelectionSignal(signal="content_keywords", matched=True, weight=40, reason="领域或目标中出现内容/流量/获客类关键词。"),
+                ],
+                rationale=["该研究与内容获客、流量或平台生态高度相关。"],
+            )
+        )
     else:
         skipped.append(SkippedAgent(agent_id="content_channel_agent", display_name="内容渠道 Agent", reason="当前研究目标未明显依赖内容获客。"))
+        selection_trace.append(
+            _build_selection_decision(
+                agent_id="content_channel_agent",
+                display_name="内容渠道 Agent",
+                enabled=False,
+                score=20,
+                source_scope=source_scope,
+                signals=[AgentSelectionSignal(signal="content_keywords", matched=False, weight=0, reason="未触发内容生态相关关键词。")],
+                rationale=[],
+                disqualifiers=["当前任务不明显依赖内容获客。"],
+            )
+        )
 
     if enable_risk:
         selected.append(
@@ -219,8 +412,34 @@ def build_supervisor_plan(
                 fallback="没有可靠公开来源时只输出待验证风险清单。",
             )
         )
+        selection_trace.append(
+            _build_selection_decision(
+                agent_id="policy_risk_agent",
+                display_name="政策风险 Agent",
+                enabled=True,
+                score=89,
+                source_scope=[item for item in source_scope if item != "assistant_brief"],
+                signals=[
+                    AgentSelectionSignal(signal="risk_keywords", matched=any(word in text for word in risk_keywords), weight=25 if any(word in text for word in risk_keywords) else 0, reason="出现合规/政策/风险类关键词。"),
+                    AgentSelectionSignal(signal=f"source_policy:{policy.value}", matched=policy in (SourcePolicy.RELIABLE_FIRST, SourcePolicy.RELIABLE_ONLY), weight=30 if policy in (SourcePolicy.RELIABLE_FIRST, SourcePolicy.RELIABLE_ONLY) else 0, reason="可靠优先或严格可靠模式强化风险核对。"),
+                ],
+                rationale=["可靠信源制度下，需要补齐政策与风险边界。"],
+            )
+        )
     else:
         skipped.append(SkippedAgent(agent_id="policy_risk_agent", display_name="政策风险 Agent", reason="未发现强监管或合规触发条件。"))
+        selection_trace.append(
+            _build_selection_decision(
+                agent_id="policy_risk_agent",
+                display_name="政策风险 Agent",
+                enabled=False,
+                score=18,
+                source_scope=[item for item in source_scope if item != "assistant_brief"],
+                signals=[AgentSelectionSignal(signal="risk_keywords", matched=False, weight=0, reason="未触发强监管或风险关键词。")],
+                rationale=[],
+                disqualifiers=["当前任务不以风险/政策核对为核心。"],
+            )
+        )
 
     return SupervisorPlan(
         intent_summary=f"围绕「{project.domain}」建立商业情报知识库，兼顾领域认知、玩家结构、交易单位和机会假设。",
@@ -253,6 +472,7 @@ def build_supervisor_plan(
             "开放网络可能混入营销或二手观点。",
             "可靠信源覆盖不足时，部分结论只能以待验证形式保留。",
         ],
+        selection_trace=selection_trace,
     )
 
 

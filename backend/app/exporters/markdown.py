@@ -41,6 +41,12 @@ class MarkdownExporter:
         for artifact in artifacts:
             relative_path = Path(artifact.content_path)
             output_path = project_dir / relative_path
+            if output_path.exists() and output_path.is_dir():
+                output_path = output_path / "index.md"
+                relative_path = Path(relative_path) / "index.md"
+            parent_path = output_path.parent
+            if parent_path.exists() and parent_path.is_file():
+                parent_path.unlink()
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_text(self._render_artifact(project, artifact), encoding="utf-8")
             artifact_paths.append(relative_path.as_posix())

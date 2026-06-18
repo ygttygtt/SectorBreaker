@@ -12,6 +12,8 @@ from backend.app.schemas.evidence import (
     VerificationStatus,
 )
 from backend.app.schemas.planning import (
+    AgentSelectionDecision,
+    AgentSelectionSignal,
     AgentRunMode,
     AgentTask,
     QAReport,
@@ -38,6 +40,8 @@ from backend.app.schemas.state import ResearchGate, ResearchState
 __all__ = [
     "Artifact",
     "ArtifactType",
+    "AgentSelectionDecision",
+    "AgentSelectionSignal",
     "AgentRunMode",
     "AgentTask",
     "ClaimStrength",

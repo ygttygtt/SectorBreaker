@@ -16,11 +16,11 @@ metadata:
 
 - 文档与协作规范已建立。
 - 核心 schema、provider interfaces、provider factory、SQLite migration/repository 已建立。
-- 已新增 `source_policy`、`SupervisorPlan`、`AgentTask`、`EvidenceClaim`、`QAReport`、workflow definition schemas。
+- 已新增 `source_policy`、`SupervisorPlan`、`AgentTask`、`AgentSelectionDecision`、`AgentSelectionSignal`、`EvidenceClaim`、`QAReport`、workflow definition schemas。
 - Evidence Ledger 已扩展 source channel/source quality/claim strength/bias risk/counterevidence 等字段。
 - OpenAI 兼容 LLM provider 已实现，可通过 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 启用。
 - Tavily search provider 可通过 `TAVILY_API_KEY` 启用。
-- LangGraph workflow 已升级为 Scope → Supervisor Plan → Source Strategy → Source Intake → Claim Extractor → Counterevidence → Evidence Ledger → Business Analysis → QA → Export/RAG Indexer。
+- LangGraph workflow 已升级为 Scope → Supervisor Plan → Source Strategy → Source Intake → Claim Extractor → Counterevidence → Evidence Ledger → Market → Player → Transaction → Synthesis → Knowledge Map → QA → Export/RAG Indexer。
 - 默认非 auto_run 会在 `supervisor_plan` 暂停，等待用户确认计划。
 - 外部 AI 报告只支持手动 md/txt/粘贴输入，作为 `assistant_brief` 低可信线索。
 - Markdown/Obsidian 导出器已跑通。
