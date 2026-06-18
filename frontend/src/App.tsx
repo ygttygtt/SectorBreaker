@@ -52,6 +52,8 @@ const eventNodeMap: Record<string, string> = {
   supervisor_plan: "supervisor_plan",
   source_strategy: "source_strategy",
   evidence: "source_intake",
+  claim_extractor: "claim_extractor",
+  counterevidence: "counterevidence",
   evidence_ledger: "evidence_ledger",
   knowledge_map: "business_database",
   qa_critic: "qa_critic",
@@ -280,6 +282,7 @@ function ResearchView({
             nodeStatuses={statuses}
             onNodeClick={setSelectedNode}
             showMinimap
+            fillHeight
           />
         </aside>
         <main className="workbench-center">

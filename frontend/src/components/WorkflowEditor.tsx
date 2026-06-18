@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   ReactFlow,
   Background,
@@ -11,6 +11,8 @@ import {
   Handle,
   Position,
   MarkerType,
+  useReactFlow,
+  ReactFlowProvider,
 } from "@xyflow/react";
 import dagre from "dagre";
 import "@xyflow/react/dist/style.css";
@@ -106,14 +108,15 @@ function iconFor(node: WorkflowNode, status: NodeStatus) {
 function getLayoutedElements(nodes: Node[], edges: Edge[], isCompact: boolean) {
   const dagreGraph = new dagre.graphlib.Graph();
   dagreGraph.setDefaultEdgeLabel(() => ({}));
-  const nodeW = isCompact ? 150 : 220;
-  const nodeH = isCompact ? 58 : 92;
+  const nodeW = isCompact ? 160 : 220;
+  const nodeH = isCompact ? 64 : 96;
   dagreGraph.setGraph({
-    rankdir: "LR",
-    ranksep: isCompact ? 60 : 94,
-    nodesep: isCompact ? 28 : 46,
-    marginx: 20,
-    marginy: 20,
+    rankdir: "TB",
+    ranksep: isCompact ? 44 : 88,
+    nodesep: isCompact ? 22 : 44,
+    edgesep: isCompact ? 16 : 28,
+    marginx: 28,
+    marginy: 28,
   });
   nodes.forEach((node) => dagreGraph.setNode(node.id, { width: nodeW, height: nodeH }));
   edges.forEach((edge) => dagreGraph.setEdge(edge.source, edge.target));
@@ -144,7 +147,7 @@ function FlowNode({ data }: NodeProps) {
         width: isCompact ? 150 : 220,
       }}
     >
-      <Handle type="target" position={Position.Left} className="workflow-handle" style={{ background: style.color }} />
+      <Handle type="target" position={Position.Top} className="workflow-handle" style={{ background: style.color }} />
       <div className="workflow-node-head">
         <span className="workflow-node-icon" style={{ color: style.color, background: style.bg }}>
           <Icon size={isCompact ? 14 : 16} className={status === "running" ? "spinner" : ""} />
@@ -162,7 +165,7 @@ function FlowNode({ data }: NodeProps) {
       <span className="workflow-node-badge" style={{ color: style.color, background: style.bg }}>
         {style.label}
       </span>
-      <Handle type="source" position={Position.Right} className="workflow-handle" style={{ background: style.color }} />
+      <Handle type="source" position={Position.Bottom} className="workflow-handle" style={{ background: style.color }} />
     </div>
   );
 }
@@ -174,18 +177,22 @@ interface WorkflowEditorProps {
   isCompact?: boolean;
   showMinimap?: boolean;
   showControls?: boolean;
+  fillHeight?: boolean;
   onNodeClick?: (node: WorkflowNode) => void;
 }
 
-export function WorkflowEditor({
+function WorkflowEditorInner({
   definition,
   activeNodeId,
   nodeStatuses,
   isCompact = false,
   showMinimap = false,
   showControls = true,
+  fillHeight = false,
   onNodeClick,
 }: WorkflowEditorProps) {
+  const reactFlow = useReactFlow();
+  const firstFitRef = useRef(false);
   const flowDefinition = definition ?? DEFAULT_DEFINITION;
   const sortedNodes = useMemo(
     () =>
@@ -219,7 +226,26 @@ export function WorkflowEditor({
   }, [activeNodeId, flowDefinition.edges, isCompact, nodeStatuses, sortedNodes]);
 
   const nodeTypes: NodeTypes = useMemo(() => ({ flowNode: FlowNode }), []);
-  const height = isCompact ? 300 : 520;
+  const height = fillHeight ? "100%" : isCompact ? 320 : 640;
+
+  useEffect(() => {
+    if (!nodes.length) return;
+    if (!firstFitRef.current) {
+      window.requestAnimationFrame(() => {
+        reactFlow.fitView({ padding: isCompact ? 0.16 : 0.24, duration: 350 });
+      });
+      firstFitRef.current = true;
+      return;
+    }
+    if (!activeNodeId) return;
+    const activeNode = nodes.find((node) => node.id === activeNodeId);
+    if (!activeNode) return;
+    const x = activeNode.position.x + (typeof activeNode.width === "number" ? activeNode.width / 2 : (isCompact ? 80 : 110));
+    const y = activeNode.position.y + (typeof activeNode.height === "number" ? activeNode.height / 2 : (isCompact ? 32 : 48));
+    window.requestAnimationFrame(() => {
+      reactFlow.setCenter(x, y, { zoom: isCompact ? 0.72 : 0.88, duration: 400 });
+    });
+  }, [activeNodeId, isCompact, nodes, reactFlow]);
 
   return (
     <div className="workflow-editor" style={{ height }}>
@@ -253,5 +279,13 @@ export function WorkflowEditor({
         )}
       </ReactFlow>
     </div>
+  );
+}
+
+export function WorkflowEditor(props: WorkflowEditorProps) {
+  return (
+    <ReactFlowProvider>
+      <WorkflowEditorInner {...props} />
+    </ReactFlowProvider>
   );
 }

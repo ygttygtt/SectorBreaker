@@ -17,6 +17,7 @@ class ResearchGate(StrEnum):
     EVIDENCE = "evidence"
     EVIDENCE_LEDGER = "evidence_ledger"
     KNOWLEDGE_MAP = "knowledge_map"
+    QA_CRITIC = "qa_critic"
     OPPORTUNITY = "opportunity"
     EXPORT = "export"
 

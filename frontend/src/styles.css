@@ -139,7 +139,11 @@ button { border: 0; }
   padding: 14px;
   overflow: hidden;
 }
-.workbench-right { display: flex; flex-direction: column; }
+.workbench-left { display: flex; flex-direction: column; min-height: 0; }
+.workbench-right { display: flex; flex-direction: column; min-height: 0; }
+.workbench-left > .panel-title,
+.workbench-right > .panel-title { flex: 0 0 auto; }
+.workbench-left > .workflow-editor { flex: 1; min-height: 0; }
 .agent-focus-card { padding: 18px; margin-bottom: 12px; }
 .agent-focus-head { display: flex; align-items: center; justify-content: space-between; font-weight: 800; }
 .agent-focus-card p { margin: 10px 0 12px; color: var(--muted); }
@@ -160,7 +164,7 @@ button { border: 0; }
 .node-detail-card dd { margin: 0; }
 .qa-warning-card { display: flex; gap: 12px; color: var(--red); background: #fff8f8; }
 
-.workflow-editor { width: 100%; min-height: 260px; }
+.workflow-editor { width: 100%; min-height: 360px; flex: 1; }
 .workflow-node {
   background: #fff;
   border: 2px solid var(--line);
@@ -178,6 +182,14 @@ button { border: 0; }
 .workflow-node-reason { margin: 8px 0 0; color: var(--muted); font-size: 11px; line-height: 1.35; height: 30px; overflow: hidden; }
 .workflow-node-badge { display: inline-flex; margin-top: 8px; padding: 2px 7px; border-radius: 999px; font-size: 10px; font-weight: 800; }
 .workflow-handle { width: 7px !important; height: 7px !important; border: 2px solid #fff !important; }
+
+.react-flow__viewport, .react-flow__renderer, .react-flow__pane {
+  min-height: 100%;
+}
+
+.react-flow__pane.draggable {
+  touch-action: none;
+}
 
 .log-stream { flex: 1; overflow-y: auto; padding-right: 4px; }
 .log-empty { color: var(--muted); font-size: 13px; padding: 28px 8px; text-align: center; }
@@ -253,6 +265,7 @@ button { border: 0; }
 @media (max-width: 1100px) {
   .landing-pro, .workbench-grid, .review-pro-grid, .result-pro-grid { grid-template-columns: 1fr; }
   .workbench-topbar { grid-template-columns: 1fr; height: auto; padding: 10px 12px; align-items: start; }
+  .workflow-editor { min-height: 420px; }
 }
 
 @media (max-width: 680px) {

@@ -274,8 +274,8 @@ def build_workflow_definition(plan: SupervisorPlan | None = None) -> WorkflowDef
         WorkflowNode(id="source_strategy", label="信源策略", node_type="gate", group="source"),
         WorkflowNode(id="source_intake", label="信源接入", node_type="group", group="source"),
         WorkflowNode(id="claim_extractor", label="Claim 拆解", node_type="agent", agent_id="claim_extractor", group="evidence"),
-        WorkflowNode(id="evidence_curator", label="证据整理", node_type="agent", agent_id="evidence_curator", group="evidence"),
         WorkflowNode(id="counterevidence", label="反证搜索", node_type="agent", agent_id="counterevidence_agent", group="evidence"),
+        WorkflowNode(id="evidence_curator", label="证据整理", node_type="agent", agent_id="evidence_curator", group="evidence"),
         WorkflowNode(id="evidence_ledger", label="证据账本", node_type="store", group="evidence"),
         WorkflowNode(id="business_database", label="商业数据库", node_type="group", group="analysis"),
         WorkflowNode(id="synthesis", label="知识/机会综合", node_type="group", group="synthesis"),
@@ -322,6 +322,18 @@ def build_workflow_definition(plan: SupervisorPlan | None = None) -> WorkflowDef
             ("opportunity_agent", "机会分析", "synthesis"),
             ("knowledge_mapper", "知识地图", "synthesis"),
         ]
+        for group_id, label, source in [
+            ("source_intake", "信源接入", "source_strategy"),
+            ("business_database", "商业数据库", "evidence_ledger"),
+            ("synthesis", "综合输出", "business_database"),
+        ]:
+            group_node = next((node for node in nodes if node.id == group_id), None)
+            if group_node:
+                group_node.status = WorkflowNodeStatus.ENABLED
+                group_node.reason = f"{label} 承接上游阶段并汇聚子 Agent 输出。"
+        for node in nodes:
+            if node.id in {"claim_extractor", "counterevidence"}:
+                node.reason = node.reason or "该节点用于显式暴露证据处理链路。"
         for agent_id, label, group in source_children + business_children:
             task = enabled_agents.get(agent_id)
             status = WorkflowNodeStatus.ENABLED if task else WorkflowNodeStatus.SKIPPED
@@ -339,6 +351,14 @@ def build_workflow_definition(plan: SupervisorPlan | None = None) -> WorkflowDef
                 )
             )
             edges.append(WorkflowEdge(id=f"e-{group}-{agent_id}", source=group, target=agent_id))
+        edges.extend(
+            [
+                WorkflowEdge(id="e-source-intake-claim", source="source_intake", target="claim_extractor"),
+                WorkflowEdge(id="e-claim-counter", source="claim_extractor", target="counterevidence"),
+                WorkflowEdge(id="e-counter-ledger-v2", source="counterevidence", target="evidence_ledger"),
+                WorkflowEdge(id="e-business-qa", source="business_database", target="qa_critic"),
+            ]
+        )
 
     return WorkflowDefinition(nodes=nodes, edges=edges)
 
@@ -348,4 +368,3 @@ def _skip_reason(plan: SupervisorPlan, agent_id: str) -> str:
         if skipped.agent_id == agent_id:
             return skipped.reason
     return "本次计划未启用。"
-

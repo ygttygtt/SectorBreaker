@@ -15,6 +15,7 @@ For Cursor, Windsurf, Gemini, Codex, Claude Code, or other tools, also read `doc
 - `CLAUDE.md` is adapted for Claude Code.
 - `.claude/memory/` contains project memories.
 - Architecture, Agent contracts, state/storage, provider interfaces, API contract, export spec, testing strategy, workflow, and roadmap docs exist.
+- 交接与记忆文件已同步到当前的多 Agent 协作状态。
 
 ### Backend Foundation
 
@@ -32,7 +33,7 @@ For Cursor, Windsurf, Gemini, Codex, Claude Code, or other tools, also read `doc
 
 ### Workflow And Export
 
-- LangGraph workflow now includes Scope, Supervisor Plan, Source Strategy, Source Intake, Evidence Ledger, Business Analysis fan-out, QA Critic, Export, and RAG Indexer gates.
+- LangGraph workflow now includes Scope, Supervisor Plan, Source Strategy, Source Intake, Claim Extractor, Counterevidence, Evidence Ledger, Business Analysis fan-out, QA Critic, Export, and RAG Indexer gates.
 - Runs pause at `supervisor_plan` for user confirmation unless `auto_run=true`.
 - Assistant briefs are optional manual Markdown/text inputs and are treated as low-trust lead material.
 - Workflow can use injected search and LLM providers.
@@ -46,7 +47,7 @@ For Cursor, Windsurf, Gemini, Codex, Claude Code, or other tools, also read `doc
 - API exposes `/api/projects/{project_id}/workflow-definition` and `/api/runs/{run_id}/workflow-definition`.
 - SSE emits node-level progress, degraded, blocked, completed, evidence, and claim events.
 - Module-level ASGI app exists at `backend.app.api.app:app`.
-- React/Vite workbench has been rebuilt around a real workflow graph, source policy selection, optional assistant brief input, Supervisor Plan review, live node status, event stream, elapsed time, QA blocking view, evidence/artifact rendering, chat, and export.
+- React/Vite workbench has been rebuilt around a real workflow graph, source policy selection, optional assistant brief input, Supervisor Plan review, live node status, event stream, elapsed time, QA blocking view, evidence/artifact rendering, chat, export, and vertical graph centering.
 - Vite proxies `/api` to `http://127.0.0.1:8000`.
 
 ## Verification Commands
@@ -62,8 +63,8 @@ cd frontend && npm audit --audit-level=high
 
 Current known baseline:
 
-- Python tests: 21 passing, 1 Starlette deprecation warning from FastAPI TestClient.
-- Frontend tests: 4 passing.
+- Python tests: 23 passing, 1 Starlette deprecation warning from FastAPI TestClient.
+- Frontend tests: 3 passing.
 - Frontend build: passing.
 - npm audit high severity: 0 vulnerabilities.
 

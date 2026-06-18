@@ -19,13 +19,14 @@ metadata:
 
 - conda 环境：`sectorbreaker`
 - 后端：FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger
-- 前端：Vite + React + TypeScript，可解释研究工作台，真实 workflow graph
+- 前端：Vite + React + TypeScript，可解释研究工作台，真实 workflow graph，纵向布局与活动节点居中
 - 测试基线：Python 23 passed；前端 3 passed；前端 build passed
 
 最高风险任务：
 
 - 剩余业务 Agent Pydantic 输出 schema 和 prompt
 - 可靠信源包、真实 Counterevidence 搜索、Evidence Curator 可信度/冲突规则
+- Claim Extractor / Counterevidence 已进入真实执行链路，但后续仍可继续细化子 Agent 输出 schema
 - QA Critic artifact prose unsupported-claim 检测
 - LangGraph interrupt/resume/checkpoint
 - public schema / graph state / export format / provider interface 变更

@@ -20,12 +20,12 @@ metadata:
 - Evidence Ledger 已扩展 source channel/source quality/claim strength/bias risk/counterevidence 等字段。
 - OpenAI 兼容 LLM provider 已实现，可通过 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 启用。
 - Tavily search provider 可通过 `TAVILY_API_KEY` 启用。
-- LangGraph workflow 已升级为 Scope → Supervisor Plan → Source Strategy → Source Intake → Evidence Ledger → Business Analysis → QA → Export/RAG Indexer。
+- LangGraph workflow 已升级为 Scope → Supervisor Plan → Source Strategy → Source Intake → Claim Extractor → Counterevidence → Evidence Ledger → Business Analysis → QA → Export/RAG Indexer。
 - 默认非 auto_run 会在 `supervisor_plan` 暂停，等待用户确认计划。
 - 外部 AI 报告只支持手动 md/txt/粘贴输入，作为 `assistant_brief` 低可信线索。
 - Markdown/Obsidian 导出器已跑通。
 - FastAPI API 已跑通项目 create/list/detail、run、evidence、artifacts、export、chat。
-- React/Vite 工作台已重构：信源模式选择、可选 assistant brief、真实 workflow graph、节点状态、事件流、运行时长、Supervisor Plan review、QA 阻塞视图、证据/产物/问答/导出。
+- React/Vite 工作台已重构：信源模式选择、可选 assistant brief、真实 workflow graph、纵向布局、活动节点居中、节点状态、事件流、运行时长、Supervisor Plan review、QA 阻塞视图、证据/产物/问答/导出。
 - Vite 已代理 `/api` 到 `http://127.0.0.1:8000`。
 
 强把控任务：
@@ -47,8 +47,8 @@ metadata:
 
 验证基线：
 
-- `python -m pytest -q`：21 passed，1 个 FastAPI TestClient/Starlette deprecation warning。
-- `cd frontend && npm test -- --run`：4 passed。
+- `python -m pytest -q`：23 passed，1 个 FastAPI TestClient/Starlette deprecation warning。
+- `cd frontend && npm test -- --run`：3 passed。
 - `cd frontend && npm run build`：通过。
 
 记忆同步：

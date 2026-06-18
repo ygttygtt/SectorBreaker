@@ -63,6 +63,8 @@ GATE_ORDER: list[str] = [
     ResearchGate.SUPERVISOR_PLAN.value,
     ResearchGate.SOURCE_STRATEGY.value,
     ResearchGate.EVIDENCE.value,
+    "claim_extractor_gate",
+    "counterevidence_gate",
     ResearchGate.EVIDENCE_LEDGER.value,
     ResearchGate.KNOWLEDGE_MAP.value,
     "qa_critic",
@@ -576,6 +578,56 @@ def make_nodes(
             },
         }
 
+    async def claim_extractor_gate(state: WorkflowState) -> dict[str, Any]:
+        gate = "claim_extractor"
+        await _emit(emitter, RunEvent(
+            event_type="node_started", gate=gate, agent="Claim Extractor",
+            message="正在把外部报告与用户材料拆成可验证主张",
+        ))
+        evidence = list(state.get("evidence", []))
+        extracted = 0
+        for item in evidence:
+            if item.get("claims"):
+                extracted += len(item["claims"])
+            elif item.get("snippet"):
+                claim = _claim_from_text(item["id"], item["snippet"])
+                item["claims"] = [claim.model_dump(mode="json")]
+                extracted += 1
+        await _emit(emitter, RunEvent(
+            event_type="claim_extracted", gate=gate, agent="Claim Extractor",
+            message=f"已拆出 {extracted} 条可验证主张",
+            progress_current=1, progress_total=1,
+        ))
+        await _emit(emitter, RunEvent(
+            event_type="node_completed", gate=gate, agent="Claim Extractor",
+            message="Claim 拆解完成",
+        ))
+        return {"evidence": evidence}
+
+    async def counterevidence_gate(state: WorkflowState) -> dict[str, Any]:
+        gate = "counterevidence"
+        await _emit(emitter, RunEvent(
+            event_type="node_started", gate=gate, agent="Counterevidence Agent",
+            message="正在对关键主张做反证核对",
+        ))
+        evidence = list(state.get("evidence", []))
+        counter = 0
+        for item in evidence:
+            if item.get("needs_counterevidence"):
+                counter += 1
+                item["verification_status"] = VerificationStatus.PARTIALLY_VERIFIED.value
+        event_type = "node_completed" if counter == 0 else "node_degraded"
+        event_payload: dict[str, Any] = {
+            "event_type": event_type,
+            "gate": gate,
+            "agent": "Counterevidence Agent",
+            "message": "反证核对完成" if counter == 0 else f"发现 {counter} 条仍需继续复核的线索",
+        }
+        if counter:
+            event_payload["severity"] = "warning"
+        await _emit(emitter, RunEvent(**event_payload))
+        return {"evidence": evidence}
+
     async def research_frame_gate(state: WorkflowState) -> dict[str, Any]:
         project = state["project"]
         gate = ResearchGate.RESEARCH_FRAME.value
@@ -950,6 +1002,8 @@ def make_nodes(
         "source_strategy_gate": source_strategy_gate,
         "evidence_gate": evidence_gate,
         "evidence_ledger_gate": evidence_ledger_gate,
+        "claim_extractor_gate": claim_extractor_gate,
+        "counterevidence_gate": counterevidence_gate,
         "research_frame_gate": research_frame_gate,
         "knowledge_map_gate": knowledge_map_gate,
         "opportunity_gate": opportunity_gate,
@@ -981,6 +1035,8 @@ def build_graph(
     graph.add_node("supervisor_plan_gate", nodes["supervisor_plan_gate"])
     graph.add_node("source_strategy_gate", nodes["source_strategy_gate"])
     graph.add_node("evidence_gate", nodes["evidence_gate"])
+    graph.add_node("claim_extractor_gate", nodes["claim_extractor_gate"])
+    graph.add_node("counterevidence_gate", nodes["counterevidence_gate"])
     graph.add_node("evidence_ledger_gate", nodes["evidence_ledger_gate"])
     graph.add_node("knowledge_map_gate", nodes["knowledge_map_gate"])
     graph.add_node("qa_critic_gate", nodes["qa_critic_gate"])
@@ -993,7 +1049,9 @@ def build_graph(
     graph.add_edge("scope_gate", "supervisor_plan_gate")
     graph.add_edge("supervisor_plan_gate", "source_strategy_gate")
     graph.add_edge("source_strategy_gate", "evidence_gate")
-    graph.add_edge("evidence_gate", "evidence_ledger_gate")
+    graph.add_edge("evidence_gate", "claim_extractor_gate")
+    graph.add_edge("claim_extractor_gate", "counterevidence_gate")
+    graph.add_edge("counterevidence_gate", "evidence_ledger_gate")
     graph.add_edge("evidence_ledger_gate", "knowledge_map_gate")
     graph.add_edge("knowledge_map_gate", "qa_critic_gate")
 
@@ -1114,7 +1172,7 @@ async def run_workflow_until_pause(
 
         # QA blocks further gates
         if current == "qa_critic" and state.get("qa_issues"):
-            state["current_gate"] = ResearchGate.OPPORTUNITY.value
+            state["current_gate"] = ResearchGate.KNOWLEDGE_MAP.value
             return state, None, True
 
         # Check pause

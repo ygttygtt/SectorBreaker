@@ -28,7 +28,7 @@ Claude Code should also read `CLAUDE.md` and `.claude/memory/MEMORY.md`.
 The latest completed implementation milestone is:
 
 - Backend: FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger.
-- Frontend: Vite + React + TypeScript explainable research workbench with real workflow graph.
+- Frontend: Vite + React + TypeScript explainable research workbench with real workflow graph, vertical layout, and active-node centering.
 - Environment: conda environment `sectorbreaker`.
 
 Verified commands at this baseline:
@@ -81,7 +81,7 @@ npm run dev -- --host 127.0.0.1 --port 3010
 - Tavily search provider.
 - Environment-backed provider factory.
 - SQLite project/evidence/artifact persistence and FTS evidence search.
-- LangGraph workflow with Scope, Supervisor Plan, Source Strategy, Source Intake, Evidence Ledger, Business Analysis fan-out, QA gate, Export, and RAG Indexer.
+- LangGraph workflow with Scope, Supervisor Plan, Source Strategy, Source Intake, Claim Extractor, Counterevidence, Evidence Ledger, Business Analysis fan-out, QA gate, Export, and RAG Indexer.
 - FastAPI project create/list/detail, run, workflow-definition, evidence, artifacts, export, and chat endpoints.
 - Markdown/Obsidian export manifest and files.
 - React workbench wired to backend API for source policy selection, optional assistant brief, plan review, live graph, event stream, evidence/artifact display, chat, and export.
