@@ -5,6 +5,7 @@ from backend.app.schemas import (
     EvidenceClaim,
     EvidenceItem,
     MarketScope,
+    ProjectDocumentCreate,
     ResearchDepth,
     ResearchProjectCreate,
     SourceChannel,
@@ -26,6 +27,8 @@ def test_sqlite_migrations_are_discoverable() -> None:
         "004_workflow_state.sql",
         "005_planning_and_evidence_ledger.sql",
         "006_run_event_progress.sql",
+        "007_documents.sql",
+        "008_document_segments_and_citations.sql",
     ]
 
 
@@ -98,3 +101,81 @@ def test_sqlite_repository_fts_searches_evidence(tmp_path: Path) -> None:
     results = repository.search_project(project.id, "premium", limit=3)
 
     assert results[0].document_id == "EV-002"
+
+
+def test_sqlite_repository_stores_documents(tmp_path: Path) -> None:
+    database_path = tmp_path / "sectorbreaker.sqlite3"
+    init_database(database_path)
+    repository = SQLiteRepository(database_path)
+    project = repository.create_project(
+        ResearchProjectCreate(
+            title="AI Reports",
+            domain="AI 报告",
+            market_scope=MarketScope.MIXED,
+            depth=ResearchDepth.QUICK,
+        )
+    )
+
+    document = repository.add_document(
+        project.id,
+        ProjectDocumentCreate(
+            channel="assistant_brief",
+            content="来源：https://example.com/report\n\n这是一份外部 AI 调研报告。",
+            file_name="report.md",
+            mime_type="text/markdown",
+        ),
+    )
+
+    listed = repository.list_documents(project.id)
+    fetched = repository.get_document(document.id)
+    segments = repository.list_document_segments(document.id)
+    citations = repository.list_document_citations(document.id)
+
+    assert listed[0].id == document.id
+    assert fetched.file_name == "report.md"
+    assert fetched.citation_count == 1
+    assert segments
+    assert citations[0].source_url == "https://example.com/report"
+
+
+def test_sqlite_repository_replaces_existing_evidence_by_id(tmp_path: Path) -> None:
+    database_path = tmp_path / "sectorbreaker.sqlite3"
+    init_database(database_path)
+    repository = SQLiteRepository(database_path)
+    project = repository.create_project(
+        ResearchProjectCreate(
+            title="Evidence Replace",
+            domain="证据替换",
+            market_scope=MarketScope.MIXED,
+            depth=ResearchDepth.QUICK,
+        )
+    )
+
+    repository.add_evidence(
+        EvidenceItem(
+            id="EV-REPLACE-001",
+            project_id=project.id,
+            source_title="Old title",
+            source_url="https://example.com/old",
+            snippet="old snippet",
+            confidence=0.4,
+            verification_status=VerificationStatus.UNVERIFIED,
+        )
+    )
+    repository.add_evidence(
+        EvidenceItem(
+            id="EV-REPLACE-001",
+            project_id=project.id,
+            source_title="New title",
+            source_url="https://example.com/new",
+            snippet="new snippet",
+            confidence=0.9,
+            verification_status=VerificationStatus.VERIFIED,
+        )
+    )
+
+    saved = repository.get_evidence("EV-REPLACE-001")
+
+    assert saved.source_title == "New title"
+    assert saved.source_url == "https://example.com/new"
+    assert saved.confidence == 0.9

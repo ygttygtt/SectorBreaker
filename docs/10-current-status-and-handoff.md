@@ -26,20 +26,49 @@ For Cursor, Windsurf, Gemini, Codex, Claude Code, or other tools, also read `doc
 - OpenAI-compatible LLM provider exists and is created from environment variables when configured.
 - Provider factory returns `None` by default when no real credentials are configured, so tests and local demos stay deterministic.
 - Tavily provider exists and is tested with fake HTTP.
+- Serper, Brave Search, Exa, and `MultiSearchProvider` now exist; provider factory can return Tavily-only, Serper-only, Brave-only, Exa-only, or aggregated multi-search depending on configured keys.
+- Minimal document ingestion foundation now exists: backend stores uploaded text documents with filename, mime type, word count, char count, and simple citation counting through `/api/projects/{project_id}/documents`.
+- Multipart `.md` / `.txt` upload is now supported through `/api/projects/{project_id}/documents/upload`.
+- Backend now exposes search provider configuration status, and the frontend explicitly warns when web search is not configured.
+- Search/report ingestion architecture design now lives in `docs/14-search-and-report-ingestion-design.md` as the implementation entry point for multi-provider search, uploaded reports, source verification, and counterevidence expansion.
 - SQLite migrations exist for projects, evidence, FTS, and artifacts.
 - Evidence Ledger fields now store source channel, source policy, claims, source quality, claim strength, bias risk, counterevidence flags, and artifact usage.
+- A first reliable-source pack layer now exists and is shared across source verification, policy-constrained search, and counterevidence planning.
 - Repository supports project creation, evidence storage, artifact storage, FTS search.
 - Repository supports project listing and detail lookup.
+- Document citation evidence writes are now idempotent at the repository layer, so repeated ingestion or workflow persistence does not fail on duplicate evidence IDs.
 
 ### Workflow And Export
 
 - LangGraph workflow now includes Scope, Supervisor Plan, Source Strategy, Source Intake, Claim Extractor, Counterevidence, Evidence Ledger, Market, Player, Transaction, Synthesis, Knowledge Map, QA Critic, Export, and RAG Indexer gates.
 - Runs pause at `supervisor_plan` for user confirmation unless `auto_run=true`.
 - Assistant briefs are optional manual Markdown/text inputs and are treated as low-trust lead material.
+- Project documents now feed the workflow automatically at run start/resume:
+  - ingested citation evidence enters the workflow as seed evidence;
+  - uploaded `assistant_brief` documents are automatically merged into the low-trust report input path;
+  - uploaded non-brief user documents are injected as supplemental user evidence context.
+- Counterevidence is no longer only a tag: weak or marketing-like claims now generate verification tasks and reuse the configured search provider to collect corroborating or conflicting follow-up evidence.
+- Content extraction now has a real provider boundary and default implementation: verification search results can be fetched, cleaned into page text, reassessed for source quality, and then written back as richer evidence.
+- Content extraction provider selection is now environment-driven: local HTTP fallback is available by default, and Firecrawl / Jina Reader-style providers can be swapped in without changing workflow code.
+- Search/config verification now has a dedicated test path: `/api/config/search/test` can exercise the current search provider and optional extraction provider before a full project run.
+- The frontend config panel can now trigger the same search/extraction connectivity check, so API onboarding no longer requires manual curl requests.
+- Search and extraction provider selection is now visible on the landing page as well, so enabled real providers are visible before a run starts.
+- Search smoke testing now has three paths: API (`/api/config/search/test`), frontend config panel, and CLI (`python run_search_smoke_test.py`). The API/CLI path now auto-extracts the first result and returns source assessment hints.
+- A dedicated end-to-end acceptance script now exists at `python run_real_search_acceptance.py`; it checks search config, live search, project run completion, and open-web evidence writeback in one flow.
+- A minimal env-template generator now exists at `python generate_search_env_template.py`; it prints provider-specific `.env` snippets for faster real-key onboarding.
+- Local `.env` loading is now centralized: the FastAPI app and smoke-test script both read repository-root `.env`, so `.env.example -> .env` works as the expected local setup path.
+- Real-provider onboarding now also has a dedicated acceptance checklist in `docs/15-real-search-provider-onboarding.md`, covering UI save, API diagnostics, CLI smoke test, and workflow evidence writeback.
+- Frontend report upload is now wired into the real flow: landing/review screens can upload `.md` / `.txt` assistant briefs and user materials into project documents before research continues.
+- Search and extraction configuration can now also be updated at runtime through `POST /api/config/search`, so real provider onboarding can happen from the UI without editing `.env`.
 - Workflow can use injected search and LLM providers.
+- Initial search evidence now goes through local source verification before entering the evidence ledger, so official / disclosure / database sources are no longer flattened into generic web evidence.
+- Counterevidence task planning now reuses market-specific reliable-domain packs instead of generic `gov/edu/org` hints only.
+- MVP reliability closeout now keeps the research-frame gate in both auto-run and human-confirm resume paths, so business agents are not skipped after Supervisor Plan confirmation.
+- Counterevidence evidence now links back to the original weak evidence through corroborating/conflicting evidence IDs; challenge results require an explicit conflict signal before they are treated as conflicting evidence.
+- `reliable_only` QA now blocks weak sources only when they are being treated as fact support, while still allowing weak leads and broad-web conflict evidence to remain in the evidence ledger for review.
 - Workflow produces evidence-linked research frame, industry map, market overview, player map, content/channel map, and opportunity map.
 - Supervisor Plan now includes structured selection traces for explainability.
-- QA Critic emits structured `QAReport` and blocks missing coverage, missing evidence references, weak-source misuse, and unverified counterevidence needs.
+- QA Critic now emits structured `QAReport` and blocks missing coverage, missing evidence references, weak-source misuse, unverified counterevidence needs, and strong factual artifact claims that are not backed by acceptable evidence.
 - Markdown exporter writes an Obsidian-friendly package and `manifest.json`.
 
 ### API And Frontend
@@ -49,6 +78,8 @@ For Cursor, Windsurf, Gemini, Codex, Claude Code, or other tools, also read `doc
 - SSE emits node-level progress, degraded, blocked, completed, evidence, and claim events.
 - Module-level ASGI app exists at `backend.app.api.app:app`.
 - React/Vite workbench has been rebuilt around a real workflow graph, source policy selection, optional assistant brief input, Supervisor Plan review, live node status, event stream, elapsed time, QA blocking view, evidence/artifact rendering, chat, export, and vertical graph centering.
+- QA blocking views now render structured retry/user-action lists instead of raw JSON blobs.
+- Result evidence ledger now exposes quality/status chips, outbound source links, and client-side filters for quality, verification status, and attention-only review.
 - Vite proxies `/api` to `http://127.0.0.1:8000`.
 
 ## Verification Commands
@@ -64,8 +95,10 @@ cd frontend && npm audit --audit-level=high
 
 Current known baseline:
 
-- Python tests: 23 passing, 1 Starlette deprecation warning from FastAPI TestClient.
-- Frontend tests: 3 passing.
+- Focused MVP reliability suite passes (`python -m pytest tests/unit/test_schemas.py tests/graph/test_research_workflow.py tests/unit/test_workflow_counterevidence.py -q`: 15 passed).
+- Focused API workflow suite passes (`python -m pytest tests/api/test_app.py::test_api_pauses_for_supervisor_plan_confirmation tests/api/test_app.py::test_api_run_uses_injected_search_and_llm_providers tests/api/test_app.py::test_api_run_applies_source_policy_domain_constraints -q`: 3 passed, 1 Starlette deprecation warning).
+- Current full `tests/api/test_app.py` run can exceed 3 minutes in this local environment; split API subsets are the reliable verification path until the long-running test behavior is profiled.
+- Frontend tests: 11 passing.
 - Frontend build: passing.
 - npm audit high severity: 0 vulnerabilities.
 
@@ -88,6 +121,8 @@ Do not hand these off without a clear task contract and review:
 - Real `LLMProvider` implementation and structured output parsing.
 - Research Planner prompts and output schemas.
 - Tavily Search Scout query planning.
+- Multi-provider web search capability beyond Tavily, plus provider routing and fallback strategy.
+- Uploaded report ingestion, citation extraction, and source-verification pipeline.
 - Evidence Curator confidence and verification rules.
 - QA Critic gate-blocking logic.
 - LangGraph interrupt/resume/checkpoint design.
@@ -103,11 +138,11 @@ Replace remaining raw `dict` LLM outputs in business agents with dedicated Pydan
 
 ### Step 2: Search Scout And Evidence Curator
 
-Enhance Tavily query planning, reliable-source packs, source-quality rules, and real counterevidence search.
+Continue implementing `docs/14-search-and-report-ingestion-design.md`: strengthen counterevidence query planning, improve extractor failure controls/domain routing, and add richer verification linking. Multi-provider search base, document-to-workflow ingestion, first-pass reliable-source packs, initial verification search/extraction loop, and evidence-level corroborating/conflicting links are now in place.
 
 ### Step 3: QA Critic Gate
 
-Current QA blocks structural and weak-source issues. Next, add unsupported-claim detection inside generated artifact prose and automatic retry suggestions.
+Current QA now blocks structural issues, weak-source misuse, and unsupported strong factual artifact claims. Next, improve claim-to-evidence pinpointing and automatic retry / degrade routing.
 
 ### Step 4: Human Review
 
@@ -115,7 +150,7 @@ Human review exists for Supervisor Plan confirmation. Next, add richer decisions
 
 ### Step 5: Frontend Productization
 
-Add artifact detail viewer, evidence filters, source policy editing before run, and workflow node detail drill-down backed by real run state.
+Add artifact detail viewer, server-backed evidence filters, source policy editing before run, and workflow node detail drill-down backed by real run state.
 
 ### Step 6: Acceptance Examples
 

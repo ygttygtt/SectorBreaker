@@ -8,14 +8,19 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from backend.app.documents import extract_document_citations, split_document_segments
 from backend.app.providers.interfaces import RetrievalResult
 from backend.app.schemas import (
     Artifact,
     ArtifactType,
     ClaimStrength,
+    DocumentCitation,
+    DocumentSegment,
     EvidenceClaim,
     EvidenceItem,
     MarketScope,
+    ProjectDocument,
+    ProjectDocumentCreate,
     ProjectStatus,
     ResearchDepth,
     ResearchProject,
@@ -128,7 +133,7 @@ class SQLiteRepository:
         with self._connect() as connection:
             connection.execute(
                 """
-                INSERT INTO evidence (
+                INSERT OR REPLACE INTO evidence (
                     id, project_id, source_title, source_url, source_type,
                     source_channel, source_policy, raw_excerpt, snippet, summary,
                     claims, source_quality, claim_strength, bias_risk, recency,
@@ -163,7 +168,7 @@ class SQLiteRepository:
                 ),
             )
             connection.execute(
-                "INSERT INTO evidence_fts (id, project_id, content) VALUES (?, ?, ?)",
+                "INSERT OR REPLACE INTO evidence_fts (id, project_id, content) VALUES (?, ?, ?)",
                 (evidence.id, evidence.project_id, self._evidence_search_text(evidence)),
             )
 
@@ -221,6 +226,153 @@ class SQLiteRepository:
             for row in rows
         ]
 
+    def add_document(self, project_id: str, payload: ProjectDocumentCreate, document_id: str | None = None) -> ProjectDocument:
+        now = datetime.now(UTC)
+        content = payload.content
+        generated_document_id = document_id or f"doc-{uuid4().hex}"
+        segments = split_document_segments(generated_document_id, content)
+        citations = extract_document_citations(generated_document_id, segments)
+        document = ProjectDocument(
+            id=generated_document_id,
+            project_id=project_id,
+            channel=payload.channel,
+            file_name=payload.file_name,
+            mime_type=payload.mime_type,
+            content=content,
+            word_count=len(content.split()),
+            char_count=len(content),
+            segment_count=len(segments),
+            citation_count=len(citations),
+            created_at=now,
+        )
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO documents (
+                    id, project_id, channel, file_name, mime_type, content,
+                    word_count, char_count, segment_count, citation_count, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    document.id,
+                    document.project_id,
+                    document.channel,
+                    document.file_name,
+                    document.mime_type,
+                    document.content,
+                    document.word_count,
+                    document.char_count,
+                    document.segment_count,
+                    document.citation_count,
+                    document.created_at.isoformat(),
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO document_segments (
+                    id, document_id, order_index, heading, text, char_count, citation_refs
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        segment.id,
+                        segment.document_id,
+                        segment.order_index,
+                        segment.heading,
+                        segment.text,
+                        segment.char_count,
+                        json.dumps(segment.citation_refs, ensure_ascii=False),
+                    )
+                    for segment in segments
+                ],
+            )
+            connection.executemany(
+                """
+                INSERT INTO document_citations (
+                    id, document_id, raw_reference, source_title, source_url, referenced_segment_ids
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        citation.id,
+                        citation.document_id,
+                        citation.raw_reference,
+                        citation.source_title,
+                        citation.source_url,
+                        json.dumps(citation.referenced_segment_ids, ensure_ascii=False),
+                    )
+                    for citation in citations
+                ],
+            )
+        return document
+
+    def list_documents(self, project_id: str) -> list[ProjectDocument]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM documents WHERE project_id = ? ORDER BY created_at DESC",
+                (project_id,),
+            ).fetchall()
+        return [self._row_to_document(row) for row in rows]
+
+    def get_document(self, document_id: str) -> ProjectDocument:
+        with self._connect() as connection:
+            row = connection.execute("SELECT * FROM documents WHERE id = ?", (document_id,)).fetchone()
+        if row is None:
+            raise KeyError(f"document not found: {document_id}")
+        return self._row_to_document(row)
+
+    def list_document_segments(self, document_id: str) -> list[DocumentSegment]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM document_segments WHERE document_id = ? ORDER BY order_index",
+                (document_id,),
+            ).fetchall()
+        return [
+            DocumentSegment(
+                id=row["id"],
+                document_id=row["document_id"],
+                order_index=row["order_index"],
+                heading=row["heading"],
+                text=row["text"],
+                char_count=row["char_count"],
+                citation_refs=json.loads(row["citation_refs"] or "[]"),
+            )
+            for row in rows
+        ]
+
+    def list_document_citations(self, document_id: str) -> list[DocumentCitation]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM document_citations WHERE document_id = ? ORDER BY id",
+                (document_id,),
+            ).fetchall()
+        return [
+            DocumentCitation(
+                id=row["id"],
+                document_id=row["document_id"],
+                raw_reference=row["raw_reference"],
+                source_title=row["source_title"],
+                source_url=row["source_url"],
+                referenced_segment_ids=json.loads(row["referenced_segment_ids"] or "[]"),
+            )
+            for row in rows
+        ]
+
+    def list_evidence_by_collector(self, project_id: str, collected_by: str) -> list[EvidenceItem]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM evidence WHERE project_id = ? AND collected_by = ? ORDER BY rowid",
+                (project_id, collected_by),
+            ).fetchall()
+        return [self._row_to_evidence(row) for row in rows]
+
+    def get_evidence(self, evidence_id: str) -> EvidenceItem:
+        with self._connect() as connection:
+            row = connection.execute("SELECT * FROM evidence WHERE id = ?", (evidence_id,)).fetchone()
+        if row is None:
+            raise KeyError(f"evidence not found: {evidence_id}")
+        return self._row_to_evidence(row)
+
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)
         connection.row_factory = sqlite3.Row
@@ -264,6 +416,22 @@ class SQLiteRepository:
             content=row["content"],
             source_evidence_ids=json.loads(row["source_evidence_ids"]),
             schema_version=row["schema_version"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+        )
+
+    @staticmethod
+    def _row_to_document(row: sqlite3.Row) -> ProjectDocument:
+        return ProjectDocument(
+            id=row["id"],
+            project_id=row["project_id"],
+            channel=row["channel"],
+            file_name=row["file_name"],
+            mime_type=row["mime_type"],
+            content=row["content"],
+            word_count=row["word_count"],
+            char_count=row["char_count"],
+            segment_count=row["segment_count"],
+            citation_count=row["citation_count"],
             created_at=datetime.fromisoformat(row["created_at"]),
         )
 

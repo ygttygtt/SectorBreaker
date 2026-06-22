@@ -7,7 +7,9 @@ import {
   Clock3,
   Database,
   Download,
+  ExternalLink,
   FileText,
+  Filter,
   Loader2,
   Network,
   Play,
@@ -73,6 +75,73 @@ function extractQa(events: RunEvent[]) {
   return [...events].reverse().find((item) => item.gate === "qa_critic" && item.data)?.data ?? null;
 }
 
+type QaPayload = {
+  passed?: boolean;
+  blocking_issues?: string[];
+  retry_tasks?: string[];
+  user_action_needed?: string[];
+  can_continue_with_warning?: boolean;
+};
+
+function asStringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function asQaPayload(value: unknown): QaPayload | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  return {
+    passed: typeof record.passed === "boolean" ? record.passed : undefined,
+    blocking_issues: asStringList(record.blocking_issues),
+    retry_tasks: asStringList(record.retry_tasks),
+    user_action_needed: asStringList(record.user_action_needed),
+    can_continue_with_warning: typeof record.can_continue_with_warning === "boolean" ? record.can_continue_with_warning : undefined,
+  };
+}
+
+function labelForQuality(value?: string) {
+  if (value === "high") return "高可信";
+  if (value === "medium") return "中可信";
+  if (value === "low") return "低可信";
+  return "未知";
+}
+
+function labelForVerification(value?: string) {
+  if (value === "verified") return "已验证";
+  if (value === "partially_verified") return "部分验证";
+  if (value === "conflicting") return "有冲突";
+  return "未验证";
+}
+
+function QAReportPanel({ qa }: { qa: QaPayload }) {
+  const blocking = qa.blocking_issues ?? [];
+  const retry = qa.retry_tasks ?? [];
+  const userActions = qa.user_action_needed ?? [];
+  return (
+    <div className="qa-report-panel">
+      {blocking.length > 0 && (
+        <div>
+          <h4>阻塞项</h4>
+          <ul>{blocking.map((item) => <li key={item}>{item}</li>)}</ul>
+        </div>
+      )}
+      {retry.length > 0 && (
+        <div>
+          <h4>重试任务</h4>
+          <ul>{retry.map((item) => <li key={item}>{item}</li>)}</ul>
+        </div>
+      )}
+      {userActions.length > 0 && (
+        <div>
+          <h4>需要你补充</h4>
+          <ul>{userActions.map((item) => <li key={item}>{item}</li>)}</ul>
+        </div>
+      )}
+      {qa.can_continue_with_warning && <p className="qa-warning-note">可降级继续，但相关结论会保留为待验证。</p>}
+    </div>
+  );
+}
+
 function deriveStatuses(events: RunEvent[]): Record<string, NodeStatus> {
   const statuses: Record<string, NodeStatus> = {};
   for (const event of events) {
@@ -102,15 +171,28 @@ function LandingView({
   onOpenSettings,
   isLoading,
   llmConfigured,
+  searchConfigured,
+  searchProviders,
+  extractionProviders,
 }: {
-  onStart: (domain: string, sourcePolicy: string, assistantBrief: string, autoRun?: boolean) => void;
+  onStart: (
+    domain: string,
+    sourcePolicy: string,
+    assistantBrief: string,
+    autoRun?: boolean,
+    assistantBriefFile?: File | null,
+  ) => void;
   onOpenSettings: () => void;
   isLoading: boolean;
   llmConfigured: boolean;
+  searchConfigured: boolean;
+  searchProviders: string[];
+  extractionProviders: string[];
 }) {
   const [domain, setDomain] = useState("");
   const [sourcePolicy, setSourcePolicy] = useState("reliable_first");
   const [assistantBrief, setAssistantBrief] = useState("");
+  const [assistantBriefFile, setAssistantBriefFile] = useState<File | null>(null);
   const [showBrief, setShowBrief] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -124,7 +206,7 @@ function LandingView({
 
   function submit(autoRun = false) {
     if (!domain.trim()) return;
-    onStart(domain.trim(), sourcePolicy, assistantBrief.trim(), autoRun);
+    onStart(domain.trim(), sourcePolicy, assistantBrief.trim(), autoRun, assistantBriefFile);
   }
 
   return (
@@ -146,6 +228,24 @@ function LandingView({
             <Settings size={16} />
             LLM 未配置，点击设置 API 密钥
           </button>
+        )}
+        {!searchConfigured && (
+          <div className="landing-warning landing-warning--static">
+            <AlertTriangle size={16} />
+            搜索未配置。当前无法主动联网检索真实信息，研究会明确降级并跳过开放搜索。
+          </div>
+        )}
+        {searchConfigured && (
+          <div className="provider-status-card">
+            <div className="provider-status-item">
+              <strong>搜索 Provider</strong>
+              <span>{searchProviders.join(", ") || "unknown"}</span>
+            </div>
+            <div className="provider-status-item">
+              <strong>抽取 Provider</strong>
+              <span>{extractionProviders.join(", ") || "unknown"}</span>
+            </div>
+          </div>
         )}
         <label className="field-label" htmlFor="domain">研究领域</label>
         <div className="landing-input-wrap">
@@ -177,13 +277,26 @@ function LandingView({
           {showBrief ? "收起外部 AI 报告" : "可选：粘贴 Gemini / Kimi / Qwen / DeepSeek 报告"}
         </button>
         {showBrief && (
-          <textarea
-            className="assistant-brief-input"
-            value={assistantBrief}
-            onChange={(event) => setAssistantBrief(event.target.value)}
-            placeholder="支持 Markdown / txt。系统会把它拆成低可信线索，不会直接当事实。"
-            rows={7}
-          />
+          <div className="upload-stack">
+            <textarea
+              className="assistant-brief-input"
+              value={assistantBrief}
+              onChange={(event) => setAssistantBrief(event.target.value)}
+              placeholder="支持 Markdown / txt。系统会把它拆成低可信线索，不会直接当事实。"
+              rows={7}
+            />
+            <label className="file-upload-card">
+              <strong>上传外部 AI 报告</strong>
+              <span>支持 `.md` / `.txt`。会先入库，再参与研究与验证流程。</span>
+              <input
+                type="file"
+                aria-label="上传外部 AI 报告文件"
+                accept=".md,.markdown,.txt,text/markdown,text/plain"
+                onChange={(event) => setAssistantBriefFile(event.target.files?.[0] ?? null)}
+              />
+              {assistantBriefFile && <em>{assistantBriefFile.name}</em>}
+            </label>
+          </div>
         )}
         <div className="landing-actions">
           <button className="primary" disabled={!domain.trim() || isLoading || !llmConfigured} onClick={() => submit(false)} type="button">
@@ -205,7 +318,7 @@ function LandingView({
           <Network size={16} />
           <span>真实运行图</span>
         </div>
-        <WorkflowEditor isCompact showControls={false} />
+        <WorkflowEditor isCompact showControls={false} fillHeight />
       </aside>
     </div>
   );
@@ -221,6 +334,7 @@ function ResearchView({
   onWorkflowDefinition,
   isConnected,
   onBack,
+  searchConfigured,
 }: {
   project: Project;
   runId: string;
@@ -231,6 +345,7 @@ function ResearchView({
   onWorkflowDefinition: (definition: WorkflowDefinition) => void;
   isConnected: boolean;
   onBack: () => void;
+  searchConfigured: boolean;
 }) {
   const [selectedNode, setSelectedNode] = useState<WorkflowNode | null>(null);
   const [startedAt] = useState(Date.now());
@@ -239,7 +354,7 @@ function ResearchView({
   const latest = events[events.length - 1];
   const activeNodeId = latest ? eventNodeMap[latest.gate] : "scope";
   const evidenceEvents = events.filter((event) => event.event_type === "evidence_collected").length;
-  const qaEvent = extractQa(events);
+  const qaReport = asQaPayload(extractQa(events));
 
   useEffect(() => {
     if (!runId) return;
@@ -296,6 +411,9 @@ function ResearchView({
               {latest?.severity === "error" ? <AlertTriangle size={18} /> : <Loader2 size={18} className={isConnected ? "spinner" : ""} />}
             </div>
             <p>{activeMessage ?? "准备生成主管计划与证据账本。"}</p>
+            {!searchConfigured && (
+              <p className="inline-warning">搜索未配置：系统不会主动联网搜索，关键事实覆盖会受限。</p>
+            )}
             {latest?.progress_total ? (
               <div className="progress-line">
                 <span style={{ width: `${Math.min(100, ((latest.progress_current ?? 0) / latest.progress_total) * 100)}%` }} />
@@ -336,12 +454,12 @@ function ResearchView({
               </dl>
             </section>
           )}
-          {qaEvent && (
+          {qaReport && (
             <section className="qa-warning-card">
               <AlertTriangle size={18} />
               <div>
                 <strong>质量门提示</strong>
-                <p>{JSON.stringify(qaEvent).slice(0, 220)}</p>
+                <QAReportPanel qa={qaReport} />
               </div>
             </section>
           )}
@@ -380,10 +498,12 @@ function ReviewView({
   const [guidance, setGuidance] = useState("");
   const [evidenceData, setEvidenceData] = useState("");
   const [assistantBrief, setAssistantBrief] = useState("");
+  const [userMaterialFile, setUserMaterialFile] = useState<File | null>(null);
+  const [assistantBriefFile, setAssistantBriefFile] = useState<File | null>(null);
   const plan = extractPlan(events);
-  const qa = extractQa(events);
+  const qaReport = asQaPayload(extractQa(events));
   const isPlanReview = completedGate === "supervisor_plan";
-  const isQaBlocked = Boolean(qa);
+  const isQaBlocked = Boolean(qaReport);
 
   return (
     <div className="review-pro">
@@ -426,16 +546,16 @@ function ReviewView({
               </div>
             </div>
           )}
-          {qa && (
+          {qaReport && (
             <div className="qa-block-card">
               <AlertTriangle size={20} />
               <div>
                 <h2>QA 阻塞</h2>
-                <pre>{JSON.stringify(qa, null, 2)}</pre>
+                <QAReportPanel qa={qaReport} />
               </div>
             </div>
           )}
-          {!plan && !qa && (
+          {!plan && !qaReport && (
             <div className="plan-card">
               <h2>阶段完成</h2>
               <p>已生成 {artifacts.length} 个产物，收集 {evidence.length} 条证据。</p>
@@ -447,15 +567,49 @@ function ReviewView({
           <textarea value={guidance} onChange={(e) => setGuidance(e.target.value)} rows={4} placeholder="只需要补方向、边界、偏好；资料查证仍由系统负责。" />
           <label>用户材料</label>
           <textarea value={evidenceData} onChange={(e) => setEvidenceData(e.target.value)} rows={5} placeholder="可粘贴你已有的笔记、链接、报告摘要。" />
+          <label className="file-upload-card">
+            <strong>上传用户材料</strong>
+            <span>支持 `.md` / `.txt`。恢复运行前会先上传到项目 documents。</span>
+            <input
+              type="file"
+              aria-label="上传用户材料文件"
+              accept=".md,.markdown,.txt,text/markdown,text/plain"
+              onChange={(event) => setUserMaterialFile(event.target.files?.[0] ?? null)}
+            />
+            {userMaterialFile && <em>{userMaterialFile.name}</em>}
+          </label>
           {isPlanReview && (
             <>
               <label>外部 AI 报告（可选）</label>
               <textarea value={assistantBrief} onChange={(e) => setAssistantBrief(e.target.value)} rows={7} placeholder="Markdown / txt。仅作为线索，不能单独支撑事实。" />
+              <label className="file-upload-card">
+                <strong>上传外部 AI 报告</strong>
+                <span>支持 `.md` / `.txt`。会作为低可信线索进入后续验证。</span>
+                <input
+                  type="file"
+                  aria-label="上传阶段外部 AI 报告文件"
+                  accept=".md,.markdown,.txt,text/markdown,text/plain"
+                  onChange={(event) => setAssistantBriefFile(event.target.files?.[0] ?? null)}
+                />
+                {assistantBriefFile && <em>{assistantBriefFile.name}</em>}
+              </label>
             </>
           )}
           <div className="review-actions">
             <button className="secondary" onClick={onSkip} type="button">跳过补充</button>
-            <button className="primary" onClick={() => onContinue(guidance, evidenceData, assistantBrief)} type="button">
+            <button
+              className="primary"
+              onClick={async () => {
+                if (userMaterialFile) {
+                  await api.uploadDocument(project.id, { channel: "user_upload", file: userMaterialFile });
+                }
+                if (assistantBriefFile) {
+                  await api.uploadDocument(project.id, { channel: "assistant_brief", file: assistantBriefFile });
+                }
+                onContinue(guidance, evidenceData, assistantBrief);
+              }}
+              type="button"
+            >
               <CheckCircle2 size={16} />
               确认并继续
             </button>
@@ -491,6 +645,24 @@ function ResultView({
 }) {
   const [question, setQuestion] = useState("");
   const [isExporting, setIsExporting] = useState(false);
+  const [qualityFilter, setQualityFilter] = useState("all");
+  const [verificationFilter, setVerificationFilter] = useState("all");
+  const [attentionOnly, setAttentionOnly] = useState(false);
+
+  const filteredEvidence = useMemo(() => {
+    return evidence.filter((item) => {
+      if (qualityFilter !== "all" && (item.source_quality ?? "unknown") !== qualityFilter) {
+        return false;
+      }
+      if (verificationFilter !== "all" && (item.verification_status ?? "unverified") !== verificationFilter) {
+        return false;
+      }
+      if (attentionOnly && !item.needs_counterevidence && item.verification_status !== "conflicting") {
+        return false;
+      }
+      return true;
+    });
+  }, [attentionOnly, evidence, qualityFilter, verificationFilter]);
 
   async function askQuestion() {
     if (!question.trim()) return;
@@ -530,15 +702,68 @@ function ResultView({
         </section>
         <section className="result-card">
           <h3><Database size={16} />证据账本</h3>
+          <div className="evidence-toolbar">
+            <div className="evidence-toolbar-title">
+              <Filter size={14} />
+              <span>{filteredEvidence.length} / {evidence.length} 条证据</span>
+            </div>
+            <div className="evidence-filter-row">
+              <select aria-label="证据质量筛选" value={qualityFilter} onChange={(e) => setQualityFilter(e.target.value)}>
+                <option value="all">全部质量</option>
+                <option value="high">高可信</option>
+                <option value="medium">中可信</option>
+                <option value="low">低可信</option>
+                <option value="unknown">未知</option>
+              </select>
+              <select aria-label="证据验证状态筛选" value={verificationFilter} onChange={(e) => setVerificationFilter(e.target.value)}>
+                <option value="all">全部状态</option>
+                <option value="verified">已验证</option>
+                <option value="partially_verified">部分验证</option>
+                <option value="unverified">未验证</option>
+                <option value="conflicting">有冲突</option>
+              </select>
+              <label className="toggle-chip">
+                <input
+                  type="checkbox"
+                  checked={attentionOnly}
+                  onChange={(e) => setAttentionOnly(e.target.checked)}
+                />
+                <span>仅看风险项</span>
+              </label>
+            </div>
+          </div>
           <ul className="result-evidence-list">
-            {evidence.map((item) => (
+            {filteredEvidence.map((item) => (
               <li key={item.id}>
-                <strong>{item.source_title}</strong>
+                <div className="evidence-head">
+                  <strong>{item.source_title}</strong>
+                  {item.source_url && (
+                    <a className="evidence-link" href={item.source_url} target="_blank" rel="noreferrer">
+                      <ExternalLink size={13} />
+                      来源
+                    </a>
+                  )}
+                </div>
+                <div className="evidence-chip-row">
+                  <span className={`evidence-chip evidence-chip--quality-${item.source_quality ?? "unknown"}`}>
+                    {labelForQuality(item.source_quality)}
+                  </span>
+                  <span className={`evidence-chip evidence-chip--status-${item.verification_status ?? "unverified"}`}>
+                    {labelForVerification(item.verification_status)}
+                  </span>
+                  {item.source_type && <span className="evidence-chip">{item.source_type}</span>}
+                  {item.needs_counterevidence && <span className="evidence-chip evidence-chip--attention">待反证</span>}
+                </div>
                 <p>{item.snippet}</p>
-                <span>{item.source_quality ?? "unknown"} / {item.verification_status ?? "unverified"}</span>
+                {(item.bias_risk || item.collected_by) && (
+                  <span>
+                    {item.bias_risk ?? item.collected_by}
+                  </span>
+                )}
               </li>
             ))}
           </ul>
+          {filteredEvidence.length === 0 && <p className="result-empty">当前筛选条件下没有证据。</p>}
         </section>
         <section className="result-card result-card--wide">
           <h3><Search size={16} />项目问答</h3>
@@ -574,9 +799,21 @@ export function App() {
   const [activeMessage, setActiveMessage] = useState<string | null>(null);
   const [reviewingGate, setReviewingGate] = useState<string | null>(null);
   const [llmConfigured, setLlmConfigured] = useState(true);
+  const [searchConfigured, setSearchConfigured] = useState(true);
+  const [searchProviders, setSearchProviders] = useState<string[]>([]);
+  const [extractionProviders, setExtractionProviders] = useState<string[]>([]);
 
   useEffect(() => {
     api.getLLMConfig().then((cfg) => setLlmConfigured(cfg.configured)).catch(() => setLlmConfigured(false));
+    api.getSearchConfig().then((cfg) => {
+      setSearchConfigured(cfg.configured);
+      setSearchProviders(cfg.providers || []);
+      setExtractionProviders(cfg.extraction_providers || []);
+    }).catch(() => {
+      setSearchConfigured(false);
+      setSearchProviders([]);
+      setExtractionProviders([]);
+    });
   }, []);
 
   const onEvent = useCallback((event: RunEvent) => {
@@ -608,11 +845,20 @@ export function App() {
     }
   }, [events, phase]);
 
-  async function startResearch(domain: string, sourcePolicy: string, assistantBrief: string, autoRun = false) {
+  async function startResearch(
+    domain: string,
+    sourcePolicy: string,
+    assistantBrief: string,
+    autoRun = false,
+    assistantBriefFile: File | null = null,
+  ) {
     setIsLoading(true);
     try {
       const proj = await api.createProject({ title: domain, domain, market_scope: "mixed", depth: "quick", source_policy: sourcePolicy });
       setProject(proj);
+      if (assistantBriefFile) {
+        await api.uploadDocument(proj.id, { channel: "assistant_brief", file: assistantBriefFile });
+      }
       const run = await api.startRun(proj.id, autoRun);
       setRunId(run.id);
       setPhase("researching");
@@ -678,7 +924,15 @@ export function App() {
       <ToastContainer toasts={toasts} onRemove={removeToast} />
       <ConfigPanel isOpen={showConfig} onClose={() => setShowConfig(false)} onSuccess={success} onError={error} />
       {phase === "landing" && (
-        <LandingView onStart={startResearch} onOpenSettings={() => setShowConfig(true)} isLoading={isLoading} llmConfigured={llmConfigured} />
+        <LandingView
+          onStart={startResearch}
+          onOpenSettings={() => setShowConfig(true)}
+          isLoading={isLoading}
+          llmConfigured={llmConfigured}
+          searchConfigured={searchConfigured}
+          searchProviders={searchProviders}
+          extractionProviders={extractionProviders}
+        />
       )}
       {phase === "researching" && project && (
         <ResearchView
@@ -691,6 +945,7 @@ export function App() {
           onWorkflowDefinition={setWorkflowDefinition}
           isConnected={isConnected}
           onBack={resetToLanding}
+          searchConfigured={searchConfigured}
         />
       )}
       {phase === "reviewing" && project && runId && (

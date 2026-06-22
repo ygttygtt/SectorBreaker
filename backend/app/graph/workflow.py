@@ -9,11 +9,22 @@ LangGraph 1.x pattern:
 import asyncio
 import json
 import time
+from pathlib import Path
 from typing import Any, Callable, Awaitable, TypedDict
 
 from langgraph.graph import END, StateGraph
+from pydantic import BaseModel
 
-from backend.app.providers.interfaces import ChatMessage, LLMProvider, SearchProvider, SearchQuery
+from backend.app.providers.counterevidence import HeuristicCounterevidenceProvider
+from backend.app.providers.interfaces import (
+    ChatMessage,
+    ContentExtractionProvider,
+    LLMProvider,
+    SearchProvider,
+    SearchQuery,
+)
+from backend.app.providers.source_packs import blocked_domains_for_market, reliable_domains_for_market
+from backend.app.providers.source_verification import HeuristicSourceVerificationProvider
 from backend.app.graph.planner import build_supervisor_plan
 from backend.app.schemas import (
     Artifact,
@@ -22,16 +33,24 @@ from backend.app.schemas import (
     ClaimType,
     EvidenceClaim,
     EvidenceItem,
+    KnowledgeMapOutput,
+    MarketAnalysisOutput,
+    PlayerAnalysisOutput,
     QAReport,
     ResearchGate,
+    ResearchFrameOutput,
     ResearchProject,
     ResearchState,
     RunEvent,
     RunStatus,
+    ScopeAnalysisOutput,
     SourceChannel,
     SourcePolicy,
     SourceQuality,
+    SourceType,
     SupervisorPlan,
+    SynthesisOutput,
+    TransactionAnalysisOutput,
     VerificationStatus,
 )
 
@@ -53,6 +72,7 @@ class WorkflowState(TypedDict, total=False):
     qa_report: dict[str, Any] | None
     user_guidance: str | None
     user_evidence_items: list[dict[str, Any]]
+    seed_evidence_items: list[dict[str, Any]]
     assistant_brief: str | None
 
 
@@ -66,9 +86,10 @@ GATE_ORDER: list[str] = [
     "claim_extractor_gate",
     "counterevidence_gate",
     ResearchGate.EVIDENCE_LEDGER.value,
-    "market_agent",
-    "player_agent",
-    "transaction_agent",
+    ResearchGate.RESEARCH_FRAME.value,
+    "market_gate",
+    "player_gate",
+    "transaction_gate",
     "synthesis",
     ResearchGate.KNOWLEDGE_MAP.value,
     "qa_critic",
@@ -101,11 +122,12 @@ async def _llm_generate(
     llm_provider: LLMProvider | None,
     system_prompt: str,
     user_prompt: str,
+    response_schema: type[Any],
     emitter: EventEmitter | None,
     gate: str,
     agent: str,
     retries: int = 2,
-) -> dict | str:
+) -> Any:
     if llm_provider is None:
         raise RuntimeError("LLM 未配置。请先在页面右下角点击「LLM 设置」配置 API 地址和密钥。")
     last_error = None
@@ -116,7 +138,7 @@ async def _llm_generate(
                     ChatMessage(role="system", content=system_prompt),
                     ChatMessage(role="user", content=user_prompt),
                 ],
-                response_schema=dict,
+                response_schema=response_schema,
             )
         except Exception as exc:
             last_error = exc
@@ -133,6 +155,35 @@ def _evidence_ids(state: WorkflowState) -> list[str]:
     return [item["id"] for item in state.get("evidence", [])]
 
 
+def _merge_evidence_items(
+    existing: list[dict[str, Any]],
+    incoming: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = list(existing)
+    seen_ids = {item.get("id") for item in existing if item.get("id")}
+    for item in incoming:
+        item_id = item.get("id")
+        if item_id and item_id in seen_ids:
+            continue
+        merged.append(item)
+        if item_id:
+            seen_ids.add(item_id)
+    return merged
+
+
+def _claim_texts(item: dict[str, Any]) -> list[tuple[str, str]]:
+    claims = item.get("claims") or []
+    pairs: list[tuple[str, str]] = []
+    for claim in claims:
+        claim_id = claim.get("claim_id")
+        claim_text = claim.get("text")
+        if claim_id and claim_text:
+            pairs.append((claim_id, claim_text))
+    if not pairs and item.get("snippet"):
+        pairs.append((f"CL-{item.get('id', 'UNKNOWN')}", item["snippet"]))
+    return pairs
+
+
 def _plan_from_state(state: WorkflowState) -> SupervisorPlan | None:
     raw = state.get("supervisor_plan")
     if not raw:
@@ -146,6 +197,37 @@ def _project_from_state(state: WorkflowState) -> ResearchProject:
 
 def _source_policy_from_project(project: dict[str, Any]) -> SourcePolicy:
     return SourcePolicy(project.get("source_policy") or SourcePolicy.RELIABLE_FIRST.value)
+
+
+def search_constraints_for_policy(
+    project: dict[str, Any],
+    *,
+    verification: bool = False,
+    preferred_domains: list[str] | None = None,
+) -> tuple[list[str], list[str]]:
+    policy = _source_policy_from_project(project)
+    market_scope = project.get("market_scope")
+
+    if policy == SourcePolicy.OPEN_WEB:
+        return preferred_domains or [], []
+
+    if policy == SourcePolicy.USER_MATERIALS_ONLY:
+        return [], []
+
+    base_domains = reliable_domains_for_market(market_scope)
+    blocked_domains = blocked_domains_for_market(market_scope)
+
+    allowed_domains = list(dict.fromkeys((preferred_domains or []) + base_domains))
+
+    if policy == SourcePolicy.RELIABLE_ONLY:
+        return allowed_domains, blocked_domains
+
+    if policy == SourcePolicy.RELIABLE_FIRST:
+        if verification and preferred_domains:
+            return allowed_domains, blocked_domains
+        return allowed_domains, blocked_domains
+
+    return preferred_domains or [], blocked_domains
 
 
 def _source_quality_for(source_type: str | None, source_channel: SourceChannel) -> SourceQuality:
@@ -170,16 +252,21 @@ def _claim_from_text(evidence_id: str, text: str, claim_type: ClaimType = ClaimT
     )
 
 
-def _extract_content(llm_result: dict | str, title: str, domain: str) -> str:
-    """Extract content from LLM result, handling various response formats."""
+def _result_to_dict(llm_result: BaseModel | dict[str, Any] | str) -> dict[str, Any]:
+    if isinstance(llm_result, BaseModel):
+        return llm_result.model_dump(mode="json")
     if isinstance(llm_result, dict):
-        content = (
-            llm_result.get("content")
-            or llm_result.get("text")
-            or llm_result.get("result")
-        )
+        return llm_result
+    return {"text": str(llm_result)}
+
+
+def _extract_content(llm_result: BaseModel | dict[str, Any] | str, title: str, domain: str) -> str:
+    """Extract content from LLM result, handling various response formats."""
+    if isinstance(llm_result, (BaseModel, dict)):
+        payload = _result_to_dict(llm_result)
+        content = payload.get("content") or payload.get("text") or payload.get("result")
         if not content:
-            content = json.dumps(llm_result, ensure_ascii=False, indent=2)
+            content = json.dumps(payload, ensure_ascii=False, indent=2)
         if not str(content).startswith("#"):
             content = f"# {domain} {title}\n\n{content}"
         return str(content)
@@ -194,19 +281,21 @@ def _artifact_from_result(
     art_type: ArtifactType,
     title: str,
     path: str,
-    result: dict | str,
+    result: BaseModel | dict[str, Any] | str,
 ) -> list[Artifact]:
     ev_ids = _evidence_ids(state)
-    if isinstance(result, dict) and "hypotheses" in result:
+    payload = _result_to_dict(result)
+    if "hypotheses" in payload:
         from backend.app.exporters import cards as card_gen
-        card_map = card_gen.generate_opportunity_cards(project["domain"], result, project["title"], ev_ids)
+        card_map = card_gen.generate_opportunity_cards(project["domain"], payload, project["title"], ev_ids)
+        card_dir = Path(path).parent.as_posix() if Path(path).suffix else path
         return [
             Artifact(
                 id=f"{art_id}-{card_name}",
                 project_id=state["project_id"],
                 artifact_type=art_type,
                 title=f"{title}/{card_name}",
-                content_path=f"{path}/{card_name}.md",
+                content_path=f"{card_dir}/{card_name}.md",
                 content=card_content,
                 source_evidence_ids=ev_ids,
             )
@@ -224,6 +313,99 @@ def _artifact_from_result(
             source_evidence_ids=ev_ids,
         )
     ]
+
+
+_STRONG_FACT_MARKERS = (
+    "%",
+    "％",
+    "亿元",
+    "亿美元",
+    "cagr",
+    "market size",
+    "市场规模",
+    "增长率",
+    "同比",
+    "环比",
+    "份额",
+    "排名",
+    "超过",
+    "达到",
+    "预计",
+    "预测",
+)
+
+
+def _artifact_contains_strong_fact_claim(content: str | None) -> bool:
+    if not content:
+        return False
+    lowered = content.lower()
+    return any(marker in lowered for marker in _STRONG_FACT_MARKERS)
+
+
+_CONFLICT_MARKERS = (
+    "反驳",
+    "质疑",
+    "争议",
+    "冲突",
+    "相反",
+    "不一致",
+    "风险",
+    "challenge",
+    "challenged",
+    "dispute",
+    "disputed",
+    "contradict",
+    "conflict",
+    "risk",
+)
+
+
+def _has_conflict_signal(*texts: str | None) -> bool:
+    combined = " ".join(text for text in texts if text).lower()
+    return any(marker in combined for marker in _CONFLICT_MARKERS)
+
+
+def _is_acceptable_fact_support(item: dict[str, Any], policy: SourcePolicy) -> bool:
+    if item.get("source_channel") == SourceChannel.SYSTEM.value:
+        return False
+    if item.get("needs_counterevidence"):
+        return False
+    if item.get("verification_status") in {VerificationStatus.UNVERIFIED.value, VerificationStatus.CONFLICTING.value}:
+        return False
+    if "marketing_like=true" in str(item.get("bias_risk") or ""):
+        return False
+
+    quality = item.get("source_quality")
+    if policy == SourcePolicy.RELIABLE_ONLY:
+        return quality == SourceQuality.HIGH.value and item.get("source_type") in {
+            SourceType.OFFICIAL.value,
+            SourceType.GOVERNMENT.value,
+            SourceType.PUBLIC_DATABASE.value,
+            SourceType.COMPANY_DISCLOSURE.value,
+            SourceType.INDUSTRY_REPORT.value,
+        }
+
+    return quality in {SourceQuality.HIGH.value, SourceQuality.MEDIUM.value}
+
+
+def _artifact_unsupported_claim_ids(
+    artifacts: list[dict[str, Any]],
+    evidence: list[dict[str, Any]],
+    policy: SourcePolicy,
+) -> list[str]:
+    evidence_by_id = {item.get("id"): item for item in evidence if item.get("id")}
+    unsupported: list[str] = []
+    for artifact in artifacts:
+        if not _artifact_contains_strong_fact_claim(artifact.get("content")):
+            continue
+        linked = [
+            evidence_by_id[evidence_id]
+            for evidence_id in artifact.get("source_evidence_ids", [])
+            if evidence_id in evidence_by_id
+        ]
+        if not any(_is_acceptable_fact_support(item, policy) for item in linked):
+            unsupported.append(artifact.get("id", "UNKNOWN"))
+    return unsupported
 
 
 def _default_plan() -> dict[str, list[str]]:
@@ -260,9 +442,12 @@ def next_gate(current: str) -> str | None:
 def make_nodes(
     llm_provider: LLMProvider | None = None,
     search_provider: SearchProvider | None = None,
+    content_extraction_provider: ContentExtractionProvider | None = None,
     emitter: EventEmitter | None = None,
 ) -> dict[str, Callable]:
     """Create all node functions with dependencies bound via closure."""
+    counterevidence_provider = HeuristicCounterevidenceProvider()
+    source_verifier = HeuristicSourceVerificationProvider()
 
     async def scope_gate(state: WorkflowState) -> dict[str, Any]:
         project = state["project"]
@@ -275,8 +460,9 @@ def make_nodes(
 
         # Inject user evidence
         evidence = list(state.get("evidence", []))
+        evidence = _merge_evidence_items(evidence, state.get("seed_evidence_items", []))
         for item in state.get("user_evidence_items", []):
-            evidence.append(EvidenceItem(
+            evidence = _merge_evidence_items(evidence, [EvidenceItem(
                 id=f"EV-USER-{item.get('id', 'SUPPLEMENT')}",
                 project_id=state["project_id"],
                 source_channel=SourceChannel.USER_UPLOAD,
@@ -288,9 +474,9 @@ def make_nodes(
                 summary=item.get("summary"),
                 confidence=item.get("confidence", 0.8),
                 verification_status=VerificationStatus.UNVERIFIED,
-            ).model_dump(mode="json"))
+            ).model_dump(mode="json")])
 
-        evidence.append(EvidenceItem(
+        evidence = _merge_evidence_items(evidence, [EvidenceItem(
             id="EV-USER-SCOPE",
             project_id=state["project_id"],
             source_title="User project scope",
@@ -302,7 +488,7 @@ def make_nodes(
             summary="User-provided scope and intent.",
             confidence=1.0,
             verification_status=VerificationStatus.UNVERIFIED,
-        ).model_dump(mode="json"))
+        ).model_dump(mode="json")])
 
         # LLM scope analysis
         await _emit(emitter, RunEvent(
@@ -331,45 +517,45 @@ def make_nodes(
                 f"{'用户补充：' + state.get('user_guidance', '') if state.get('user_guidance') else ''}"
             ),
             emitter=emitter, gate=gate, agent="Research Planner",
+            response_schema=ScopeAnalysisOutput,
         )
 
         # Build scope artifact
-        if isinstance(scope_analysis, dict):
-            definition = scope_analysis.get("domain_definition", "") or ""
-            boundaries = scope_analysis.get("boundaries", "") or ""
-            confusions = scope_analysis.get("common_confusions", []) or []
-            questions_md = ""
-            for q in scope_analysis.get("key_questions", []):
-                if isinstance(q, dict):
-                    questions_md += (
-                        f"### {q.get('question', '')}\n"
-                        f"- **为什么重要**：{q.get('importance', '')}\n"
-                        f"- **去哪找答案**：{q.get('source', '')}\n"
-                        f"- **常见误判**：{q.get('common_mistake', '')}\n"
-                        f"- **1小时优先级**：{q.get('priority_1h', '')}\n\n"
-                    )
-            caliber_md = ""
-            for c in scope_analysis.get("data_caliber", []):
-                if isinstance(c, dict):
-                    caliber_md += (
-                        f"| {c.get('metric', '')} | {c.get('caliber', '')} | "
-                        f"{c.get('confusion', '')} | {c.get('suitable_for', '')} | "
-                        f"{c.get('not_suitable_for', '')} | {c.get('recommended_source', '')} |\n"
-                    )
-            if definition or boundaries:
-                content = (
-                    f"# {project['domain']} 研究范围分析\n\n"
-                    f"## 领域定义\n\n{definition}\n\n"
-                    f"## 边界说明\n\n{boundaries}\n\n"
-                    f"## 常见混淆点\n\n" + "\n".join(f"- {c}" for c in confusions) + "\n\n"
-                    f"## 关键问题（10个）\n\n{questions_md}\n"
-                    f"## 数据口径\n\n| 指标 | 统计口径 | 容易混淆 | 适合回答 | 不适合回答 | 建议数据来源 |\n"
-                    f"|------|---------|---------|---------|-----------|------------|\n{caliber_md}\n"
-                )
-            else:
-                content = f"# {project['domain']} 研究范围分析\n\n{json.dumps(scope_analysis, ensure_ascii=False, indent=2)}"
+        definition = scope_analysis.domain_definition
+        boundaries = scope_analysis.boundaries
+        confusions = scope_analysis.common_confusions
+        questions_md = "".join(
+            (
+                f"### {q.question}\n"
+                f"- **为什么重要**：{q.importance}\n"
+                f"- **去哪找答案**：{q.source}\n"
+                f"- **常见误判**：{q.common_mistake}\n"
+                f"- **1小时优先级**：{q.priority_1h}\n\n"
+            )
+            for q in scope_analysis.key_questions
+        )
+        caliber_md = "".join(
+            (
+                f"| {c.metric} | {c.caliber} | {c.confusion} | {c.suitable_for} | "
+                f"{c.not_suitable_for} | {c.recommended_source} |\n"
+            )
+            for c in scope_analysis.data_caliber
+        )
+        if definition or boundaries:
+            content = (
+                f"# {project['domain']} 研究范围分析\n\n"
+                f"## 领域定义\n\n{definition}\n\n"
+                f"## 边界说明\n\n{boundaries}\n\n"
+                f"## 常见混淆点\n\n" + "\n".join(f"- {c}" for c in confusions) + "\n\n"
+                f"## 关键问题（10个）\n\n{questions_md}\n"
+                f"## 数据口径\n\n| 指标 | 统计口径 | 容易混淆 | 适合回答 | 不适合回答 | 建议数据来源 |\n"
+                f"|------|---------|---------|---------|-----------|------------|\n{caliber_md}\n"
+            )
         else:
-            content = f"# {project['domain']} 研究范围分析\n\n{scope_analysis}"
+            content = (
+                f"# {project['domain']} 研究范围分析\n\n"
+                f"{json.dumps(scope_analysis.model_dump(mode='json'), ensure_ascii=False, indent=2)}"
+            )
 
         artifacts = list(state.get("artifacts", []))
         artifacts.append(Artifact(
@@ -502,6 +688,7 @@ def make_nodes(
             f"{project['domain']} 主要玩家 竞争格局",
             f"{project['domain']} 用户痛点 机会",
         ]
+        allowed_domains, blocked_domains = search_constraints_for_policy(project)
 
         for query_idx, query_text in enumerate(search_queries):
             await _emit(emitter, RunEvent(
@@ -512,31 +699,71 @@ def make_nodes(
             if search_provider is not None:
                 try:
                     results = await search_provider.search(
-                        SearchQuery(query=query_text, market_scope=project["market_scope"], max_results=5)
+                        SearchQuery(
+                            query=query_text,
+                            market_scope=project["market_scope"],
+                            max_results=5,
+                            allowed_domains=allowed_domains,
+                            blocked_domains=blocked_domains,
+                        )
                     )
                     for index, result in enumerate(results, start=1):
+                        evidence_id = f"EV-SEARCH-{query_idx}-{index:03d}"
+                        assessment = await source_verifier.assess_source(
+                            url=result.url,
+                            title=result.title,
+                            snippet=result.snippet,
+                            extracted_text=None,
+                            source_policy=source_policy.value,
+                        )
+                        verification_status = VerificationStatus(
+                            assessment.recommended_verification_status
+                            or VerificationStatus.PARTIALLY_VERIFIED.value
+                        )
+                        source_quality = SourceQuality(assessment.source_quality)
                         evidence.append(EvidenceItem(
-                            id=f"EV-SEARCH-{query_idx}-{index:03d}",
+                            id=evidence_id,
                             project_id=state["project_id"],
-                            source_title=result.title, source_url=result.url, source_type="web",
+                            source_title=result.title, source_url=result.url, source_type=assessment.source_type,
                             source_channel=SourceChannel.SEARCH,
                             source_policy=source_policy.value,
                             snippet=result.snippet, summary=result.snippet,
                             claims=[
                                 _claim_from_text(
-                                    f"EV-SEARCH-{query_idx}-{index:03d}",
+                                    evidence_id,
                                     result.snippet,
                                 )
                             ],
-                            source_quality=_source_quality_for("web", SourceChannel.SEARCH),
-                            claim_strength=ClaimStrength.OPINION,
-                            needs_counterevidence=False,
+                            source_quality=source_quality,
+                            claim_strength=(
+                                ClaimStrength.FACT
+                                if verification_status == VerificationStatus.VERIFIED
+                                else ClaimStrength.OPINION
+                            ),
+                            bias_risk=assessment.reliability_notes,
+                            needs_counterevidence=(
+                                assessment.is_marketing_like
+                                or source_quality in {SourceQuality.LOW, SourceQuality.UNKNOWN}
+                                or verification_status == VerificationStatus.UNVERIFIED
+                            ),
                             collected_by="search_scout",
-                            confidence=0.65, verification_status=VerificationStatus.PARTIALLY_VERIFIED,
+                            confidence=(
+                                0.82
+                                if verification_status == VerificationStatus.VERIFIED
+                                else 0.55 if source_quality == SourceQuality.MEDIUM else 0.35
+                            ),
+                            verification_status=verification_status,
                         ).model_dump(mode="json"))
                         await _emit(emitter, RunEvent(
                             event_type="evidence_collected", gate=gate, agent="Search Scout",
                             message=f"找到：{result.title}",
+                            data={
+                                "evidence_id": evidence_id,
+                                "source_quality": source_quality.value,
+                                "source_type": assessment.source_type,
+                                "verification_status": verification_status.value,
+                                "is_marketing_like": assessment.is_marketing_like,
+                            },
                         ))
                 except Exception as exc:
                     await _emit(emitter, RunEvent(
@@ -656,16 +883,200 @@ def make_nodes(
         ))
         evidence = list(state.get("evidence", []))
         counter = 0
+        verification_tasks_created = 0
+        verification_evidence: list[dict[str, Any]] = []
+        existing_ids = {item.get("id") for item in evidence if item.get("id")}
         for item in evidence:
-            if item.get("needs_counterevidence"):
-                counter += 1
-                item["verification_status"] = VerificationStatus.PARTIALLY_VERIFIED.value
+            if not item.get("needs_counterevidence"):
+                continue
+
+            counter += 1
+            item["verification_status"] = VerificationStatus.PARTIALLY_VERIFIED.value
+            for claim_id, claim_text in _claim_texts(item):
+                tasks = await counterevidence_provider.build_verification_tasks(
+                    claim_id=claim_id,
+                    claim_text=claim_text,
+                    market_scope=state["project"]["market_scope"],
+                )
+                verification_tasks_created += len(tasks)
+                for task in tasks:
+                    await _emit(emitter, RunEvent(
+                        event_type="verification_task_created",
+                        gate=gate,
+                        agent="Counterevidence Agent",
+                        message=f"已为主张创建验证任务：{task.verification_goal}",
+                        data={
+                            "task_id": task.task_id,
+                            "claim_id": task.claim_id,
+                            "query_variants": task.query_variants,
+                            "preferred_domains": task.preferred_domains,
+                        },
+                    ))
+                    if search_provider is None:
+                        continue
+
+                    query_text = task.query_variants[0] if task.query_variants else claim_text
+                    allowed_domains, blocked_domains = search_constraints_for_policy(
+                        state["project"],
+                        verification=True,
+                        preferred_domains=task.preferred_domains or [],
+                    )
+                    try:
+                        results = await search_provider.search(
+                            SearchQuery(
+                                query=query_text,
+                                market_scope=state["project"]["market_scope"],
+                                max_results=3,
+                                allowed_domains=allowed_domains,
+                                blocked_domains=blocked_domains,
+                            )
+                        )
+                    except Exception as exc:
+                        await _emit(emitter, RunEvent(
+                            event_type="error",
+                            gate=gate,
+                            agent="Counterevidence Agent",
+                            message=f"验证搜索失败：{exc}",
+                        ))
+                        continue
+
+                    for index, result in enumerate(results, start=1):
+                        evidence_id = f"EV-VERIFY-{task.task_id}-{index:03d}"
+                        if evidence_id in existing_ids:
+                            continue
+                        extracted_page = None
+                        if content_extraction_provider is not None and result.url:
+                            try:
+                                extracted_page = await content_extraction_provider.extract_url(result.url)
+                            except Exception as exc:
+                                await _emit(emitter, RunEvent(
+                                    event_type="node_degraded",
+                                    gate=gate,
+                                    agent="Content Extraction",
+                                    message=f"正文抽取失败，降级使用 snippet：{exc}",
+                                    severity="warning",
+                                ))
+                        assessment = await source_verifier.assess_source(
+                            url=result.url,
+                            title=extracted_page.title if extracted_page and extracted_page.title else result.title,
+                            snippet=result.snippet,
+                            extracted_text=extracted_page.raw_text if extracted_page else None,
+                            source_policy=state["project"].get("source_policy"),
+                        )
+                        if task.verification_goal == "challenge" and not _has_conflict_signal(
+                            result.title,
+                            result.snippet,
+                            extracted_page.raw_text if extracted_page else None,
+                        ):
+                            continue
+                        verification_status = (
+                            VerificationStatus(assessment.recommended_verification_status)
+                            if task.verification_goal == "corroborate"
+                            else VerificationStatus.CONFLICTING
+                        )
+                        claim_note = (
+                            "自动反证搜索得到的补充支持线索"
+                            if task.verification_goal == "corroborate"
+                            else "自动反证搜索得到的潜在冲突线索"
+                        )
+                        snippet = result.snippet
+                        raw_excerpt = result.snippet
+                        summary = f"{task.verification_goal} result for {claim_id}"
+                        if extracted_page and extracted_page.raw_text:
+                            raw_excerpt = extracted_page.raw_text[:4000]
+                            snippet = extracted_page.raw_text[:800]
+                            summary = (
+                                f"{task.verification_goal} result for {claim_id}; "
+                                f"extracted via {extracted_page.extraction_provider}"
+                            )
+                        verification_item = EvidenceItem(
+                            id=evidence_id,
+                            project_id=state["project_id"],
+                            source_title=extracted_page.title if extracted_page and extracted_page.title else result.title,
+                            source_url=result.url,
+                            source_type=assessment.source_type,
+                            source_channel=SourceChannel.SEARCH,
+                            source_policy=state["project"].get("source_policy"),
+                            raw_excerpt=raw_excerpt,
+                            snippet=snippet,
+                            summary=summary,
+                            claims=[
+                                EvidenceClaim(
+                                    claim_id=f"CL-{evidence_id}",
+                                    text=claim_text,
+                                    claim_type=ClaimType.GENERAL_FACT,
+                                    support_level=0.35 if task.verification_goal == "corroborate" else 0.2,
+                                    requires_verification=True,
+                                    verification_status=verification_status,
+                                    evidence_ids=[evidence_id],
+                                    notes=claim_note,
+                                )
+                            ],
+                            source_quality=SourceQuality(assessment.source_quality),
+                            claim_strength=(
+                                ClaimStrength.FACT
+                                if (
+                                    task.verification_goal == "corroborate"
+                                    and verification_status == VerificationStatus.VERIFIED
+                                    and assessment.source_quality == SourceQuality.HIGH.value
+                                )
+                                else ClaimStrength.OPINION
+                            ),
+                            bias_risk=assessment.reliability_notes or (
+                                "Needs manual corroboration"
+                                if task.verification_goal == "corroborate"
+                                else "Potential counterevidence or contradiction"
+                            ),
+                            needs_counterevidence=(
+                                task.verification_goal != "challenge"
+                                and assessment.recommended_verification_status != VerificationStatus.VERIFIED.value
+                            ),
+                            collected_by="counterevidence_search",
+                            confidence=0.75 if extracted_page and assessment.source_quality == SourceQuality.HIGH.value else (
+                                0.55 if task.verification_goal == "corroborate" else 0.4
+                            ),
+                            verification_status=verification_status,
+                        ).model_dump(mode="json")
+                        verification_evidence.append(verification_item)
+                        link_field = (
+                            "corroborating_evidence_ids"
+                            if task.verification_goal == "corroborate"
+                            else "conflicting_evidence_ids"
+                        )
+                        linked_ids = list(item.get(link_field) or [])
+                        if evidence_id not in linked_ids:
+                            linked_ids.append(evidence_id)
+                        item[link_field] = linked_ids
+                        for claim in item.get("claims", []):
+                            counter_ids = list(claim.get("counterevidence_ids") or [])
+                            if evidence_id not in counter_ids:
+                                counter_ids.append(evidence_id)
+                            claim["counterevidence_ids"] = counter_ids
+                        existing_ids.add(evidence_id)
+                        await _emit(emitter, RunEvent(
+                            event_type="counterevidence_found",
+                            gate=gate,
+                            agent="Counterevidence Agent",
+                            message=f"验证搜索补充来源：{result.title}",
+                            data={
+                                "task_id": task.task_id,
+                                "verification_goal": task.verification_goal,
+                                "evidence_id": evidence_id,
+                                "url": result.url,
+                            },
+                        ))
+
+        evidence = _merge_evidence_items(evidence, verification_evidence)
         event_type = "node_completed" if counter == 0 else "node_degraded"
         event_payload: dict[str, Any] = {
             "event_type": event_type,
             "gate": gate,
             "agent": "Counterevidence Agent",
-            "message": "反证核对完成" if counter == 0 else f"发现 {counter} 条仍需继续复核的线索",
+            "message": (
+                "反证核对完成"
+                if counter == 0
+                else f"已为 {counter} 条线索创建 {verification_tasks_created} 个验证任务，补充 {len(verification_evidence)} 条验证证据"
+            ),
         }
         if counter:
             event_payload["severity"] = "warning"
@@ -692,16 +1103,12 @@ def make_nodes(
                 f"市场范围：{project['market_scope']}。"
                 f"{'用户补充方向：' + state.get('user_guidance', '') if state.get('user_guidance') else ''}"
             ),
+            response_schema=ResearchFrameOutput,
             emitter=emitter, gate=gate, agent="Research Planner",
         )
 
-        if isinstance(plan, dict):
-            sections = [item for item in (plan.get("sections") or plan.get("topics") or plan.get("研究板块") or []) if item]
-            key_questions = [item for item in (plan.get("key_questions") or plan.get("questions") or plan.get("关键问题") or []) if item]
-        else:
-            default = _default_plan()
-            sections = default["sections"]
-            key_questions = default["key_questions"]
+        sections = [item for item in plan.sections if item]
+        key_questions = [item for item in plan.key_questions if item]
 
         if not sections:
             default = _default_plan()
@@ -727,7 +1134,6 @@ def make_nodes(
             event_type="gate_complete", gate=gate, message="研究框架生成完成",
         ))
         return {
-            "current_gate": ResearchGate.KNOWLEDGE_MAP.value,
             "artifacts": artifacts,
             "coverage_checklist": {
                 **state.get("coverage_checklist", {}),
@@ -755,6 +1161,7 @@ def make_nodes(
                 f"证据数：{len(state.get('evidence', []))}\n"
                 f"{'用户方向：' + state.get('user_guidance', '') if state.get('user_guidance') else ''}"
             ),
+            response_schema=KnowledgeMapOutput,
             emitter=emitter, gate=gate, agent="Knowledge Mapper",
         )
         new_artifacts = list(state.get("artifacts", []))
@@ -836,19 +1243,9 @@ def make_nodes(
                 f"研究深度：{project['depth']}\n证据数：{len(state.get('evidence', []))}\n"
                 f"{'用户方向：' + state.get('user_guidance', '') if state.get('user_guidance') else ''}"
             ),
+            response_schema=MarketAnalysisOutput,
             emitter=emitter, gate=gate, agent="Market Agent",
         )
-        if any(item.get("id") == "ART-RESEARCH-FRAME" for item in artifacts):
-            rf_text = _extract_content(result, "研究框架", project["domain"])
-            artifacts = [
-                art
-                if art.get("id") != "ART-RESEARCH-FRAME"
-                else {
-                    **art,
-                    "content": rf_text,
-                }
-                for art in artifacts
-            ]
         artifacts.extend(
             [
                 art.model_dump(mode="json")
@@ -887,6 +1284,7 @@ def make_nodes(
                 f"研究深度：{project['depth']}\n证据数：{len(state.get('evidence', []))}\n"
                 f"{'用户方向：' + state.get('user_guidance', '') if state.get('user_guidance') else ''}"
             ),
+            response_schema=PlayerAnalysisOutput,
             emitter=emitter, gate=gate, agent="Player Agent",
         )
         artifacts = list(state.get("artifacts", []))
@@ -939,6 +1337,7 @@ def make_nodes(
                 f"研究深度：{project['depth']}\n证据数：{len(state.get('evidence', []))}\n"
                 f"{'用户方向：' + state.get('user_guidance', '') if state.get('user_guidance') else ''}"
             ),
+            response_schema=TransactionAnalysisOutput,
             emitter=emitter, gate=gate, agent="Transaction Agent",
         )
         artifacts = list(state.get("artifacts", []))
@@ -1003,6 +1402,7 @@ def make_nodes(
                 f"已有产物：{', '.join(a.get('title', '') for a in state.get('artifacts', []))}\n"
                 f"{'用户方向：' + state.get('user_guidance', '') if state.get('user_guidance') else ''}"
             ),
+            response_schema=SynthesisOutput,
             emitter=emitter, gate=gate, agent="Opportunity Agent",
         )
         artifacts = list(state.get("artifacts", []))
@@ -1071,6 +1471,7 @@ def make_nodes(
         qa_issues = list(state.get("qa_issues", []))
         retry_tasks: list[str] = []
         user_action_needed: list[str] = []
+        policy = _source_policy_from_project(state["project"])
         if missing:
             qa_issues.append(f"研究框架或关键产物 coverage 不完整: {', '.join(missing)}")
             retry_tasks.append("重新运行缺失 coverage 对应的 Agent。")
@@ -1079,6 +1480,15 @@ def make_nodes(
         if unsupported:
             qa_issues.append(f"存在缺少证据引用的产物: {', '.join(unsupported)}")
             retry_tasks.append("让产物重新绑定 evidence_id 后再导出。")
+
+        unsupported_claim_artifacts = _artifact_unsupported_claim_ids(
+            state.get("artifacts", []),
+            state.get("evidence", []),
+            policy,
+        )
+        if unsupported_claim_artifacts:
+            qa_issues.append(f"产物包含缺少强证据支撑的事实主张: {', '.join(unsupported_claim_artifacts[:5])}")
+            retry_tasks.append("补充可靠来源并重新生成相关产物，或把这些主张降级为待验证问题。")
 
         weak_counter = [
             item["id"]
@@ -1090,12 +1500,18 @@ def make_nodes(
             qa_issues.append(f"存在待反证或未验证的关键线索: {', '.join(weak_counter[:5])}")
             retry_tasks.append("对未验证关键线索运行 Counterevidence Agent 或降级为待验证问题。")
 
-        policy = _source_policy_from_project(state["project"])
         if policy == SourcePolicy.RELIABLE_ONLY:
             disallowed = [
                 item["id"]
                 for item in state.get("evidence", [])
                 if item.get("source_type") in {"assistant_brief", "community", "media", "web"}
+                and item.get("claim_strength") in {
+                    ClaimStrength.FACT.value,
+                    ClaimStrength.ESTIMATE.value,
+                    ClaimStrength.PREDICTION.value,
+                }
+                and item.get("verification_status") != VerificationStatus.CONFLICTING.value
+                and item.get("collected_by") != "counterevidence_search"
             ]
             if disallowed:
                 qa_issues.append(f"严格可靠模式下存在弱来源证据: {', '.join(disallowed[:5])}")
@@ -1109,7 +1525,12 @@ def make_nodes(
             blocking_issues=qa_issues,
             retry_tasks=retry_tasks,
             user_action_needed=user_action_needed,
-            can_continue_with_warning=bool(weak_counter) and not missing and not unsupported,
+            can_continue_with_warning=(
+                bool(weak_counter)
+                and not missing
+                and not unsupported
+                and not unsupported_claim_artifacts
+            ),
         )
 
         if qa_issues:
@@ -1173,10 +1594,11 @@ def _route_after_qa(state: WorkflowState) -> str:
 def build_graph(
     llm_provider: LLMProvider | None = None,
     search_provider: SearchProvider | None = None,
+    content_extraction_provider: ContentExtractionProvider | None = None,
     emitter: EventEmitter | None = None,
 ):
     """Build the LangGraph StateGraph with typed state and explicit edges."""
-    nodes = make_nodes(llm_provider, search_provider, emitter)
+    nodes = make_nodes(llm_provider, search_provider, content_extraction_provider, emitter)
 
     graph = StateGraph(WorkflowState)
 
@@ -1188,6 +1610,7 @@ def build_graph(
     graph.add_node("claim_extractor_gate", nodes["claim_extractor_gate"])
     graph.add_node("counterevidence_gate", nodes["counterevidence_gate"])
     graph.add_node("evidence_ledger_gate", nodes["evidence_ledger_gate"])
+    graph.add_node("research_frame_gate", nodes["research_frame_gate"])
     graph.add_node("market_gate", nodes["market_gate"])
     graph.add_node("player_gate", nodes["player_gate"])
     graph.add_node("transaction_gate", nodes["transaction_gate"])
@@ -1206,7 +1629,8 @@ def build_graph(
     graph.add_edge("evidence_gate", "claim_extractor_gate")
     graph.add_edge("claim_extractor_gate", "counterevidence_gate")
     graph.add_edge("counterevidence_gate", "evidence_ledger_gate")
-    graph.add_edge("evidence_ledger_gate", "market_gate")
+    graph.add_edge("evidence_ledger_gate", "research_frame_gate")
+    graph.add_edge("research_frame_gate", "market_gate")
     graph.add_edge("market_gate", "player_gate")
     graph.add_edge("player_gate", "transaction_gate")
     graph.add_edge("transaction_gate", "synthesis_gate")
@@ -1241,6 +1665,7 @@ def _initial_state(project: ResearchProject) -> WorkflowState:
         "qa_report": None,
         "user_guidance": None,
         "user_evidence_items": [],
+        "seed_evidence_items": [],
         "assistant_brief": None,
     }
 
@@ -1269,19 +1694,22 @@ def _to_research_state(raw: WorkflowState) -> ResearchState:
 async def run_research_workflow(
     project: ResearchProject,
     search_provider: SearchProvider | None = None,
+    content_extraction_provider: ContentExtractionProvider | None = None,
     llm_provider: LLMProvider | None = None,
     emitter: EventEmitter | None = None,
     user_guidance: str | None = None,
     user_evidence_items: list[dict[str, Any]] | None = None,
+    seed_evidence_items: list[dict[str, Any]] | None = None,
     assistant_brief: str | None = None,
 ) -> ResearchState:
     """Run all gates without pausing (for tests and auto-run mode)."""
     state = _initial_state(project)
     state["user_guidance"] = user_guidance
     state["user_evidence_items"] = user_evidence_items or []
+    state["seed_evidence_items"] = seed_evidence_items or []
     state["assistant_brief"] = assistant_brief
 
-    graph = build_graph(llm_provider, search_provider, emitter)
+    graph = build_graph(llm_provider, search_provider, content_extraction_provider, emitter)
     raw_state = await graph.ainvoke(state)
 
     return _to_research_state(raw_state)
@@ -1290,11 +1718,13 @@ async def run_research_workflow(
 async def run_workflow_until_pause(
     project: ResearchProject,
     search_provider: SearchProvider | None = None,
+    content_extraction_provider: ContentExtractionProvider | None = None,
     llm_provider: LLMProvider | None = None,
     emitter: EventEmitter | None = None,
     state: WorkflowState | None = None,
     user_guidance: str | None = None,
     user_evidence_items: list[dict[str, Any]] | None = None,
+    seed_evidence_items: list[dict[str, Any]] | None = None,
     assistant_brief: str | None = None,
     auto_run: bool = False,
 ) -> tuple[WorkflowState, str | None, bool]:
@@ -1308,6 +1738,11 @@ async def run_workflow_until_pause(
         state["user_guidance"] = user_guidance
     if user_evidence_items:
         state["user_evidence_items"] = user_evidence_items
+    if seed_evidence_items:
+        state["seed_evidence_items"] = _merge_evidence_items(
+            state.get("seed_evidence_items", []),
+            seed_evidence_items,
+        )
     if assistant_brief:
         state["assistant_brief"] = assistant_brief
     if state.get("supervisor_plan") and (assistant_brief or user_evidence_items or user_guidance):
@@ -1318,7 +1753,7 @@ async def run_workflow_until_pause(
             has_user_materials=bool(state.get("user_evidence_items")),
         ).model_dump(mode="json")
 
-    nodes = make_nodes(llm_provider, search_provider, emitter)
+    nodes = make_nodes(llm_provider, search_provider, content_extraction_provider, emitter)
     current = state.get("current_gate", GATE_ORDER[0])
 
     while current:

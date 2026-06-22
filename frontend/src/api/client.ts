@@ -51,7 +51,11 @@ export interface Evidence {
   confidence?: number;
   source_type?: string;
   source_channel?: string;
+  source_policy?: string;
   source_quality?: string;
+  claim_strength?: string;
+  bias_risk?: string;
+  collected_by?: string;
   verification_status?: string;
   needs_counterevidence?: boolean;
 }
@@ -133,6 +137,122 @@ export interface LLMTestResult {
   message: string;
 }
 
+export interface SearchConfigStatus {
+  configured: boolean;
+  provider?: string;
+  providers?: string[];
+  requested_provider_mode?: string;
+  extraction_provider?: string;
+  extraction_providers?: string[];
+  requested_extraction_provider?: string;
+  missing_configuration?: string[];
+  diagnostics?: string[];
+  status_message?: string;
+}
+
+export interface SearchTestResult {
+  success: boolean;
+  message: string;
+  source_policy: string;
+  providers: string[];
+  effective_allowed_domains: string[];
+  effective_blocked_domains: string[];
+  result_count: number;
+  results: Array<{
+    title: string;
+    url: string;
+    snippet: string;
+    published_date?: string;
+    provider_metadata?: Record<string, unknown>;
+  }>;
+  extracted_page?: {
+    url: string;
+    canonical_url?: string;
+    title?: string;
+    domain?: string;
+    extraction_provider?: string;
+    raw_text_preview?: string;
+  } | null;
+  source_assessment?: {
+    source_type?: string;
+    source_quality?: string;
+    is_original_source?: boolean;
+    is_marketing_like?: boolean;
+    domain?: string;
+    recommended_verification_status?: string;
+    reliability_notes?: string;
+  } | null;
+}
+
+export interface SearchRuntimeConfig {
+  search_provider_mode: string;
+  tavily_api_key?: string;
+  tavily_endpoint?: string;
+  serper_api_key?: string;
+  serper_endpoint?: string;
+  brave_api_key?: string;
+  brave_endpoint?: string;
+  exa_api_key?: string;
+  exa_endpoint?: string;
+  content_extraction_provider: string;
+  firecrawl_api_key?: string;
+  firecrawl_endpoint?: string;
+  jina_reader_endpoint_prefix?: string;
+}
+
+export interface ProjectDocument {
+  id: string;
+  project_id: string;
+  channel: string;
+  file_name?: string;
+  mime_type?: string;
+  content: string;
+  word_count: number;
+  char_count: number;
+  segment_count: number;
+  citation_count: number;
+  created_at: string;
+}
+
+export interface DocumentSegment {
+  id: string;
+  document_id: string;
+  order_index: number;
+  text: string;
+  heading?: string;
+  char_count: number;
+  citation_refs: string[];
+}
+
+export interface DocumentCitation {
+  id: string;
+  document_id: string;
+  raw_reference: string;
+  source_title?: string;
+  source_url?: string;
+  referenced_segment_ids: string[];
+}
+
+export interface EvidencePreview {
+  id: string;
+  project_id: string;
+  source_title: string;
+  source_url?: string;
+  source_type?: string;
+  source_channel: string;
+  source_policy?: string;
+  raw_excerpt?: string;
+  snippet: string;
+  summary?: string;
+  source_quality: string;
+  claim_strength: string;
+  bias_risk?: string;
+  needs_counterevidence: boolean;
+  collected_by?: string;
+  confidence: number;
+  verification_status: string;
+}
+
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
@@ -202,6 +322,82 @@ export const api = {
   // LLM Config
   getLLMConfig() {
     return requestJson<LLMConfigStatus>("/api/config/llm");
+  },
+
+  getSearchConfig() {
+    return requestJson<SearchConfigStatus>("/api/config/search");
+  },
+
+  updateSearchConfig(data: SearchRuntimeConfig) {
+    return requestJson<{ success: boolean; message: string; configured: boolean }>("/api/config/search", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  testSearchConnection(data: {
+    query: string;
+    url_to_extract?: string;
+    market_scope?: string;
+    source_policy?: string;
+    max_results?: number;
+    auto_extract_first_result?: boolean;
+    allowed_domains?: string[];
+    blocked_domains?: string[];
+  }) {
+    return requestJson<SearchTestResult>("/api/config/search/test", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  createDocument(projectId: string, data: { channel: string; content: string; file_name?: string; mime_type?: string }) {
+    return requestJson<ProjectDocument>(`/api/projects/${projectId}/documents`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async uploadDocument(projectId: string, data: { channel: string; file: File }) {
+    const formData = new FormData();
+    formData.append("channel", data.channel);
+    formData.append("file", data.file);
+    const response = await fetch(`/api/projects/${projectId}/documents/upload`, {
+      method: "POST",
+      body: formData,
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: "请求失败" }));
+      throw new Error(error.detail || `API 请求失败: ${response.status}`);
+    }
+    return response.json() as Promise<ProjectDocument>;
+  },
+
+  listDocuments(projectId: string) {
+    return requestJson<ProjectDocument[]>(`/api/projects/${projectId}/documents`);
+  },
+
+  getDocument(documentId: string) {
+    return requestJson<ProjectDocument>(`/api/documents/${documentId}`);
+  },
+
+  listDocumentSegments(documentId: string) {
+    return requestJson<DocumentSegment[]>(`/api/documents/${documentId}/segments`);
+  },
+
+  listDocumentCitations(documentId: string) {
+    return requestJson<DocumentCitation[]>(`/api/documents/${documentId}/citations`);
+  },
+
+  getDocumentEvidencePreview(documentId: string) {
+    return requestJson<EvidencePreview[]>(`/api/documents/${documentId}/evidence-preview`);
+  },
+
+  ingestDocumentEvidence(documentId: string) {
+    return requestJson<{ document_id: string; created_count: number; evidence: EvidencePreview[] }>(
+      `/api/documents/${documentId}/ingest-evidence`,
+      { method: "POST" },
+    );
   },
 
   updateLLMConfig(data: { base_url: string; api_key: string; model: string }) {

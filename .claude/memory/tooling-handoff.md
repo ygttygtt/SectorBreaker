@@ -20,12 +20,35 @@ metadata:
 - conda 环境：`sectorbreaker`
 - 后端：FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + 可解释选择轨迹
 - 前端：Vite + React + TypeScript，可解释研究工作台，真实 workflow graph，纵向布局与活动节点居中
+- 当前会显式展示“搜索未配置”提示，避免把无联网检索误当成正常研究能力
+- 当前搜索 provider 已扩展为 Tavily / Serper / Brave / Exa
+- `docs/14-search-and-report-ingestion-design.md` 是下一阶段搜索、报告上传、来源验证、交叉验证扩展的统一施工入口
+- 真实运行链路里，上传/导入的文档已经不再停留在独立接口：citation evidence 可自动注入 workflow，assistant brief 文档会自动进入低可信报告流
+- evidence 持久化已做幂等，重复 ingest/resume 不会因同 ID 证据报错
+- 低可信/营销线索现在也不只是被标记：workflow 会自动创建 verification tasks，并通过已配置 search provider 拉回补充验证证据
+- 验证搜索结果现在还能经过 `ContentExtractionProvider` 做正文抽取和来源复评，workflow 已经不是 snippet-only
+- extractor provider 现在支持环境变量切换：默认 `http` fallback，也可切 `firecrawl` 或 `jina`
+- 配完 `.env.example` 后，可直接调用 `/api/config/search/test` 验证搜索与抽取链，不必先创建项目运行
+- 前端配置面板也已接入同样的搜索链路测试能力，配完 key 后可直接在 UI 点击验证
+- landing 页也会显示当前 search/extraction provider，能快速确认真实 API 是否已启用
+- 现在还有 CLI 验收入口 `python run_search_smoke_test.py`，API/UI smoke test 也会自动抽首条结果并返回来源评估
+- 现在还有 `docs/15-real-search-provider-onboarding.md` 作为真实 key 联调清单，后续工具接手时可直接按该顺序验收
+- 现在还有 `python run_real_search_acceptance.py` 作为端到端验收脚本，适合在真实 key 配好后直接验证 evidence 是否真正入库
+- 现在还有 `python generate_search_env_template.py` 作为最小配置模板生成器，适合先快速产出 `.env` 片段
+- FastAPI app 与 smoke-test script 都自动读取仓库根目录 `.env`
+- 前端 landing/review 已支持 `.md` / `.txt` 上传 assistant brief 与 user material
 - 测试基线：Python 23 passed；前端 3 passed；前端 build passed
 
 最高风险任务：
 
 - 剩余业务 Agent Pydantic 输出 schema 和 prompt
 - 可靠信源包、真实 Counterevidence 搜索、Evidence Curator 可信度/冲突规则
+- 多搜索 provider 编排、爬虫/抓取层扩展与 provider routing
+- 报告文件上传、引用来源提取、营销来源识别与验证链路
+- `needs_counterevidence` 到 verification task / 搜索回路 还未自动打通，是下一核心缺口
+- 下一核心缺口已从“是否自动打通”变成“如何把 verification task 做得更准、并补正文抽取与证据链接”
+- 下一核心缺口进一步收敛为：接更强 extractor provider、优化 verification query planning、补充原 claim 与验证证据的强链接关系
+- 下一核心缺口进一步收敛为：优化 extractor 失败控制与 domain routing、优化 verification query planning、补充原 claim 与验证证据的强链接关系
 - Claim Extractor / Counterevidence 已进入真实执行链路，但后续仍可继续细化子 Agent 输出 schema
 - Market / Player / Transaction / Synthesis 已进入真实执行链路，但仍可继续增强并行与独立 schema
 - QA Critic artifact prose unsupported-claim 检测

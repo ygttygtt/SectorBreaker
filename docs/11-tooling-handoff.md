@@ -78,9 +78,27 @@ npm run dev -- --host 127.0.0.1 --port 3010
 - Source policy, SupervisorPlan, AgentTask, EvidenceClaim, QAReport, and workflow definition schemas.
 - Provider interfaces and fake providers.
 - OpenAI-compatible LLM provider.
-- Tavily search provider.
+- Tavily, Serper, Brave, and Exa search providers.
+- Search configuration status endpoint and frontend warning when search is unavailable.
+- `docs/14-search-and-report-ingestion-design.md` is now the implementation entry point for multi-provider search and report ingestion.
 - Environment-backed provider factory.
 - SQLite project/evidence/artifact persistence and FTS evidence search.
+- Uploaded documents now affect real runs automatically: ingested document citations seed workflow evidence, assistant-brief documents auto-enter the low-trust report path, and repository evidence writes are idempotent for repeated ingestion/resume flows.
+- Weak-source counterevidence now has a real first-pass execution loop: the workflow creates verification tasks and reuses the configured search provider to collect follow-up corroborating/conflicting evidence.
+- Research-frame generation now runs in both auto-run and human-confirm resume paths, preventing Supervisor Plan confirmation from skipping market/player/transaction agents.
+- Counterevidence writeback now records corroborating/conflicting evidence IDs on the original weak evidence; challenge results require explicit conflict language before they are treated as conflicting evidence.
+- `reliable_only` QA now blocks weak evidence only when it is being used as fact support, while preserving weak leads and conflict evidence for review.
+- Content extraction is now a real provider boundary too: verification search can fetch page content, clean it locally, reassess the source, and write richer evidence back into the workflow.
+- Content extraction provider choice is now configurable: `http` fallback plus Firecrawl and Jina Reader-style extractors are available through environment-based factory selection.
+- `/api/config/search/test` is now the recommended connectivity check after filling `.env`, because it can verify both search and optional extraction without starting a full run.
+- The frontend `LLM 设置` panel now exposes a `测试搜索链路` action backed by the same API, so manual curl is optional.
+- The landing page also surfaces the active search provider and extraction provider, making real API activation visible at a glance.
+- A CLI smoke test now exists at `python run_search_smoke_test.py`, and the API/UI smoke test path now auto-extracts the first search result and returns source-assessment hints.
+- A second CLI acceptance path now exists at `python run_real_search_acceptance.py`, intended for real-key onboarding proof after smoke tests pass.
+- A small setup helper now exists at `python generate_search_env_template.py`, useful when the next agent wants the shortest `.env` path for one provider.
+- `docs/15-real-search-provider-onboarding.md` now provides the recommended real-key acceptance order, so future agents can move from setup to proof without rediscovering the sequence.
+- Repository-root `.env` is now automatically loaded by the backend app and smoke-test script during local development.
+- Landing/review UI now uploads `.md` / `.txt` assistant briefs and user materials through the real documents API instead of relying on textarea-only input.
 - LangGraph workflow with Scope, Supervisor Plan, Source Strategy, Source Intake, Claim Extractor, Counterevidence, Evidence Ledger, Market, Player, Transaction, Synthesis, Knowledge Map, QA gate, Export, and RAG Indexer.
 - FastAPI project create/list/detail, run, workflow-definition, evidence, artifacts, export, and chat endpoints.
 - Markdown/Obsidian export manifest and files.
@@ -96,6 +114,9 @@ Architecture review is required before implementing:
 - QA Critic unsupported-claim detection inside artifact prose and retry strategy.
 - LangGraph interrupt/resume/checkpoint design.
 - Any public schema, graph state, export format, or provider interface change.
+- Multi-provider search routing and crawler expansion, because search quality directly affects evidence integrity.
+- Better counterevidence query planning, extractor failure/domain controls, and stronger uploaded report citation verification beyond first-pass heuristics.
+- Full API test runtime profiling: `tests/api/test_app.py` may exceed 3 minutes locally even though focused API workflow tests pass.
 
 ## Safe Delegation Candidates
 

@@ -25,8 +25,8 @@ class FakeAsyncClient:
     async def __aexit__(self, exc_type, exc, traceback) -> None:
         return None
 
-    async def post(self, url: str, json: dict) -> FakeResponse:
-        self.requests.append({"url": url, "json": json})
+    async def post(self, url: str, json: dict, headers: dict) -> FakeResponse:
+        self.requests.append({"url": url, "json": json, "headers": headers})
         return FakeResponse(
             {
                 "results": [
@@ -54,3 +54,34 @@ def test_tavily_search_provider_maps_results(monkeypatch) -> None:
     assert results[0].title == "AI agent market"
     assert results[0].snippet == "Market overview content."
     assert results[0].provider_metadata["provider"] == "tavily"
+
+
+def test_tavily_search_provider_uses_bearer_auth_and_domain_filters(monkeypatch) -> None:
+    import backend.app.providers.tavily as tavily_module
+
+    captured: dict = {}
+
+    class CaptureAsyncClient(FakeAsyncClient):
+        async def post(self, url: str, json: dict, headers: dict) -> FakeResponse:
+            captured["json"] = json
+            captured["headers"] = headers
+            return await super().post(url, json, headers)
+
+    monkeypatch.setattr(tavily_module.httpx, "AsyncClient", CaptureAsyncClient)
+    provider = TavilySearchProvider(api_key="test-key")
+
+    asyncio.run(
+        provider.search(
+            SearchQuery(
+                query="AI agent market",
+                market_scope="mixed",
+                max_results=2,
+                allowed_domains=["sec.gov"],
+                blocked_domains=["medium.com"],
+            )
+        )
+    )
+
+    assert captured["headers"]["Authorization"] == "Bearer test-key"
+    assert captured["json"]["include_domains"] == ["sec.gov"]
+    assert captured["json"]["exclude_domains"] == ["medium.com"]

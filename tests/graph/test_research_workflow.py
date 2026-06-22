@@ -1,6 +1,6 @@
 import asyncio
 
-from backend.app.graph.workflow import run_research_workflow
+from backend.app.graph.workflow import run_research_workflow, run_workflow_until_pause
 from backend.app.providers.fakes import FakeLLMProvider, FakeSearchProvider
 from backend.app.schemas import ArtifactType, MarketScope, ResearchDepth, ResearchGate, ResearchProject
 
@@ -76,6 +76,96 @@ def test_research_workflow_uses_search_and_llm_providers() -> None:
     # Find the research frame artifact (may not be first due to scope analysis)
     research_frame = next(a for a in state.artifacts if a.id == "ART-RESEARCH-FRAME")
     assert "行业边界" in research_frame.content
+
+
+def test_research_workflow_resume_path_runs_business_agents_after_human_review() -> None:
+    project = ResearchProject(
+        id="project-resume",
+        title="Resume Path",
+        domain="AI Agent 工具",
+        market_scope=MarketScope.MIXED,
+        depth=ResearchDepth.QUICK,
+    )
+    initial_state, paused_gate, completed = asyncio.run(
+        run_workflow_until_pause(
+            project,
+            llm_provider=_default_fake_llm(),
+            auto_run=False,
+        )
+    )
+
+    assert paused_gate == ResearchGate.SUPERVISOR_PLAN.value
+    assert completed is False
+
+    resumed_state, next_pause, completed = asyncio.run(
+        run_workflow_until_pause(
+            project,
+            llm_provider=_default_fake_llm(),
+            state=initial_state,
+            auto_run=True,
+        )
+    )
+
+    artifact_types = {artifact["artifact_type"] for artifact in resumed_state["artifacts"]}
+    assert next_pause is None
+    assert completed is True
+    assert ArtifactType.MARKET_OVERVIEW.value in artifact_types
+    assert ArtifactType.PLAYER_MAP.value in artifact_types
+    assert ArtifactType.TRANSACTION_UNITS.value in artifact_types
+    assert resumed_state["current_gate"] == ResearchGate.EXPORT.value
+    assert not resumed_state["qa_issues"]
+
+
+def test_research_workflow_assesses_search_source_quality() -> None:
+    project = ResearchProject(
+        id="project-search-assessment",
+        title="China Market",
+        domain="产业政策",
+        market_scope=MarketScope.CHINA,
+        depth=ResearchDepth.QUICK,
+        source_policy="reliable_only",
+    )
+    search_provider = FakeSearchProvider(
+        results=[
+            {
+                "title": "国家统计局数据",
+                "url": "https://www.stats.gov.cn/sj/zxfb/202401/t20240101_123.html",
+                "snippet": "官方数据显示相关行业保持增长。",
+            }
+        ]
+    )
+
+    state = asyncio.run(run_research_workflow(project, search_provider=search_provider, llm_provider=_default_fake_llm()))
+
+    search_evidence = next(item for item in state.evidence if item.id.startswith("EV-SEARCH-"))
+    assert search_evidence.source_type == "government"
+    assert search_evidence.source_quality.value == "high"
+    assert search_evidence.verification_status.value == "verified"
+
+
+def test_research_workflow_blocks_numeric_artifact_without_strong_support() -> None:
+    project = ResearchProject(
+        id="project-unsupported-claim",
+        title="Unsupported Claim",
+        domain="低证据行业",
+        market_scope=MarketScope.MIXED,
+        depth=ResearchDepth.QUICK,
+    )
+    llm_provider = FakeLLMProvider(
+        response={
+            "sections": ["行业定义"],
+            "key_questions": ["市场规模是多少？"],
+            "title": "市场判断",
+            "content": "# 市场判断\n\n该行业市场规模预计达到100亿元。",
+        }
+    )
+
+    state = asyncio.run(run_research_workflow(project, llm_provider=llm_provider))
+
+    assert state.current_gate == ResearchGate.KNOWLEDGE_MAP
+    assert state.qa_report is not None
+    assert state.qa_report.passed is False
+    assert any("缺少强证据支撑" in issue for issue in state.qa_report.blocking_issues)
 
 
 def test_research_workflow_blocks_export_when_research_frame_is_empty() -> None:

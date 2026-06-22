@@ -6,9 +6,9 @@ import os
 import time
 from pathlib import Path
 
-os.environ["LLM_BASE_URL"] = "https://token-plan-cn.xiaomimimo.com/v1"
-os.environ["LLM_API_KEY"] = "tp-cmpxaysx0yb6tyhap8y3wdkwnnpprwmnux8cr6ohoxz6rx0o"
-os.environ["LLM_MODEL"] = "mimo-v2.5-pro"
+os.environ.setdefault("LLM_BASE_URL", "")
+os.environ.setdefault("LLM_API_KEY", "")
+os.environ.setdefault("LLM_MODEL", "")
 
 from backend.app.exporters.markdown import MarkdownExporter
 from backend.app.graph.workflow import run_workflow_until_pause

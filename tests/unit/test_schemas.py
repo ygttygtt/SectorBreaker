@@ -9,6 +9,7 @@ from backend.app.schemas import (
     EvidenceItem,
     MarketScope,
     ResearchDepth,
+    ResearchFrameOutput,
     ResearchGate,
     ResearchProjectCreate,
     ResearchState,
@@ -59,3 +60,17 @@ def test_research_state_requires_supported_claims_for_export_gate() -> None:
             artifacts=[artifact],
         )
 
+
+def test_research_frame_output_preserves_sections_when_questions_are_dicts() -> None:
+    frame = ResearchFrameOutput.model_validate(
+        {
+            "sections": ["行业边界", "市场现状", "交易单位"],
+            "key_questions": [
+                {"importance": "用户为什么付费？", "source": "公开数据"},
+                {"question": "信任资产是什么？"},
+            ],
+        }
+    )
+
+    assert frame.sections == ["行业边界", "市场现状", "交易单位"]
+    assert frame.key_questions == ["用户为什么付费？", "信任资产是什么？"]

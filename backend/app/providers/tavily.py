@@ -12,15 +12,23 @@ class TavilySearchProvider:
 
     async def search(self, query: SearchQuery) -> list[SearchResult]:
         payload = {
-            "api_key": self.api_key,
             "query": query.query,
             "max_results": query.max_results,
             "search_depth": "basic",
             "include_answer": False,
             "include_raw_content": False,
         }
+        if query.allowed_domains:
+            payload["include_domains"] = query.allowed_domains
+        if query.blocked_domains:
+            payload["exclude_domains"] = query.blocked_domains
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
         async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(self.endpoint, json=payload)
+            response = await client.post(self.endpoint, json=payload, headers=headers)
             response.raise_for_status()
             data = response.json()
 

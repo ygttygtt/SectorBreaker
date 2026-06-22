@@ -1,6 +1,25 @@
 """Shared Pydantic schemas for SectorBreaker."""
 
+from backend.app.schemas.agent_outputs import (
+    KnowledgeMapOutput,
+    MarketAnalysisOutput,
+    OpportunityHypothesisOutput,
+    ResearchFrameOutput,
+    ScopeAnalysisOutput,
+    ScopeDataCaliberItem,
+    ScopeKeyQuestion,
+    SynthesisOutput,
+    TransactionAnalysisOutput,
+    TransactionUnitOutput,
+    PlayerAnalysisOutput,
+)
 from backend.app.schemas.artifacts import Artifact, ArtifactType
+from backend.app.schemas.documents import (
+    DocumentCitation,
+    DocumentSegment,
+    ProjectDocument,
+    ProjectDocumentCreate,
+)
 from backend.app.schemas.evidence import (
     ClaimStrength,
     ClaimType,
@@ -40,6 +59,14 @@ from backend.app.schemas.state import ResearchGate, ResearchState
 __all__ = [
     "Artifact",
     "ArtifactType",
+    "KnowledgeMapOutput",
+    "MarketAnalysisOutput",
+    "OpportunityHypothesisOutput",
+    "PlayerAnalysisOutput",
+    "DocumentCitation",
+    "DocumentSegment",
+    "ProjectDocument",
+    "ProjectDocumentCreate",
     "AgentSelectionDecision",
     "AgentSelectionSignal",
     "AgentRunMode",
@@ -52,6 +79,7 @@ __all__ = [
     "ProjectStatus",
     "QAReport",
     "ResearchDepth",
+    "ResearchFrameOutput",
     "ResearchGate",
     "ResearchProject",
     "ResearchProjectCreate",
@@ -61,11 +89,17 @@ __all__ = [
     "RunEvent",
     "RunStatus",
     "SkippedAgent",
+    "ScopeAnalysisOutput",
+    "ScopeDataCaliberItem",
+    "ScopeKeyQuestion",
     "SourceChannel",
     "SourcePolicy",
     "SourceQuality",
     "SourceType",
     "SupervisorPlan",
+    "SynthesisOutput",
+    "TransactionAnalysisOutput",
+    "TransactionUnitOutput",
     "UserInput",
     "VerificationLevel",
     "VerificationPlan",

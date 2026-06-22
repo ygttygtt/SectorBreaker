@@ -20,6 +20,25 @@ metadata:
 - Evidence Ledger 已扩展 source channel/source quality/claim strength/bias risk/counterevidence 等字段。
 - OpenAI 兼容 LLM provider 已实现，可通过 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 启用。
 - Tavily search provider 可通过 `TAVILY_API_KEY` 启用。
+- 现已支持 Tavily / Serper / Brave / Exa 多搜索 provider。
+- 已补充搜索配置状态接口；当前前端会在搜索未配置时明确提醒，不再静默降级。
+- 已新增 `docs/14-search-and-report-ingestion-design.md`，作为多 provider 搜索、外部 AI 报告上传、引用来源验证、交叉验证扩展的正式设计入口。
+- 已支持 Serper + Tavily 多搜索 provider 聚合基础。
+- 已支持文档上传、切段、引用提取、来源启发式验证、evidence preview、引用证据入库。
+- 已打通“文档证据自动进入 workflow”这条链路：已入库 citation evidence 会在 run start/resume 自动作为 seed evidence 注入；`assistant_brief` 文档会自动并入低可信报告输入；普通用户文档会作为 supplemental evidence 注入。
+- repository 侧 `add_evidence` 现为幂等写入，避免重复 ingest / resume / 完成持久化时因相同 evidence_id 失败。
+- 已打通第一版自动反证回路：`needs_counterevidence` 的线索会生成 verification tasks，并复用现有 search provider 产出新的验证证据（支持/冲突线索）。
+- 已补上 `ContentExtractionProvider` 底座，并接入自动反证链路：验证搜索结果可做 `url -> 正文抽取 -> 来源复评 -> evidence 回写`。
+- `ContentExtractionProvider` 已支持环境变量切换：默认本地 HTTP fallback，可直接切换到 Firecrawl 或 Jina Reader-style extractor。
+- 已新增 `.env.example` 和 `/api/config/search/test`，现在可以在不开项目 run 的情况下直接验证“搜索 + 抽取”链路是否接通。
+- 前端 `LLM 设置` 面板现已接入 `测试搜索链路`，配置好 key 后可直接在 UI 验证搜索/抽取连通性。
+- landing 页现已直接显示当前启用的搜索 provider 和正文抽取 provider，真实 API 是否生效在主界面即可确认。
+- 已新增 `run_search_smoke_test.py`，并增强 `/api/config/search/test`：默认自动抽取首条结果并返回来源评估，真实 API 接入后的验收路径更完整。
+- 已补统一 `.env` 自动加载：FastAPI app 与 smoke test 脚本都会读取仓库根目录 `.env`，`.env.example -> .env` 的本地接入路径现已真正生效。
+- 已新增 `docs/15-real-search-provider-onboarding.md`，把真实 provider 接入验收拆成 UI、API、CLI、真实 run 四步，后续可直接按清单联调。
+- 已新增 `run_real_search_acceptance.py`，可一键串起 `/api/config/search`、`/api/config/search/test`、真实 project run、evidence 入库检查，减少手工联调成本。
+- 已新增 `generate_search_env_template.py`，可直接输出最小 `.env` 模板片段，方便真实 provider 快速接入。
+- landing / review 现已支持 `.md` / `.txt` 文件上传，assistant brief 与 user material 会通过真实 documents API 入库后再进入研究流程。
 - LangGraph workflow 已升级为 Scope → Supervisor Plan → Source Strategy → Source Intake → Claim Extractor → Counterevidence → Evidence Ledger → Market → Player → Transaction → Synthesis → Knowledge Map → QA → Export/RAG Indexer。
 - 默认非 auto_run 会在 `supervisor_plan` 暂停，等待用户确认计划。
 - 外部 AI 报告只支持手动 md/txt/粘贴输入，作为 `assistant_brief` 低可信线索。
@@ -31,7 +50,13 @@ metadata:
 强把控任务：
 
 - 剩余业务 Agent 专用 Pydantic 输出 schema。
-- Tavily Search Scout 多查询规划、可靠信源包、真实 Counterevidence 搜索。
+- 按 `docs/14-search-and-report-ingestion-design.md` 推进多搜索 provider、报告上传/切段、引用来源验证、可靠信源包、真实 Counterevidence 搜索。
+- 下一优先级建议放在：把 `needs_counterevidence` 自动转成 verification tasks，并接回搜索 provider 做二次验证/找反例。
+- 下一优先级建议放在：增强 verification task query planning、把验证结果和原 claim/evidence 建立更明确的双向链接、补内容抽取层。
+- 下一优先级建议放在：接 Firecrawl/Jina 这类更强 extractor、增强 verification task query planning、把验证结果和原 claim/evidence 建立更明确的双向链接。
+- 下一优先级建议放在：增强 extractor 失败控制与域名路由、优化 verification task query planning、把验证结果和原 claim/evidence 建立更明确的双向链接。
+- 下一优先级建议放在：把 search test 接到前端配置面板、增强 extractor 失败控制与域名路由、优化 verification task query planning、把验证结果和原 claim/evidence 建立更明确的双向链接。
+- 下一优先级建议放在：增强 extractor 失败控制与域名路由、优化 verification task query planning、把验证结果和原 claim/evidence 建立更明确的双向链接。
 - QA Critic artifact prose unsupported-claim 检测与 retry 建议。
 - LangGraph interrupt/resume 与 checkpoint 策略。
 - Agent contract/schema 变更。
@@ -48,6 +73,16 @@ metadata:
 验证基线：
 
 - `python -m pytest -q`：23 passed，1 个 FastAPI TestClient/Starlette deprecation warning。
+- 当前本轮已验证：`python -m pytest tests/unit/test_sqlite_repository.py tests/api/test_app.py -q` => 16 passed，1 warning。
+- 当前本轮已新增验证：`python -m pytest tests/unit/test_counterevidence_provider.py tests/unit/test_workflow_counterevidence.py tests/unit/test_provider_factory.py tests/unit/test_source_verification_provider.py tests/api/test_app.py -q` => 20 passed，1 warning；`python -m pytest tests/unit/test_markdown_exporter.py -q` => 1 passed。
+- 当前本轮已新增验证：`python -m pytest tests/unit/test_content_extraction_provider.py tests/unit/test_counterevidence_provider.py tests/unit/test_workflow_counterevidence.py tests/unit/test_provider_contracts.py tests/api/test_app.py -q` => 17 passed，1 warning；`python -m pytest tests/unit/test_markdown_exporter.py tests/unit/test_provider_factory.py tests/unit/test_source_verification_provider.py -q` => 8 passed。
+- 当前本轮已新增验证：`python -m pytest tests/unit/test_content_extraction_provider.py tests/unit/test_provider_factory.py tests/unit/test_workflow_counterevidence.py -q` => 13 passed；`python -m pytest tests/api/test_app.py tests/unit/test_source_verification_provider.py tests/unit/test_counterevidence_provider.py tests/unit/test_markdown_exporter.py -q` => 15 passed，1 warning。
+- 当前本轮已新增验证：`python -m pytest tests/api/test_app.py tests/unit/test_provider_factory.py tests/unit/test_content_extraction_provider.py -q` => 25 passed，1 warning；`python -m pytest tests/unit/test_workflow_counterevidence.py tests/unit/test_counterevidence_provider.py tests/unit/test_source_verification_provider.py tests/unit/test_markdown_exporter.py -q` => 5 passed。
+- 当前本轮已新增验证：`cd frontend && npm test -- --run` => 5 passed；`python -m pytest tests/api/test_app.py tests/unit/test_provider_factory.py tests/unit/test_content_extraction_provider.py -q` => 25 passed，1 warning。
+- 当前本轮已新增验证：`cd frontend && npm test -- --run` => 6 passed；`python -m pytest tests/api/test_app.py -q` => 13 passed，1 warning。
+- 当前本轮已新增验证：`python -m pytest tests/api/test_app.py -q` => 13 passed，1 warning；`cd frontend && npm test -- --run` => 6 passed。
+- 当前本轮已新增验证：`python -m pytest tests/unit/test_env_loader.py tests/api/test_app.py -q` => 15 passed，1 warning；`cd frontend && npm test -- --run` => 6 passed。
+- 当前本轮已新增验证：`cd frontend && npm test -- --run` => 7 passed；`python -m pytest tests/api/test_app.py -q` => 13 passed，1 warning。
 - `cd frontend && npm test -- --run`：3 passed。
 - `cd frontend && npm run build`：通过。
 

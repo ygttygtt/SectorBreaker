@@ -39,12 +39,32 @@ npm run dev -- --host 127.0.0.1 --port 3010
 
 Secrets go in `.env` or `.env.local`; never commit them.
 
+The backend app and `run_search_smoke_test.py` automatically load `.env` from
+the repository root during local development.
+
+Search runtime config that is saved from the UI is also persisted locally beside
+the SQLite database as `*.runtime-config.json`, so backend restarts do not clear
+the current provider setup.
+
 Expected keys:
 
 - `LLM_BASE_URL`
 - `LLM_API_KEY`
 - `LLM_MODEL`
 - `TAVILY_API_KEY`
+- `SERPER_API_KEY`
+- `BRAVE_API_KEY`
+- `CONTENT_EXTRACTION_PROVIDER` (`http` | `firecrawl` | `jina`)
+- `FIRECRAWL_API_KEY`
+- `FIRECRAWL_ENDPOINT`
+- `JINA_READER_ENDPOINT_PREFIX`
+
+Content extraction selection:
+
+- default is `http`, which uses a local HTTP fetch + HTML cleaning fallback;
+- set `CONTENT_EXTRACTION_PROVIDER=firecrawl` and `FIRECRAWL_API_KEY` to use Firecrawl scraping;
+- set `CONTENT_EXTRACTION_PROVIDER=jina` to use the Jina Reader-style extractor;
+- when `firecrawl` is selected but `FIRECRAWL_API_KEY` is missing, the system falls back to `http`.
 
 Runtime paths can be overridden with:
 
