@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from backend.app.providers.interfaces import SourceAssessment
-from backend.app.providers.source_packs import extract_domain, match_reliable_rule
+from backend.app.providers.source_packs import (
+    DEFAULT_SOURCE_REGISTRY,
+    SourceRegistry,
+    extract_domain,
+)
 from backend.app.schemas import SourcePolicy, SourceQuality, SourceType, VerificationStatus
 
 
@@ -54,6 +58,9 @@ _AGGREGATOR_HOST_KEYWORDS = (
 
 
 class HeuristicSourceVerificationProvider:
+    def __init__(self, source_registry: SourceRegistry | None = None) -> None:
+        self.source_registry = source_registry or DEFAULT_SOURCE_REGISTRY
+
     async def assess_source(
         self,
         *,
@@ -75,7 +82,7 @@ class HeuristicSourceVerificationProvider:
 
         if domain:
             lowered_domain = domain.lower()
-            reliable_rule = match_reliable_rule(lowered_domain)
+            reliable_rule = self.source_registry.match_reliable_rule(lowered_domain)
             if reliable_rule:
                 source_type = reliable_rule.source_type
                 source_quality = SourceQuality.HIGH

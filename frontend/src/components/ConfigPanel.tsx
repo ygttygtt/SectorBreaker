@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { Settings, Eye, EyeOff, Loader2, CheckCircle2, XCircle, Search, Globe } from "lucide-react";
-import { api, type SearchConfigStatus, type SearchTestResult } from "../api/client";
+import { Settings, Eye, EyeOff, Loader2, CheckCircle2, XCircle, Search, Globe, ShieldCheck } from "lucide-react";
+import { api, type SearchConfigStatus, type SearchTestResult, type SourceRegistryStatus } from "../api/client";
 
 interface ConfigPanelProps {
   isOpen: boolean;
@@ -35,11 +35,14 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError }: ConfigPanel
   const [contentExtractionProvider, setContentExtractionProvider] = useState("http");
   const [firecrawlApiKey, setFirecrawlApiKey] = useState("");
   const [jinaReaderEndpointPrefix, setJinaReaderEndpointPrefix] = useState("https://r.jina.ai/http://");
+  const [sourceRegistryStatus, setSourceRegistryStatus] = useState<SourceRegistryStatus | null>(null);
+  const [sourceRegistryError, setSourceRegistryError] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
       fetchConfigStatus();
       fetchSearchStatus();
+      fetchSourceRegistryStatus();
     }
   }, [isOpen]);
 
@@ -68,6 +71,15 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError }: ConfigPanel
       }
     } catch (err) {
       console.error("Failed to fetch search status:", err);
+    }
+  }
+
+  async function fetchSourceRegistryStatus() {
+    try {
+      setSourceRegistryError(null);
+      setSourceRegistryStatus(await api.getSourceRegistryStatus());
+    } catch (err) {
+      setSourceRegistryError(err instanceof Error ? err.message : "可靠信源状态读取失败");
     }
   }
 
@@ -192,6 +204,7 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError }: ConfigPanel
         jina_reader_endpoint_prefix: jinaReaderEndpointPrefix || undefined,
       });
       await fetchSearchStatus();
+      await fetchSourceRegistryStatus();
       onSuccess(result.message);
     } catch (err) {
       onError(err instanceof Error ? err.message : "搜索配置保存失败");
@@ -440,6 +453,48 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError }: ConfigPanel
             </button>
 
             <div className="config-section-title">
+              <ShieldCheck size={16} />
+              <span>可靠信源接入</span>
+            </div>
+            {sourceRegistryStatus && (
+              <div className="source-onboarding">
+                <div className="source-onboarding-note">
+                  {sourceRegistryStatus.recommended_next_action}
+                </div>
+                {sourceRegistryStatus.packs.map((pack) => (
+                  <div className="source-pack-card" key={pack.name}>
+                    <div className="source-pack-head">
+                      <strong>{pack.display_name}</strong>
+                      <span>{pack.market_scopes.join(", ")}</span>
+                    </div>
+                    <div className="source-domain-line">
+                      权威域名：{pack.reliable_domains.slice(0, 6).join(", ") || "none"}
+                    </div>
+                    <div className="source-connector-grid">
+                      {pack.connectors.map((connector) => (
+                        <div className={`source-connector-chip ${connector.configured ? "is-ready" : "is-missing"}`} key={connector.key}>
+                          <strong>{connector.display_name}</strong>
+                          <span>{connector.connector_type}</span>
+                          <em>
+                            {connector.requires_manual_review
+                              ? "人工复核"
+                              : connector.required_env_keys.length
+                                ? `需要 ${connector.required_env_keys.join(", ")}`
+                                : "无需 key"}
+                          </em>
+                          {connector.setup_url && (
+                            <a href={connector.setup_url} target="_blank" rel="noreferrer">获取/查看文档</a>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {sourceRegistryError && <div className="test-result error">{sourceRegistryError}</div>}
+
+            <div className="config-section-title">
               <Globe size={16} />
               <span>搜索链路自检</span>
             </div>
@@ -461,7 +516,13 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError }: ConfigPanel
               <select
                 id="searchSourcePolicy"
                 value={searchSourcePolicy}
-                onChange={(e) => setSearchSourcePolicy(e.target.value)}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setSearchSourcePolicy(value);
+                  if (value === "reliable_only" && searchQuery === "AI agent market map") {
+                    setSearchQuery("AI agent market disclosure official data");
+                  }
+                }}
               >
                 <option value="open_web">open_web</option>
                 <option value="reliable_first">reliable_first</option>

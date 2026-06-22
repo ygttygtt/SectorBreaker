@@ -446,8 +446,10 @@ def make_nodes(
     emitter: EventEmitter | None = None,
 ) -> dict[str, Callable]:
     """Create all node functions with dependencies bound via closure."""
-    counterevidence_provider = HeuristicCounterevidenceProvider()
-    source_verifier = HeuristicSourceVerificationProvider()
+    from backend.app.providers.source_packs import build_default_source_registry
+    source_registry = build_default_source_registry()
+    counterevidence_provider = HeuristicCounterevidenceProvider(source_registry=source_registry)
+    source_verifier = HeuristicSourceVerificationProvider(source_registry=source_registry)
 
     async def scope_gate(state: WorkflowState) -> dict[str, Any]:
         project = state["project"]

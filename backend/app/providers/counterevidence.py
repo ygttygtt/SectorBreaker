@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from backend.app.providers.interfaces import VerificationTask
-from backend.app.providers.source_packs import reliable_domains_for_market
+from backend.app.providers.source_packs import DEFAULT_SOURCE_REGISTRY, SourceRegistry
 
 _STOPWORDS = {
     "the",
@@ -23,6 +23,9 @@ _STOPWORDS = {
 
 
 class HeuristicCounterevidenceProvider:
+    def __init__(self, source_registry: SourceRegistry | None = None) -> None:
+        self.source_registry = source_registry or DEFAULT_SOURCE_REGISTRY
+
     async def build_verification_tasks(
         self,
         claim_id: str,
@@ -36,7 +39,7 @@ class HeuristicCounterevidenceProvider:
         scope_hint = _scope_hint(market_scope)
         corroborate_query = " ".join(part for part in [normalized, scope_hint, "官方 数据"] if part)
         challenge_query = " ".join(part for part in [normalized, scope_hint, "争议 风险 质疑"] if part)
-        preferred_domains = reliable_domains_for_market(market_scope)
+        preferred_domains = self.source_registry.reliable_domains_for_market(market_scope)
 
         return [
             VerificationTask(

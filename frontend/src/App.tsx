@@ -230,10 +230,10 @@ function LandingView({
           </button>
         )}
         {!searchConfigured && (
-          <div className="landing-warning landing-warning--static">
+          <button className="landing-warning" onClick={onOpenSettings} type="button">
             <AlertTriangle size={16} />
-            搜索未配置。当前无法主动联网检索真实信息，研究会明确降级并跳过开放搜索。
-          </div>
+            搜索未配置，点击接入可靠信源和搜索 Key
+          </button>
         )}
         {searchConfigured && (
           <div className="provider-status-card">

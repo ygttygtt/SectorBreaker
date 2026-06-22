@@ -17,9 +17,52 @@ const {
   mockAskQuestion,
   mockExportProject,
   mockGetWorkflow,
+  mockGetSourceRegistryStatus,
 } = vi.hoisted(() => ({
   mockEventsState: { current: [] as Array<Record<string, unknown>> },
   mockGetLLMConfig: vi.fn().mockResolvedValue({ configured: true, base_url: "http://test", model: "test" }),
+  mockGetSourceRegistryStatus: vi.fn().mockResolvedValue({
+    packs: [
+      {
+        name: "company_china_pack",
+        display_name: "中国企业与披露信源",
+        market_scopes: ["china", "mixed"],
+        reliable_domains: ["cninfo.com.cn", "sse.com.cn", "szse.cn", "gsxt.gov.cn"],
+        blocked_domains: ["medium.com", "substack.com"],
+        connectors: [
+          {
+            key: "cninfo_public",
+            display_name: "巨潮资讯公开披露",
+            connector_type: "search_domain_pack",
+            source_type: "company_disclosure",
+            trust_level: "high",
+            domains: ["cninfo.com.cn"],
+            required_env_keys: [],
+            configured: true,
+            can_support_facts: true,
+            requires_manual_review: false,
+            notes: "通过搜索 provider 发现公开披露 URL。",
+          },
+          {
+            key: "qcc_openapi",
+            display_name: "企查查开放平台",
+            connector_type: "commercial_api",
+            source_type: "public_database",
+            trust_level: "high",
+            domains: ["openapi.qcc.com"],
+            required_env_keys: ["QCC_API_KEY"],
+            configured: false,
+            setup_url: "https://openapi.qcc.com/dataApi",
+            can_support_facts: true,
+            requires_manual_review: false,
+            notes: "付费商业 API，MVP 可不配置。",
+          },
+        ],
+      },
+    ],
+    configured_connector_count: 1,
+    recommended_next_action: "先配置 Tavily、Serper、Brave 或 Exa 任意一个搜索 Key，再用可靠信源自检验证域名约束。",
+  }),
   mockGetSearchConfig: vi.fn().mockResolvedValue({
     configured: true,
     provider: "tavily",
@@ -131,6 +174,7 @@ vi.mock("./api/client", () => ({
     getSearchConfig: mockGetSearchConfig,
     updateSearchConfig: mockUpdateSearchConfig,
     testSearchConnection: mockTestSearchConnection,
+    getSourceRegistryStatus: mockGetSourceRegistryStatus,
     uploadDocument: mockUploadDocument,
     listArtifacts: mockListArtifacts,
     listEvidence: mockListEvidence,
@@ -359,4 +403,36 @@ test("filters evidence ledger in result view", async () => {
   fireEvent.click(screen.getByText("仅看风险项"));
   expect(screen.queryByText("用户输入范围")).not.toBeInTheDocument();
   expect(screen.getByText("营销博客")).toBeInTheDocument();
+});
+
+test("config panel shows reliable source onboarding and key requirements", async () => {
+  render(<App />);
+
+  fireEvent.click(screen.getByRole("button", { name: /LLM 设置/ }));
+
+  expect(await screen.findByText("可靠信源接入")).toBeInTheDocument();
+  expect(screen.getByText("中国企业与披露信源")).toBeInTheDocument();
+  expect(screen.getByText("巨潮资讯公开披露")).toBeInTheDocument();
+  expect(screen.getByText("企查查开放平台")).toBeInTheDocument();
+  expect(screen.getByText(/需要 QCC_API_KEY/)).toBeInTheDocument();
+  expect(screen.getByText(/先配置 Tavily/)).toBeInTheDocument();
+});
+
+test("landing search warning opens settings when search key is missing", async () => {
+  mockGetSearchConfig.mockResolvedValueOnce({
+    configured: false,
+    providers: [],
+    requested_provider_mode: "auto",
+    extraction_providers: ["http"],
+    requested_extraction_provider: "http",
+    missing_configuration: ["tavily_api_key"],
+    diagnostics: ["至少需要配置 Tavily、Serper、Brave、Exa 四者之一的 API Key，开放网络搜索才会启用。"],
+    status_message: "搜索未配置：请至少填写 Tavily、Serper、Brave、Exa 四者之一的 API Key。",
+  });
+
+  render(<App />);
+
+  fireEvent.click(await screen.findByRole("button", { name: /搜索未配置/ }));
+
+  expect(await screen.findByText("可靠信源接入")).toBeInTheDocument();
 });

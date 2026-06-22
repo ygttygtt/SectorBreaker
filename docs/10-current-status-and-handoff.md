@@ -75,11 +75,14 @@ For Cursor, Windsurf, Gemini, Codex, Claude Code, or other tools, also read `doc
 
 - FastAPI app factory exists with project create/list/detail, run, evidence, artifact, export, and chat endpoints.
 - API exposes `/api/projects/{project_id}/workflow-definition` and `/api/runs/{run_id}/workflow-definition`.
+- API exposes `/api/config/sources` for source registry status with connector configuration state.
 - SSE emits node-level progress, degraded, blocked, completed, evidence, and claim events.
 - Module-level ASGI app exists at `backend.app.api.app:app`.
 - React/Vite workbench has been rebuilt around a real workflow graph, source policy selection, optional assistant brief input, Supervisor Plan review, live node status, event stream, elapsed time, QA blocking view, evidence/artifact rendering, chat, export, and vertical graph centering.
 - QA blocking views now render structured retry/user-action lists instead of raw JSON blobs.
 - Result evidence ledger now exposes quality/status chips, outbound source links, and client-side filters for quality, verification status, and attention-only review.
+- Frontend config panel now shows reliable source onboarding with connector status, key requirements, and setup links.
+- Landing page search warning is now clickable and opens settings for source onboarding.
 - Vite proxies `/api` to `http://127.0.0.1:8000`.
 
 ## Verification Commands
@@ -96,9 +99,10 @@ cd frontend && npm audit --audit-level=high
 Current known baseline:
 
 - Focused MVP reliability suite passes (`python -m pytest tests/unit/test_schemas.py tests/graph/test_research_workflow.py tests/unit/test_workflow_counterevidence.py -q`: 15 passed).
-- Focused API workflow suite passes (`python -m pytest tests/api/test_app.py::test_api_pauses_for_supervisor_plan_confirmation tests/api/test_app.py::test_api_run_uses_injected_search_and_llm_providers tests/api/test_app.py::test_api_run_applies_source_policy_domain_constraints -q`: 3 passed, 1 Starlette deprecation warning).
+- Source registry suite passes (`python -m pytest tests/unit/test_source_registry.py tests/unit/test_source_verification_provider.py tests/unit/test_counterevidence_provider.py tests/unit/test_provider_factory.py -q`: 21 passed).
+- Focused API workflow suite passes (`python -m pytest tests/api/test_app.py::test_api_pauses_for_supervisor_plan_confirmation tests/api/test_app.py::test_api_run_uses_injected_search_and_llm_providers tests/api/test_app.py::test_api_run_applies_source_policy_domain_constraints tests/api/test_app.py::test_api_exposes_source_registry_status -q`: 4 passed, 1 Starlette deprecation warning).
 - Current full `tests/api/test_app.py` run can exceed 3 minutes in this local environment; split API subsets are the reliable verification path until the long-running test behavior is profiled.
-- Frontend tests: 11 passing.
+- Frontend tests: 13 passing.
 - Frontend build: passing.
 - npm audit high severity: 0 vulnerabilities.
 

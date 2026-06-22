@@ -1049,3 +1049,30 @@ def test_api_run_auto_includes_uploaded_assistant_brief_documents(tmp_path: Path
     evidence_response = client.get(f"/api/projects/{project_id}/evidence")
 
     assert any(item["source_type"] == "assistant_brief" for item in evidence_response.json())
+
+
+def test_api_exposes_source_registry_status(tmp_path: Path) -> None:
+    client = TestClient(
+        create_app(
+            database_path=tmp_path / "sectorbreaker.sqlite3",
+            export_root=tmp_path / "exports",
+            llm_provider=_default_fake_llm(),
+        )
+    )
+
+    response = client.get("/api/config/sources")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["packs"]
+    pack_names = {pack["name"] for pack in payload["packs"]}
+    assert {"company_china_pack", "tech_frontier_pack"}.issubset(pack_names)
+    connectors = {
+        connector["key"]: connector
+        for pack in payload["packs"]
+        for connector in pack["connectors"]
+    }
+    assert connectors["qcc_openapi"]["connector_type"] == "commercial_api"
+    assert connectors["qcc_openapi"]["configured"] is False
+    assert connectors["gsxt_manual"]["requires_manual_review"] is True
+    assert connectors["github_api"]["required_env_keys"] == ["GITHUB_TOKEN"]

@@ -214,6 +214,36 @@ export interface ProjectDocument {
   created_at: string;
 }
 
+export interface SourceConnectorStatus {
+  key: string;
+  display_name: string;
+  connector_type: string;
+  source_type: string;
+  trust_level: string;
+  domains: string[];
+  required_env_keys: string[];
+  configured: boolean;
+  setup_url?: string | null;
+  can_support_facts: boolean;
+  requires_manual_review: boolean;
+  notes: string;
+}
+
+export interface SourcePackStatus {
+  name: string;
+  display_name: string;
+  market_scopes: string[];
+  reliable_domains: string[];
+  blocked_domains: string[];
+  connectors: SourceConnectorStatus[];
+}
+
+export interface SourceRegistryStatus {
+  packs: SourcePackStatus[];
+  configured_connector_count: number;
+  recommended_next_action: string;
+}
+
 export interface DocumentSegment {
   id: string;
   document_id: string;
@@ -349,6 +379,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     });
+  },
+
+  getSourceRegistryStatus() {
+    return requestJson<SourceRegistryStatus>("/api/config/sources");
   },
 
   createDocument(projectId: string, data: { channel: string; content: string; file_name?: string; mime_type?: string }) {

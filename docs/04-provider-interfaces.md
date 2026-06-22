@@ -117,3 +117,32 @@ Required methods:
 - `export_project(project, artifacts, evidence)`
 
 Exporters must write a manifest containing export version, artifact list, source evidence list, and generated timestamp.
+
+## SourceRegistry
+
+`SourceRegistry` is local evidence-governance metadata, not a search provider.
+It declares source packs, connector types, reliable domains, blocked domains,
+API-key requirements, and manual-review boundaries.
+
+Connector types:
+
+- `official_api`: GitHub, arXiv, Semantic Scholar, Stack Exchange, HN APIs, SEC, or other documented official APIs.
+- `commercial_api`: QCC, Tianyancha, CNINFO Data Service, licensed exchange/data feeds.
+- `library_adapter`: AKShare/Tushare-style adapters, always with provenance and lower authority than original disclosures.
+- `search_domain_pack`: authoritative public domains discovered through Tavily/Serper/Brave/Exa.
+- `extraction_fallback`: Firecrawl/Jina/HTTP/Apify fetches text from already-discovered public URLs.
+- `manual_review`: high-trust but hard-to-automate sources such as GSXT claims that may involve CAPTCHA or legal/process constraints.
+
+Built-in packs:
+
+- `company_china_pack`: China company disclosure and business registration sources
+- `tech_frontier_pack`: Technical frontier official APIs (GitHub, arXiv, etc.)
+
+Factory:
+
+- `build_source_registry()` creates the default registry
+- `build_source_verification_provider()` creates a verifier with injected registry
+
+API endpoint:
+
+- `GET /api/config/sources` returns the full registry status with connector configuration state

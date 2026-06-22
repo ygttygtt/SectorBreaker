@@ -30,11 +30,20 @@ from backend.app.providers.factory import (
     build_content_extraction_provider,
     build_llm_provider,
     build_search_provider,
+    build_source_registry,
+    build_source_verification_provider,
 )
 from backend.app.providers.counterevidence import HeuristicCounterevidenceProvider
 from backend.app.providers.multi_search import MultiSearchProvider
 from backend.app.providers.openai_compatible import OpenAICompatibleLLMProvider
 from backend.app.providers.serper import SerperSearchProvider
+from backend.app.providers.source_packs import (
+    SourceConnector,
+    SourceConnectorType,
+    SourcePack,
+    SourceRegistry,
+    build_default_source_registry,
+)
 from backend.app.providers.source_verification import HeuristicSourceVerificationProvider
 from backend.app.providers.tavily import TavilySearchProvider
 
@@ -52,8 +61,11 @@ __all__ = [
     "HttpContentExtractionProvider",
     "JinaReaderContentExtractionProvider",
     "build_content_extraction_provider",
+    "build_default_source_registry",
     "build_llm_provider",
     "build_search_provider",
+    "build_source_registry",
+    "build_source_verification_provider",
     "LLMProvider",
     "MultiSearchProvider",
     "OpenAICompatibleLLMProvider",
@@ -64,6 +76,10 @@ __all__ = [
     "SearchQuery",
     "SearchResult",
     "SerperSearchProvider",
+    "SourceConnector",
+    "SourceConnectorType",
+    "SourcePack",
+    "SourceRegistry",
     "HeuristicSourceVerificationProvider",
     "SourceAssessment",
     "SourceVerificationProvider",

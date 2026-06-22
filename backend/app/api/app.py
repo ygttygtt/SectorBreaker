@@ -34,9 +34,11 @@ from backend.app.providers.factory import (
     build_llm_provider_from_config,
     build_search_provider,
     build_search_provider_from_config,
+    build_source_registry,
 )
 from backend.app.providers.interfaces import ContentExtractionProvider, LLMProvider, SearchProvider, SearchQuery
 from backend.app.providers.openai_compatible import OpenAICompatibleLLMProvider
+from backend.app.providers.source_packs import SourceConnector, SourceRegistry
 from backend.app.providers.source_verification import HeuristicSourceVerificationProvider
 from backend.app.schemas import (
     ProjectDocumentCreate,
@@ -127,6 +129,36 @@ class SearchTestResult(BaseModel):
 class LLMTestResult(BaseModel):
     success: bool
     message: str
+
+
+class SourceConnectorStatus(BaseModel):
+    key: str
+    display_name: str
+    connector_type: str
+    source_type: str
+    trust_level: str
+    domains: list[str] = Field(default_factory=list)
+    required_env_keys: list[str] = Field(default_factory=list)
+    configured: bool = False
+    setup_url: str | None = None
+    can_support_facts: bool = True
+    requires_manual_review: bool = False
+    notes: str = ""
+
+
+class SourcePackStatus(BaseModel):
+    name: str
+    display_name: str
+    market_scopes: list[str]
+    reliable_domains: list[str]
+    blocked_domains: list[str]
+    connectors: list[SourceConnectorStatus] = Field(default_factory=list)
+
+
+class SourceRegistryStatus(BaseModel):
+    packs: list[SourcePackStatus] = Field(default_factory=list)
+    configured_connector_count: int = 0
+    recommended_next_action: str = ""
 
 
 class UserInputPayload(BaseModel):
@@ -290,6 +322,19 @@ def _build_project_document_inputs(
     return seed_evidence_items, user_evidence_items, assistant_brief
 
 
+def _connector_configured(connector: SourceConnector, active_search_config: SearchConfig) -> bool:
+    runtime_key_presence = {
+        "TAVILY_API_KEY": bool(active_search_config.tavily_api_key),
+        "SERPER_API_KEY": bool(active_search_config.serper_api_key),
+        "BRAVE_API_KEY": bool(active_search_config.brave_api_key),
+        "EXA_API_KEY": bool(active_search_config.exa_api_key),
+        "FIRECRAWL_API_KEY": bool(active_search_config.firecrawl_api_key),
+    }
+    if not connector.required_env_keys:
+        return True
+    return all(runtime_key_presence.get(key, bool(os.getenv(key))) for key in connector.required_env_keys)
+
+
 def create_app(
     database_path: Path,
     export_root: Path,
@@ -346,7 +391,8 @@ def create_app(
         )
     )
     active_llm_provider = llm_provider if llm_provider is not None else build_llm_provider()
-    source_verifier = HeuristicSourceVerificationProvider()
+    source_registry = build_source_registry()
+    source_verifier = HeuristicSourceVerificationProvider(source_registry=source_registry)
     app = FastAPI(title="SectorBreaker")
 
     # ── Projects ──────────────────────────────────────────────────
@@ -1021,6 +1067,47 @@ def create_app(
                 effective_allowed_domains=effective_allowed_domains,
                 effective_blocked_domains=effective_blocked_domains,
             ).model_dump(mode="json")
+
+    @app.get("/api/config/sources")
+    def get_source_registry_status():
+        packs = []
+        configured_count = 0
+        for pack in source_registry.packs:
+            connectors = []
+            for connector in pack.connectors:
+                configured = _connector_configured(connector, active_search_config)
+                configured_count += int(configured)
+                connectors.append(SourceConnectorStatus(
+                    key=connector.key,
+                    display_name=connector.display_name,
+                    connector_type=connector.connector_type.value,
+                    source_type=connector.source_type.value,
+                    trust_level=connector.trust_level,
+                    domains=list(connector.domains),
+                    required_env_keys=list(connector.required_env_keys),
+                    configured=configured,
+                    setup_url=connector.setup_url,
+                    can_support_facts=connector.can_support_facts,
+                    requires_manual_review=connector.requires_manual_review,
+                    notes=connector.notes,
+                ))
+            packs.append(SourcePackStatus(
+                name=pack.name,
+                display_name=pack.display_name,
+                market_scopes=list(pack.market_scopes),
+                reliable_domains=[rule.domain for rule in pack.reliable_rules],
+                blocked_domains=list(pack.blocked_domains),
+                connectors=connectors,
+            ))
+        return SourceRegistryStatus(
+            packs=packs,
+            configured_connector_count=configured_count,
+            recommended_next_action=(
+                "先配置 Tavily、Serper、Brave 或 Exa 任意一个搜索 Key，再用可靠信源自检验证域名约束。"
+                if active_search_provider is None
+                else "搜索已可用；可继续验证 reliable_only 策略下的权威域名结果。"
+            ),
+        ).model_dump(mode="json")
 
     @app.post("/api/config/llm")
     def update_llm_config(payload: LLMConfig):

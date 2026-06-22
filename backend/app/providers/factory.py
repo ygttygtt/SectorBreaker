@@ -13,6 +13,8 @@ from backend.app.providers.interfaces import ContentExtractionProvider, LLMProvi
 from backend.app.providers.multi_search import MultiSearchProvider
 from backend.app.providers.openai_compatible import OpenAICompatibleLLMProvider
 from backend.app.providers.serper import SerperSearchProvider
+from backend.app.providers.source_packs import SourceRegistry, build_default_source_registry
+from backend.app.providers.source_verification import HeuristicSourceVerificationProvider
 from backend.app.providers.tavily import TavilySearchProvider
 
 
@@ -106,3 +108,13 @@ def build_content_extraction_provider() -> ContentExtractionProvider:
         firecrawl_endpoint=os.getenv("FIRECRAWL_ENDPOINT", "https://api.firecrawl.dev/v1/scrape"),
         jina_reader_endpoint_prefix=os.getenv("JINA_READER_ENDPOINT_PREFIX", "https://r.jina.ai/http://"),
     )
+
+
+def build_source_registry() -> SourceRegistry:
+    return build_default_source_registry()
+
+
+def build_source_verification_provider(
+    source_registry: SourceRegistry | None = None,
+) -> HeuristicSourceVerificationProvider:
+    return HeuristicSourceVerificationProvider(source_registry=source_registry or build_source_registry())
