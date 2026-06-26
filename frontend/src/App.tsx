@@ -15,7 +15,6 @@ import {
   Play,
   Search,
   Settings,
-  ShieldCheck,
   Sparkles,
   X,
 } from "lucide-react";
@@ -205,9 +204,9 @@ function LandingView({
     return () => ctx.revert();
   }, []);
 
-  function submit(autoRun = false) {
+  function submit() {
     if (!domain.trim()) return;
-    onStart(domain.trim(), sourcePolicy, assistantBrief.trim(), autoRun, assistantBriefFile);
+    onStart(domain.trim(), sourcePolicy, assistantBrief.trim(), true, assistantBriefFile);
   }
 
   return (
@@ -222,7 +221,7 @@ function LandingView({
         </div>
         <div className="landing-copy">
           <h2>先建立证据账本，再生成行业认知。</h2>
-          <p>主管 Agent 会先给出研究计划，确认后再调度搜索、证据、商业分析和质检节点。</p>
+          <p>直接收集材料、建立证据账本，并生成可导入 Obsidian 的知识系统。</p>
         </div>
         {!llmConfigured && (
           <button className="landing-warning" onClick={onOpenSettings} type="button">
@@ -300,13 +299,9 @@ function LandingView({
           </div>
         )}
         <div className="landing-actions">
-          <button className="primary" disabled={!domain.trim() || isLoading || !llmConfigured} onClick={() => submit(false)} type="button">
+          <button className="primary" disabled={!domain.trim() || isLoading || !llmConfigured} onClick={() => submit()} type="button">
             {isLoading ? <Loader2 size={16} className="spinner" /> : <Play size={16} />}
-            生成计划
-          </button>
-          <button className="secondary" disabled={!domain.trim() || isLoading || !llmConfigured} onClick={() => submit(true)} type="button">
-            <ShieldCheck size={16} />
-            一键执行
+            开始构建知识库
           </button>
           <button className="secondary" onClick={onOpenSettings} type="button">
             <Settings size={16} />
@@ -818,18 +813,29 @@ export function App() {
   const [searchProviders, setSearchProviders] = useState<string[]>([]);
   const [extractionProviders, setExtractionProviders] = useState<string[]>([]);
 
-  useEffect(() => {
-    api.getLLMConfig().then((cfg) => setLlmConfigured(cfg.configured)).catch(() => setLlmConfigured(false));
-    api.getSearchConfig().then((cfg) => {
+  const refreshRuntimeStatus = useCallback(async () => {
+    try {
+      const cfg = await api.getLLMConfig();
+      setLlmConfigured(cfg.configured);
+    } catch {
+      setLlmConfigured(false);
+    }
+
+    try {
+      const cfg = await api.getSearchConfig();
       setSearchConfigured(cfg.configured);
       setSearchProviders(cfg.providers || []);
       setExtractionProviders(cfg.extraction_providers || []);
-    }).catch(() => {
+    } catch {
       setSearchConfigured(false);
       setSearchProviders([]);
       setExtractionProviders([]);
-    });
+    }
   }, []);
+
+  useEffect(() => {
+    void refreshRuntimeStatus();
+  }, [refreshRuntimeStatus]);
 
   const onEvent = useCallback((event: RunEvent) => {
     setActiveAgent(event.agent ?? null);
@@ -907,7 +913,7 @@ export function App() {
     domain: string,
     sourcePolicy: string,
     assistantBrief: string,
-    autoRun = false,
+    autoRun = true,
     assistantBriefFile: File | null = null,
   ) {
     setIsLoading(true);
@@ -924,9 +930,6 @@ export function App() {
       if (assistantBrief && !autoRun) {
         // The user can still edit it on the plan confirmation screen; keep this UX non-blocking.
         success("外部报告已准备，可在计划确认页再次确认。");
-      }
-      if (assistantBrief && autoRun) {
-        await api.resumeRun(run.id, { assistant_brief: assistantBrief, plan_confirmed: true }).catch(() => {});
       }
     } catch (err) {
       error(err instanceof Error ? err.message : "启动研究失败");
@@ -982,7 +985,13 @@ export function App() {
   return (
     <main className="shell">
       <ToastContainer toasts={toasts} onRemove={removeToast} />
-      <ConfigPanel isOpen={showConfig} onClose={() => setShowConfig(false)} onSuccess={success} onError={error} />
+      <ConfigPanel
+        isOpen={showConfig}
+        onClose={() => setShowConfig(false)}
+        onSuccess={success}
+        onError={error}
+        onConfigChanged={refreshRuntimeStatus}
+      />
       {phase === "landing" && (
         <LandingView
           onStart={startResearch}

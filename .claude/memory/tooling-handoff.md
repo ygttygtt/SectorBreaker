@@ -18,11 +18,12 @@ metadata:
 当前基线：
 
 - conda 环境：`sectorbreaker`
-- Runnable V1 重构已部分落地：`auto_run=true` 走简化 V1 主路径，前端开始消费后端 `RunSnapshot`，导出布局改为稳定 Obsidian V1 文件集。真实验收需先补 LLM 配置；Tavily 已在 `.env` 中存在。
+- Runnable V1 重构已部分落地：`auto_run=true` 走简化 V1 主路径，前端主按钮现在默认进入 V1 知识库构建，不再把默认用户路径带到旧 Supervisor Plan 确认页。前端开始消费后端 `RunSnapshot`，导出布局改为稳定 Obsidian V1 文件集。真实验收已在本地用已配置的 OpenAI-compatible LLM 和 Tavily 跑通。
 - 后端：FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + 可解释选择轨迹
 - 前端：Vite + React + TypeScript，可解释研究工作台，真实 workflow graph，纵向布局与活动节点居中
 - 当前会显式展示“搜索未配置”提示，避免把无联网检索误当成正常研究能力
-- 当前搜索 provider 已扩展为 Tavily / Serper / Brave / Exa
+- 后端搜索 provider 已扩展为 Tavily / Serper / Brave / Exa；V1 前端配置面板暂时只暴露 Tavily
+- 保存 Tavily runtime 配置后，前端会立即刷新 landing 页搜索状态，不需要手动刷新
 - `docs/14-search-and-report-ingestion-design.md` 是下一阶段搜索、报告上传、来源验证、交叉验证扩展的统一施工入口
 - 真实运行链路里，上传/导入的文档已经不再停留在独立接口：citation evidence 可自动注入 workflow，assistant brief 文档会自动进入低可信报告流
 - evidence 持久化已做幂等，重复 ingest/resume 不会因同 ID 证据报错
@@ -38,7 +39,8 @@ metadata:
 - 现在还有 `python generate_search_env_template.py` 作为最小配置模板生成器，适合先快速产出 `.env` 片段
 - FastAPI app 与 smoke-test script 都自动读取仓库根目录 `.env`
 - 前端 landing/review 已支持 `.md` / `.txt` 上传 assistant brief 与 user material
-- 测试基线：Python 23 passed；前端 3 passed；前端 build passed
+- 测试基线：Python 23 passed；前端 14 passed；前端 build passed
+- 最新真实验收：`python run_real_search_acceptance.py` passed，包含 LLM、Tavily 搜索、完整 project run、evidence 写入、V1 artifacts 和 Obsidian export。
 
 最高风险任务：
 

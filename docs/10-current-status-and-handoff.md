@@ -40,7 +40,7 @@ For Cursor, Windsurf, Gemini, Codex, Claude Code, or other tools, also read `doc
 
 ### Workflow And Export
 
-- Runnable V1 rearchitecture has started. A simplified product path now exists for `auto_run=true`: backend-owned `RunSnapshot`, latest-run restore endpoint, V1 knowledge pipeline, seven stable knowledge artifacts, and V1 Obsidian export layout. The automated fake-provider regression path passes, but the final real-provider acceptance is currently blocked until a real OpenAI-compatible LLM config is supplied; Tavily is present in `.env`.
+- Runnable V1 rearchitecture has started. A simplified product path now exists for `auto_run=true`: backend-owned `RunSnapshot`, latest-run restore endpoint, V1 knowledge pipeline, seven stable knowledge artifacts, and V1 Obsidian export layout. The frontend primary landing action now starts this V1 knowledge-base construction path directly instead of entering the old Supervisor Plan confirmation path. The automated fake-provider regression path passes, and the real-provider acceptance path has passed locally with the configured OpenAI-compatible LLM plus Tavily.
 - LangGraph workflow now includes Scope, Supervisor Plan, Source Strategy, Source Intake, Claim Extractor, Counterevidence, Evidence Ledger, Market, Player, Transaction, Synthesis, Knowledge Map, QA Critic, Export, and RAG Indexer gates.
 - Runs pause at `supervisor_plan` for user confirmation unless `auto_run=true`.
 - Assistant briefs are optional manual Markdown/text inputs and are treated as low-trust lead material.
@@ -53,6 +53,8 @@ For Cursor, Windsurf, Gemini, Codex, Claude Code, or other tools, also read `doc
 - Content extraction provider selection is now environment-driven: local HTTP fallback is available by default, and Firecrawl / Jina Reader-style providers can be swapped in without changing workflow code.
 - Search/config verification now has a dedicated test path: `/api/config/search/test` can exercise the current search provider and optional extraction provider before a full project run.
 - The frontend config panel can now trigger the same search/extraction connectivity check, so API onboarding no longer requires manual curl requests.
+- The frontend runtime search settings intentionally expose Tavily only for V1 onboarding. Serper / Brave / Exa remain backend capabilities but are hidden from the first-version settings UI until product support is ready.
+- Saving Tavily runtime configuration now refreshes the landing-page search status immediately, so users no longer need a manual browser refresh to clear the missing-key warning.
 - Search and extraction provider selection is now visible on the landing page as well, so enabled real providers are visible before a run starts.
 - Search smoke testing now has three paths: API (`/api/config/search/test`), frontend config panel, and CLI (`python run_search_smoke_test.py`). The API/CLI path now auto-extracts the first result and returns source assessment hints.
 - A dedicated end-to-end acceptance script now exists at `python run_real_search_acceptance.py`; it checks search config, live search, project run completion, and open-web evidence writeback in one flow.
@@ -103,8 +105,9 @@ Current known baseline:
 - Source registry suite passes (`python -m pytest tests/unit/test_source_registry.py tests/unit/test_source_verification_provider.py tests/unit/test_counterevidence_provider.py tests/unit/test_provider_factory.py -q`: 21 passed).
 - Focused API workflow suite passes (`python -m pytest tests/api/test_app.py::test_api_pauses_for_supervisor_plan_confirmation tests/api/test_app.py::test_api_run_uses_injected_search_and_llm_providers tests/api/test_app.py::test_api_run_applies_source_policy_domain_constraints tests/api/test_app.py::test_api_exposes_source_registry_status -q`: 4 passed, 1 Starlette deprecation warning).
 - Current full `tests/api/test_app.py` run can exceed 3 minutes in this local environment; split API subsets are the reliable verification path until the long-running test behavior is profiled.
-- Frontend tests: 13 passing.
+- Frontend tests: 14 passing.
 - Frontend build: passing.
+- Real acceptance: `python run_real_search_acceptance.py` passed locally, including LLM config, Tavily live search, project run completion, 5 search-channel evidence records, 7 V1 artifacts, and Obsidian export manifest.
 - npm audit high severity: 0 vulnerabilities.
 
 ## What Is Easy

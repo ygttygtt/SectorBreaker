@@ -27,7 +27,7 @@ Claude Code should also read `CLAUDE.md` and `.claude/memory/MEMORY.md`.
 
 The latest completed implementation milestone is:
 
-- Runnable V1 rearchitecture is in progress: `auto_run=true` now follows a simplified V1 path with backend `RunSnapshot`, latest-run restore, seven stable knowledge artifacts, and `_sources/evidence-ledger.md` export layout. Real acceptance must still be rerun after providing an OpenAI-compatible LLM config; current `.env` has Tavily but no LLM values.
+- Runnable V1 rearchitecture is in progress: `auto_run=true` now follows a simplified V1 path with backend `RunSnapshot`, latest-run restore, seven stable knowledge artifacts, and `_sources/evidence-ledger.md` export layout. The frontend primary landing action starts this V1 path by default; do not reintroduce the old Supervisor Plan confirmation as the main CTA unless the product direction changes. Real acceptance has passed locally with the configured OpenAI-compatible LLM plus Tavily.
 - Backend: FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + explainable agent selection traces.
 - Frontend: Vite + React + TypeScript explainable research workbench with real workflow graph, vertical layout, and active-node centering.
 - Environment: conda environment `sectorbreaker`.
@@ -93,6 +93,8 @@ npm run dev -- --host 127.0.0.1 --port 3010
 - Content extraction provider choice is now configurable: `http` fallback plus Firecrawl and Jina Reader-style extractors are available through environment-based factory selection.
 - `/api/config/search/test` is now the recommended connectivity check after filling `.env`, because it can verify both search and optional extraction without starting a full run.
 - The frontend `LLM 设置` panel now exposes a `测试搜索链路` action backed by the same API, so manual curl is optional.
+- The frontend runtime search settings intentionally expose Tavily only for V1 onboarding. Other backend search providers should stay hidden from the first-version UI until productized.
+- Saving Tavily runtime configuration in the frontend refreshes the landing-page configured state immediately.
 - The landing page also surfaces the active search provider and extraction provider, making real API activation visible at a glance.
 - A CLI smoke test now exists at `python run_search_smoke_test.py`, and the API/UI smoke test path now auto-extracts the first search result and returns source-assessment hints.
 - A second CLI acceptance path now exists at `python run_real_search_acceptance.py`, intended for real-key onboarding proof after smoke tests pass.

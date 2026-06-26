@@ -14,15 +14,16 @@ metadata:
 
 当前状态：
 
-- Runnable V1 重构已开始落地：`auto_run=true` 现在走简化 V1 主路径，新增后端 `RunSnapshot`、最近 run 恢复接口、七个稳定知识产物、`_sources/evidence-ledger.md` 导出布局，以及真实验收脚本的 LLM/Search/Artifact/Export 检查。当前自动化回归通过；真实 API 验收还需要补 OpenAI-compatible LLM 配置，`.env` 里已有 Tavily 但没有 LLM 值。
+- Runnable V1 重构已开始落地：`auto_run=true` 现在走简化 V1 主路径，新增后端 `RunSnapshot`、最近 run 恢复接口、七个稳定知识产物、`_sources/evidence-ledger.md` 导出布局，以及真实验收脚本的 LLM/Search/Artifact/Export 检查。前端主按钮现在默认走 V1 `auto_run=true` 知识库构建路径，不再把首页主流程带入旧的 Supervisor Plan 确认页。当前自动化回归通过；真实 API 验收已在本地用已配置的 OpenAI-compatible LLM 和 Tavily 跑通。
 - 文档与协作规范已建立。
 - 核心 schema、provider interfaces、provider factory、SQLite migration/repository 已建立。
 - 已新增 `source_policy`、`SupervisorPlan`、`AgentTask`、`AgentSelectionDecision`、`AgentSelectionSignal`、`EvidenceClaim`、`QAReport`、workflow definition schemas。
 - Evidence Ledger 已扩展 source channel/source quality/claim strength/bias risk/counterevidence 等字段。
 - OpenAI 兼容 LLM provider 已实现，可通过 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 启用。
 - Tavily search provider 可通过 `TAVILY_API_KEY` 启用。
-- 现已支持 Tavily / Serper / Brave / Exa 多搜索 provider。
+- 后端现已支持 Tavily / Serper / Brave / Exa 多搜索 provider；V1 前端设置页暂时只暴露 Tavily，避免第一版 onboarding 混乱。
 - 已补充搜索配置状态接口；当前前端会在搜索未配置时明确提醒，不再静默降级。
+- 前端保存 Tavily runtime 配置后会立即刷新首页搜索状态，不再需要手动刷新页面才能消除“搜索未配置”提示。
 - 已新增 `docs/14-search-and-report-ingestion-design.md`，作为多 provider 搜索、外部 AI 报告上传、引用来源验证、交叉验证扩展的正式设计入口。
 - 已支持 Serper + Tavily 多搜索 provider 聚合基础。
 - 已支持文档上传、切段、引用提取、来源启发式验证、evidence preview、引用证据入库。
@@ -84,6 +85,8 @@ metadata:
 - 当前本轮已新增验证：`python -m pytest tests/api/test_app.py -q` => 13 passed，1 warning；`cd frontend && npm test -- --run` => 6 passed。
 - 当前本轮已新增验证：`python -m pytest tests/unit/test_env_loader.py tests/api/test_app.py -q` => 15 passed，1 warning；`cd frontend && npm test -- --run` => 6 passed。
 - 当前本轮已新增验证：`cd frontend && npm test -- --run` => 7 passed；`python -m pytest tests/api/test_app.py -q` => 13 passed，1 warning。
+- 当前本轮已新增验证：`cd frontend && npm test -- --run` => 14 passed；`cd frontend && npm run build` => 通过。
+- 当前本轮已新增验证：`python run_real_search_acceptance.py` => 通过，包含 LLM config、Tavily live search、project run completed、5 条 search-channel evidence、7 个 V1 artifacts、Obsidian export manifest。
 - `cd frontend && npm test -- --run`：3 passed。
 - `cd frontend && npm run build`：通过。
 

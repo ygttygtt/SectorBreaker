@@ -13,6 +13,7 @@ const {
   mockGetSearchConfig,
   mockUpdateSearchConfig,
   mockTestSearchConnection,
+  mockResumeRun,
   mockUploadDocument,
   mockListArtifacts,
   mockListEvidence,
@@ -98,6 +99,7 @@ const {
     message: "搜索配置已更新",
     configured: true,
   }),
+  mockResumeRun: vi.fn().mockResolvedValue({ status: "resumed", run_id: "run-1" }),
   mockUploadDocument: vi.fn().mockResolvedValue({
     id: "doc-1",
     project_id: "project-1",
@@ -201,7 +203,7 @@ vi.mock("./api/client", () => ({
     updateLLMConfig: vi.fn().mockResolvedValue({ success: true }),
     testLLMConnection: vi.fn().mockResolvedValue({ success: true, message: "OK" }),
     addUserInput: vi.fn().mockResolvedValue({ status: "ok", input_id: "ui-1" }),
-    resumeRun: vi.fn().mockResolvedValue({ status: "resumed", run_id: "run-1" }),
+    resumeRun: mockResumeRun,
   },
 }));
 
@@ -218,7 +220,7 @@ test("renders the landing page with search input", () => {
   render(<App />);
   expect(screen.getByRole("heading", { name: "SectorBreaker" })).toBeInTheDocument();
   expect(screen.getByPlaceholderText(/AI Agent 工具/)).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: /生成计划/ })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /开始构建知识库/ })).toBeInTheDocument();
   expect(screen.getByText("可靠优先")).toBeInTheDocument();
 });
 
@@ -253,16 +255,18 @@ test("shows explicit warning when search is not configured", async () => {
 test("startRun is called when button is clicked", async () => {
   render(<App />);
   fireEvent.change(screen.getByPlaceholderText(/AI Agent 工具/), { target: { value: "AI Agent 工具" } });
-  await waitFor(() => expect(screen.getByRole("button", { name: /生成计划/ })).not.toBeDisabled());
-  fireEvent.click(screen.getByRole("button", { name: /生成计划/ }));
+  await waitFor(() => expect(screen.getByRole("button", { name: /开始构建知识库/ })).not.toBeDisabled());
+  fireEvent.click(screen.getByRole("button", { name: /开始构建知识库/ }));
   await waitFor(() => expect(mockStartRun).toHaveBeenCalled());
+  expect(mockStartRun).toHaveBeenCalledWith("project-1", true);
+  expect(mockResumeRun).not.toHaveBeenCalled();
 });
 
 test("onComplete fetches artifacts and transitions to result when snapshot completed", async () => {
   render(<App />);
   fireEvent.change(screen.getByPlaceholderText(/AI Agent 工具/), { target: { value: "AI Agent 工具" } });
-  await waitFor(() => expect(screen.getByRole("button", { name: /生成计划/ })).not.toBeDisabled());
-  fireEvent.click(screen.getByRole("button", { name: /生成计划/ }));
+  await waitFor(() => expect(screen.getByRole("button", { name: /开始构建知识库/ })).not.toBeDisabled());
+  fireEvent.click(screen.getByRole("button", { name: /开始构建知识库/ }));
   await waitFor(() => expect(onCompleteRef).toBeTruthy());
 
   // Trigger onComplete
@@ -300,8 +304,8 @@ test("failed snapshot renders visible error instead of blank screen", async () =
 
   render(<App />);
   fireEvent.change(screen.getByPlaceholderText(/AI Agent 工具/), { target: { value: "AI Agent 工具" } });
-  await waitFor(() => expect(screen.getByRole("button", { name: /生成计划/ })).not.toBeDisabled());
-  fireEvent.click(screen.getByRole("button", { name: /生成计划/ }));
+  await waitFor(() => expect(screen.getByRole("button", { name: /开始构建知识库/ })).not.toBeDisabled());
+  fireEvent.click(screen.getByRole("button", { name: /开始构建知识库/ }));
   await waitFor(() => expect(onCompleteRef).toBeTruthy());
   await onCompleteRef!();
 
@@ -341,30 +345,67 @@ test("config panel can save search runtime config", async () => {
   fireEvent.click(screen.getByRole("button", { name: /LLM 设置/ }));
   expect(await screen.findByText(/搜索与抽取配置/)).toBeInTheDocument();
 
-  fireEvent.change(screen.getByLabelText("搜索 Provider 模式"), { target: { value: "multi" } });
   fireEvent.change(screen.getByLabelText("Tavily API Key"), { target: { value: "tvly-test-key" } });
-  fireEvent.change(screen.getByLabelText("Brave API Key"), { target: { value: "brave-test-key" } });
-  fireEvent.click(screen.getByRole("button", { name: /保存搜索配置/ }));
-
-  await waitFor(() => expect(mockUpdateSearchConfig).toHaveBeenCalled());
-});
-
-test("config panel can save exa search runtime config", async () => {
-  render(<App />);
-
-  fireEvent.click(screen.getByRole("button", { name: /LLM 设置/ }));
-  expect(await screen.findByText(/搜索与抽取配置/)).toBeInTheDocument();
-
-  fireEvent.change(screen.getByLabelText("搜索 Provider 模式"), { target: { value: "exa" } });
-  fireEvent.change(screen.getByLabelText("Exa API Key"), { target: { value: "exa-test-key" } });
   fireEvent.click(screen.getByRole("button", { name: /保存搜索配置/ }));
 
   await waitFor(() => expect(mockUpdateSearchConfig).toHaveBeenCalled());
   expect(mockUpdateSearchConfig).toHaveBeenCalledWith(expect.objectContaining({
-    search_provider_mode: "exa",
-    exa_api_key: "exa-test-key",
-    exa_endpoint: "https://api.exa.ai/search",
+    search_provider_mode: "tavily",
+    tavily_api_key: "tvly-test-key",
+    serper_api_key: undefined,
+    brave_api_key: undefined,
+    exa_api_key: undefined,
   }));
+});
+
+test("saving Tavily config refreshes landing search status without manual reload", async () => {
+  mockGetSearchConfig
+    .mockResolvedValueOnce({
+      configured: false,
+      providers: [],
+      requested_provider_mode: "tavily",
+      extraction_providers: ["http"],
+      requested_extraction_provider: "http",
+      missing_configuration: ["tavily_api_key"],
+      diagnostics: ["请填写 Tavily API Key。"],
+      status_message: "搜索未配置：请填写 Tavily API Key。",
+    })
+    .mockResolvedValueOnce({
+      configured: false,
+      providers: [],
+      requested_provider_mode: "tavily",
+      extraction_providers: ["http"],
+      requested_extraction_provider: "http",
+      missing_configuration: ["tavily_api_key"],
+      diagnostics: ["请填写 Tavily API Key。"],
+      status_message: "搜索未配置：请填写 Tavily API Key。",
+    })
+    .mockResolvedValueOnce({
+      configured: true,
+      provider: "tavily",
+      providers: ["tavily"],
+      requested_provider_mode: "tavily",
+      extraction_provider: "http",
+      extraction_providers: ["http"],
+      requested_extraction_provider: "http",
+      missing_configuration: [],
+      diagnostics: [],
+      status_message: "搜索已就绪：tavily。",
+    });
+
+  render(<App />);
+  expect(await screen.findByRole("button", { name: /搜索未配置/ })).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: /搜索未配置/ }));
+  expect(await screen.findByText(/搜索与抽取配置/)).toBeInTheDocument();
+
+  fireEvent.change(screen.getByLabelText("Tavily API Key"), { target: { value: "tvly-test-key" } });
+  fireEvent.click(screen.getByRole("button", { name: /保存搜索配置/ }));
+
+  await waitFor(() => expect(mockUpdateSearchConfig).toHaveBeenCalled());
+  await waitFor(() => expect(screen.queryByRole("button", { name: /搜索未配置/ })).not.toBeInTheDocument());
+  expect(await screen.findByText("搜索 Provider")).toBeInTheDocument();
+  expect(screen.getByText("tavily")).toBeInTheDocument();
 });
 
 test("uploads assistant brief file before starting research", async () => {
@@ -377,7 +418,7 @@ test("uploads assistant brief file before starting research", async () => {
   const fileInput = screen.getByLabelText("上传外部 AI 报告文件");
   fireEvent.change(fileInput, { target: { files: [file] } });
 
-  fireEvent.click(screen.getByRole("button", { name: /生成计划/ }));
+  fireEvent.click(screen.getByRole("button", { name: /开始构建知识库/ }));
 
   await waitFor(() => expect(mockUploadDocument).toHaveBeenCalled());
   expect(mockStartRun).toHaveBeenCalled();
@@ -424,8 +465,8 @@ test("renders QA report as readable action lists", async () => {
 
   render(<App />);
   fireEvent.change(screen.getByPlaceholderText(/AI Agent 工具/), { target: { value: "AI Agent 工具" } });
-  await waitFor(() => expect(screen.getByRole("button", { name: /生成计划/ })).not.toBeDisabled());
-  fireEvent.click(screen.getByRole("button", { name: /生成计划/ }));
+  await waitFor(() => expect(screen.getByRole("button", { name: /开始构建知识库/ })).not.toBeDisabled());
+  fireEvent.click(screen.getByRole("button", { name: /开始构建知识库/ }));
   await waitFor(() => expect(onCompleteRef).toBeTruthy());
   await onCompleteRef!();
 
@@ -448,8 +489,8 @@ test("filters evidence ledger in result view", async () => {
 
   render(<App />);
   fireEvent.change(screen.getByPlaceholderText(/AI Agent 工具/), { target: { value: "AI Agent 工具" } });
-  await waitFor(() => expect(screen.getByRole("button", { name: /生成计划/ })).not.toBeDisabled());
-  fireEvent.click(screen.getByRole("button", { name: /生成计划/ }));
+  await waitFor(() => expect(screen.getByRole("button", { name: /开始构建知识库/ })).not.toBeDisabled());
+  fireEvent.click(screen.getByRole("button", { name: /开始构建知识库/ }));
   await waitFor(() => expect(onCompleteRef).toBeTruthy());
   await onCompleteRef!();
 
