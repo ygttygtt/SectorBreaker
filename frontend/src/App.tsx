@@ -35,6 +35,7 @@ import type {
   ExportManifest,
   Project,
   RunEvent,
+  RunSnapshot,
   SupervisorPlan,
   WorkflowDefinition,
   WorkflowNode,
@@ -328,6 +329,7 @@ function ResearchView({
   project,
   runId,
   events,
+  snapshot,
   activeAgent,
   activeMessage,
   workflowDefinition,
@@ -339,6 +341,7 @@ function ResearchView({
   project: Project;
   runId: string;
   events: RunEvent[];
+  snapshot: RunSnapshot | null;
   activeAgent: string | null;
   activeMessage: string | null;
   workflowDefinition: WorkflowDefinition | null;
@@ -355,6 +358,9 @@ function ResearchView({
   const activeNodeId = latest ? eventNodeMap[latest.gate] : "scope";
   const evidenceEvents = events.filter((event) => event.event_type === "evidence_collected").length;
   const qaReport = asQaPayload(extractQa(events));
+  const snapshotProgress = snapshot?.progress.total
+    ? Math.min(100, (snapshot.progress.current / snapshot.progress.total) * 100)
+    : null;
 
   useEffect(() => {
     if (!runId) return;
@@ -407,14 +413,22 @@ function ResearchView({
         <main className="workbench-center">
           <section className="agent-focus-card">
             <div className="agent-focus-head">
-              <span>{activeAgent ?? "等待 Agent"}</span>
-              {latest?.severity === "error" ? <AlertTriangle size={18} /> : <Loader2 size={18} className={isConnected ? "spinner" : ""} />}
+              <span>{snapshot?.current_stage ?? activeAgent ?? "等待执行"}</span>
+              {snapshot?.status === "failed" || latest?.severity === "error" ? <AlertTriangle size={18} /> : <Loader2 size={18} className={isConnected ? "spinner" : ""} />}
             </div>
-            <p>{activeMessage ?? "准备生成主管计划与证据账本。"}</p>
+            <p>{activeMessage ?? latest?.message ?? "正在构建可导出的知识系统。"}</p>
+            {snapshot && <p className="inline-note">运行状态：{snapshot.status}，产物 {snapshot.artifact_summary.length} 个。</p>}
+            {snapshot?.errors.map((item) => (
+              <p className="inline-warning" key={`${item.timestamp}-${item.message}`}>{item.message}</p>
+            ))}
             {!searchConfigured && (
               <p className="inline-warning">搜索未配置：系统不会主动联网搜索，关键事实覆盖会受限。</p>
             )}
-            {latest?.progress_total ? (
+            {snapshotProgress !== null ? (
+              <div className="progress-line">
+                <span style={{ width: `${snapshotProgress}%` }} />
+              </div>
+            ) : latest?.progress_total ? (
               <div className="progress-line">
                 <span style={{ width: `${Math.min(100, ((latest.progress_current ?? 0) / latest.progress_total) * 100)}%` }} />
               </div>
@@ -789,6 +803,7 @@ export function App() {
   const [project, setProject] = useState<Project | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
   const [workflowDefinition, setWorkflowDefinition] = useState<WorkflowDefinition | null>(null);
+  const [runSnapshot, setRunSnapshot] = useState<RunSnapshot | null>(null);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [evidence, setEvidence] = useState<Evidence[]>([]);
   const [chat, setChat] = useState<ChatResponse | null>(null);
@@ -824,26 +839,69 @@ export function App() {
   const onComplete = useCallback(async () => {
     if (!project || !runId) return;
     try {
-      const run = await api.getRun(runId);
+      const snapshot = await api.getRunSnapshot(runId);
       const [artifactData, evidenceData] = await Promise.all([api.listArtifacts(project.id), api.listEvidence(project.id)]);
+      setRunSnapshot(snapshot);
       setArtifacts(artifactData);
       setEvidence(evidenceData);
-      setReviewingGate(run.current_gate || "export");
-      setPhase("reviewing");
+      if (snapshot.status === "completed") {
+        setReviewingGate(null);
+        setPhase("result");
+      } else if (snapshot.status === "failed") {
+        setPhase("researching");
+        error(snapshot.errors[0]?.message ?? "运行失败");
+      } else {
+        setReviewingGate(snapshot.current_stage || "export");
+        setPhase("reviewing");
+      }
     } catch {
       error("获取研究结果失败");
     }
   }, [error, project, runId]);
 
   const { events, isConnected, reset: resetEvents } = useRunEvents({ runId, onEvent, onComplete, onError: error });
+  const effectiveEvents = runSnapshot?.events.length ? runSnapshot.events : events;
 
   useEffect(() => {
-    const waiting = events.find((event) => event.event_type === "waiting_for_human" || event.event_type === "human_input_required");
+    if (!runId || phase !== "researching" || runSnapshot?.status === "failed") return;
+    const activeRunId = runId;
+    let disposed = false;
+    async function refreshSnapshot() {
+      try {
+        const snapshot = await api.getRunSnapshot(activeRunId);
+        if (disposed) return;
+        setRunSnapshot(snapshot);
+        if (snapshot.status === "completed") {
+          const [artifactData, evidenceData] = await Promise.all([
+            api.listArtifacts(snapshot.project_id),
+            api.listEvidence(snapshot.project_id),
+          ]);
+          if (disposed) return;
+          setArtifacts(artifactData);
+          setEvidence(evidenceData);
+          setPhase("result");
+        } else if (snapshot.status === "failed") {
+          error(snapshot.errors[0]?.message ?? "运行失败");
+        }
+      } catch {
+        // Snapshot polling is a recovery path; SSE can continue driving live events.
+      }
+    }
+    void refreshSnapshot();
+    const timer = window.setInterval(refreshSnapshot, 2500);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [error, phase, runId, runSnapshot?.status]);
+
+  useEffect(() => {
+    const waiting = effectiveEvents.find((event) => event.event_type === "waiting_for_human" || event.event_type === "human_input_required");
     if (waiting && phase === "researching") {
       setReviewingGate(waiting.gate);
       setPhase("reviewing");
     }
-  }, [events, phase]);
+  }, [effectiveEvents, phase]);
 
   async function startResearch(
     domain: string,
@@ -856,6 +914,7 @@ export function App() {
     try {
       const proj = await api.createProject({ title: domain, domain, market_scope: "mixed", depth: "quick", source_policy: sourcePolicy });
       setProject(proj);
+      setRunSnapshot(null);
       if (assistantBriefFile) {
         await api.uploadDocument(proj.id, { channel: "assistant_brief", file: assistantBriefFile });
       }
@@ -881,6 +940,7 @@ export function App() {
     setProject(null);
     setRunId(null);
     setWorkflowDefinition(null);
+    setRunSnapshot(null);
     setArtifacts([]);
     setEvidence([]);
     setChat(null);
@@ -938,7 +998,8 @@ export function App() {
         <ResearchView
           project={project}
           runId={runId ?? ""}
-          events={events}
+          events={effectiveEvents}
+          snapshot={runSnapshot}
           activeAgent={activeAgent}
           activeMessage={activeMessage}
           workflowDefinition={workflowDefinition}
@@ -953,7 +1014,7 @@ export function App() {
           project={project}
           runId={runId}
           completedGate={reviewingGate ?? "export"}
-          events={events}
+          events={effectiveEvents}
           artifacts={artifacts}
           evidence={evidence}
           onContinue={handleReviewContinue}

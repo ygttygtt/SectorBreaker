@@ -35,6 +35,30 @@ export interface RunEvent {
   timestamp: number;
 }
 
+export interface RunProgress {
+  current: number;
+  total: number;
+}
+
+export interface RunArtifactSummary {
+  id: string;
+  title: string;
+  content_path: string;
+  artifact_type: string;
+}
+
+export interface RunSnapshot {
+  run_id: string;
+  project_id: string;
+  status: "idle" | "collecting" | "structuring" | "exporting" | "completed" | "failed";
+  current_stage: string;
+  progress: RunProgress;
+  events: RunEvent[];
+  errors: RunEvent[];
+  artifact_summary: RunArtifactSummary[];
+  updated_at: string;
+}
+
 export interface Artifact {
   id: string;
   title: string;
@@ -317,6 +341,14 @@ export const api = {
 
   getRun(runId: string) {
     return requestJson<RunResponse>(`/api/runs/${runId}`);
+  },
+
+  getRunSnapshot(runId: string) {
+    return requestJson<RunSnapshot>(`/api/runs/${runId}/snapshot`);
+  },
+
+  getActiveRun(projectId: string) {
+    return requestJson<RunResponse | null>(`/api/projects/${projectId}/active-run`);
   },
 
   getRunWorkflowDefinition(runId: string) {

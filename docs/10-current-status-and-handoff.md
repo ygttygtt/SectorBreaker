@@ -40,6 +40,7 @@ For Cursor, Windsurf, Gemini, Codex, Claude Code, or other tools, also read `doc
 
 ### Workflow And Export
 
+- Runnable V1 rearchitecture has started. A simplified product path now exists for `auto_run=true`: backend-owned `RunSnapshot`, latest-run restore endpoint, V1 knowledge pipeline, seven stable knowledge artifacts, and V1 Obsidian export layout. The automated fake-provider regression path passes, but the final real-provider acceptance is currently blocked until a real OpenAI-compatible LLM config is supplied; Tavily is present in `.env`.
 - LangGraph workflow now includes Scope, Supervisor Plan, Source Strategy, Source Intake, Claim Extractor, Counterevidence, Evidence Ledger, Market, Player, Transaction, Synthesis, Knowledge Map, QA Critic, Export, and RAG Indexer gates.
 - Runs pause at `supervisor_plan` for user confirmation unless `auto_run=true`.
 - Assistant briefs are optional manual Markdown/text inputs and are treated as low-trust lead material.

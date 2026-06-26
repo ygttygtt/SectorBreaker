@@ -18,6 +18,7 @@ metadata:
 当前基线：
 
 - conda 环境：`sectorbreaker`
+- Runnable V1 重构已部分落地：`auto_run=true` 走简化 V1 主路径，前端开始消费后端 `RunSnapshot`，导出布局改为稳定 Obsidian V1 文件集。真实验收需先补 LLM 配置；Tavily 已在 `.env` 中存在。
 - 后端：FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + 可解释选择轨迹
 - 前端：Vite + React + TypeScript，可解释研究工作台，真实 workflow graph，纵向布局与活动节点居中
 - 当前会显式展示“搜索未配置”提示，避免把无联网检索误当成正常研究能力

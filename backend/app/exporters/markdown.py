@@ -78,6 +78,12 @@ class MarkdownExporter:
             json.dumps(manifest.model_dump(mode="json"), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        if "manifest.json" not in manifest.artifact_paths:
+            manifest.artifact_paths.append("manifest.json")
+            (project_dir / "manifest.json").write_text(
+                json.dumps(manifest.model_dump(mode="json"), ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
         return manifest
 
     def _generate_readme(
@@ -162,9 +168,10 @@ class MarkdownExporter:
                 lines.append(f"> {ev.snippet[:200]}\n")
             lines.append("")
 
-        evidence_path = project_dir / "证据库.md"
+        evidence_path = project_dir / "_sources" / "evidence-ledger.md"
+        evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text("\n".join(lines), encoding="utf-8")
-        return "证据库.md"
+        return "_sources/evidence-ledger.md"
 
     def _generate_learning_path(
         self, project: ResearchProject, artifacts: list[Artifact], project_dir: Path,

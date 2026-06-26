@@ -15,6 +15,27 @@ class RunStatus(StrEnum):
     FAILED = "failed"
 
 
+class V1RunStage(StrEnum):
+    IDLE = "idle"
+    COLLECTING = "collecting"
+    STRUCTURING = "structuring"
+    EXPORTING = "exporting"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class RunProgress(BaseModel):
+    current: int = 0
+    total: int = 0
+
+
+class RunArtifactSummary(BaseModel):
+    id: str
+    title: str
+    content_path: str
+    artifact_type: str
+
+
 class RunEvent(BaseModel):
     event_type: str  # node_started | node_progress | node_completed | artifact_created | evidence_collected | human_input_required | error
     gate: str
@@ -26,6 +47,18 @@ class RunEvent(BaseModel):
     progress_total: int | None = None
     severity: str = "info"
     timestamp: float = Field(default_factory=lambda: datetime.now(UTC).timestamp())
+
+
+class RunSnapshot(BaseModel):
+    run_id: str
+    project_id: str
+    status: V1RunStage
+    current_stage: str
+    progress: RunProgress = Field(default_factory=RunProgress)
+    events: list[RunEvent] = Field(default_factory=list)
+    errors: list[RunEvent] = Field(default_factory=list)
+    artifact_summary: list[RunArtifactSummary] = Field(default_factory=list)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class ResearchRun(BaseModel):

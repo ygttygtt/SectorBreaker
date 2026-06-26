@@ -24,6 +24,14 @@ class ArtifactType(StrEnum):
     CONTENT_ACCOUNTS = "content_accounts"
     CONTENT_TOPICS = "content_topics"
     CONTENT_CLASSIFICATION = "content_classification"
+    # Runnable V1 knowledge system
+    DOMAIN_OVERVIEW = "domain_overview"
+    LEARNING_PATH = "learning_path"
+    CORE_CONCEPTS = "core_concepts"
+    PLAYER_TOOL_MAP = "player_tool_map"
+    TREND_EVIDENCE = "trend_evidence"
+    PROBLEM_OPPORTUNITY_MAP = "problem_opportunity_map"
+    UNRESOLVED_QUESTIONS = "unresolved_questions"
 
 
 class Artifact(BaseModel):

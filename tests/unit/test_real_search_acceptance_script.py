@@ -19,7 +19,13 @@ def test_acceptance_script_fails_when_search_not_configured(monkeypatch) -> None
     monkeypatch.setattr(
         module,
         "_http_json",
-        lambda method, path, payload=None: {"configured": False} if path == "/api/config/search" else {},
+        lambda method, path, payload=None: (
+            {"configured": True}
+            if path == "/api/config/llm"
+            else {"configured": False}
+            if path == "/api/config/search"
+            else {}
+        ),
     )
 
     stderr = io.StringIO()
@@ -53,6 +59,8 @@ def test_acceptance_script_runs_full_happy_path(monkeypatch) -> None:
 
     def fake_http_json(method: str, path: str, payload=None):
         calls.append((method, path, payload))
+        if path == "/api/config/llm":
+            return {"configured": True, "base_url": "https://api.example.com", "model": "test-model"}
         if path == "/api/config/search":
             return {"configured": True, "providers": ["tavily"]}
         if path == "/api/config/search/test":
@@ -68,6 +76,32 @@ def test_acceptance_script_runs_full_happy_path(monkeypatch) -> None:
                 {"id": "EV-1", "source_type": "web", "source_channel": "search", "source_title": "Official source"},
                 {"id": "EV-2", "source_type": "assistant_brief", "source_channel": "assistant_brief", "source_title": "Brief"},
             ]
+        if path == "/api/projects/proj-1/artifacts":
+            return [
+                {"id": "A1", "content_path": "00-领域总览.md"},
+                {"id": "A2", "content_path": "01-入门路线.md"},
+                {"id": "A3", "content_path": "02-核心概念.md"},
+                {"id": "A4", "content_path": "03-玩家与工具地图.md"},
+                {"id": "A5", "content_path": "04-趋势与证据.md"},
+                {"id": "A6", "content_path": "05-问题与机会.md"},
+                {"id": "A7", "content_path": "99-待验证问题.md"},
+            ]
+        if path == "/api/projects/proj-1/exports":
+            return {
+                "project_id": "proj-1",
+                "artifact_paths": [
+                    "00-领域总览.md",
+                    "01-入门路线.md",
+                    "02-核心概念.md",
+                    "03-玩家与工具地图.md",
+                    "04-趋势与证据.md",
+                    "05-问题与机会.md",
+                    "99-待验证问题.md",
+                    "_sources/evidence-ledger.md",
+                    "manifest.json",
+                ],
+                "evidence_ids": ["EV-1"],
+            }
         raise AssertionError(f"Unexpected request: {method} {path}")
 
     monkeypatch.setattr(module, "_http_json", fake_http_json)
@@ -81,9 +115,31 @@ def test_acceptance_script_runs_full_happy_path(monkeypatch) -> None:
     output = stdout.getvalue()
     assert result == 0
     assert "Acceptance passed" in output
+    assert any(item[1] == "/api/config/llm" for item in calls)
+    assert any(item[1] == "/api/projects/proj-1/artifacts" for item in calls)
+    assert any(item[1] == "/api/projects/proj-1/exports" for item in calls)
     search_test_call = next(item for item in calls if item[1] == "/api/config/search/test")
     assert search_test_call[2]["allowed_domains"] == ["sec.gov", "stats.gov.cn"]
     assert search_test_call[2]["blocked_domains"] == ["medium.com"]
+
+
+def test_acceptance_script_fails_when_llm_not_configured(monkeypatch) -> None:
+    module = _load_acceptance_module()
+    monkeypatch.setattr(module, "load_local_env", lambda: None)
+    monkeypatch.setattr(
+        module,
+        "_http_json",
+        lambda method, path, payload=None: {"configured": False} if path == "/api/config/llm" else {},
+    )
+
+    stderr = io.StringIO()
+    stdout = io.StringIO()
+    with redirect_stdout(stdout), redirect_stderr(stderr):
+        result = module.main()
+
+    assert result == 1
+    assert "LLM is not configured" in stderr.getvalue()
+    assert "LLM Config" in stdout.getvalue()
 
 
 def test_acceptance_script_fails_when_no_open_web_evidence_written(monkeypatch) -> None:
@@ -91,6 +147,8 @@ def test_acceptance_script_fails_when_no_open_web_evidence_written(monkeypatch) 
     monkeypatch.setattr(module, "load_local_env", lambda: None)
 
     def fake_http_json(method: str, path: str, payload=None):
+        if path == "/api/config/llm":
+            return {"configured": True}
         if path == "/api/config/search":
             return {"configured": True}
         if path == "/api/config/search/test":

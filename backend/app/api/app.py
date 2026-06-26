@@ -41,15 +41,21 @@ from backend.app.providers.openai_compatible import OpenAICompatibleLLMProvider
 from backend.app.providers.source_packs import SourceConnector, SourceRegistry
 from backend.app.providers.source_verification import HeuristicSourceVerificationProvider
 from backend.app.schemas import (
+    Artifact,
     ProjectDocumentCreate,
     ResearchProjectCreate,
     ResearchRun,
     ResumeRequest,
+    RunArtifactSummary,
     RunEvent,
+    RunProgress,
+    RunSnapshot,
     RunStatus,
     UserInput,
+    V1RunStage,
 )
 from backend.app.storage.sqlite import SQLiteRepository, init_database
+from backend.app.v1_pipeline import run_v1_knowledge_pipeline
 
 
 class ChatRequest(BaseModel):
@@ -322,6 +328,63 @@ def _build_project_document_inputs(
     return seed_evidence_items, user_evidence_items, assistant_brief
 
 
+def _build_run_snapshot(
+    run: ResearchRun,
+    events: list[RunEvent],
+    artifacts: list[Artifact],
+) -> RunSnapshot:
+    latest_event = events[-1] if events else None
+    progress_current = latest_event.progress_current if latest_event and latest_event.progress_current is not None else 0
+    progress_total = latest_event.progress_total if latest_event and latest_event.progress_total is not None else 0
+    updated_at = run.completed_at or (
+        datetime.fromtimestamp(latest_event.timestamp, tz=UTC)
+        if latest_event
+        else run.created_at
+    )
+    errors = [
+        event
+        for event in events
+        if event.event_type == "error" or event.severity in {"error", "critical"}
+    ]
+    return RunSnapshot(
+        run_id=run.id,
+        project_id=run.project_id,
+        status=_v1_stage_from_run(run),
+        current_stage=run.current_gate or (latest_event.gate if latest_event else "idle"),
+        progress=RunProgress(
+            current=progress_current,
+            total=progress_total,
+        ),
+        events=events,
+        errors=errors,
+        artifact_summary=[
+            RunArtifactSummary(
+                id=artifact.id,
+                title=artifact.title,
+                content_path=artifact.content_path,
+                artifact_type=artifact.artifact_type.value,
+            )
+            for artifact in artifacts
+        ],
+        updated_at=updated_at,
+    )
+
+
+def _v1_stage_from_run(run: ResearchRun) -> V1RunStage:
+    if run.status == RunStatus.COMPLETED:
+        return V1RunStage.COMPLETED
+    if run.status == RunStatus.FAILED:
+        return V1RunStage.FAILED
+    if run.status == RunStatus.PENDING:
+        return V1RunStage.IDLE
+    gate = run.current_gate or ""
+    if "export" in gate:
+        return V1RunStage.EXPORTING
+    if any(marker in gate for marker in ("knowledge", "artifact", "structur", "analysis", "map")):
+        return V1RunStage.STRUCTURING
+    return V1RunStage.COLLECTING
+
+
 def _connector_configured(connector: SourceConnector, active_search_config: SearchConfig) -> bool:
     runtime_key_presence = {
         "TAVILY_API_KEY": bool(active_search_config.tavily_api_key),
@@ -390,7 +453,16 @@ def create_app(
             jina_reader_endpoint_prefix=active_search_config.jina_reader_endpoint_prefix,
         )
     )
-    active_llm_provider = llm_provider if llm_provider is not None else build_llm_provider()
+    if llm_provider is not None:
+        active_llm_provider = llm_provider
+    elif runtime_config.get("llm_base_url") and runtime_config.get("llm_api_key") and runtime_config.get("llm_model"):
+        active_llm_provider = build_llm_provider_from_config(
+            base_url=runtime_config["llm_base_url"],
+            api_key=runtime_config["llm_api_key"],
+            model=runtime_config["llm_model"],
+        )
+    else:
+        active_llm_provider = build_llm_provider()
     source_registry = build_source_registry()
     source_verifier = HeuristicSourceVerificationProvider(source_registry=source_registry)
     app = FastAPI(title="SectorBreaker")
@@ -411,6 +483,17 @@ def create_app(
             return repository.get_project(project_id).model_dump(mode="json")
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="project not found") from exc
+
+    @app.get("/api/projects/{project_id}/active-run")
+    def get_project_active_run(project_id: str):
+        try:
+            repository.get_project(project_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="project not found") from exc
+        run = repository.get_active_run(project_id) or repository.get_latest_run(project_id)
+        if run is None:
+            return None
+        return run.model_dump(mode="json")
 
     @app.get("/api/projects/{project_id}/workflow-definition")
     def get_workflow_definition(project_id: str):
@@ -444,9 +527,31 @@ def create_app(
 
         async def emit_event(event: RunEvent) -> None:
             repository.add_run_event(event, run.id)
+            repository.update_run(
+                run.id,
+                current_gate=event.gate,
+                current_step=event.step,
+            )
 
         async def run_in_background() -> None:
             try:
+                if auto_run:
+                    await run_v1_knowledge_pipeline(
+                        project=project,
+                        repository=repository,
+                        search_provider=active_search_provider,
+                        content_extraction_provider=active_content_extraction_provider,
+                        llm_provider=active_llm_provider,
+                        emit=emit_event,
+                    )
+                    repository.update_run(
+                        run.id,
+                        status=RunStatus.COMPLETED,
+                        current_gate="completed",
+                        completed_at=datetime.now(UTC),
+                    )
+                    return
+
                 state, paused_gate, completed = await run_workflow_until_pause(
                     project,
                     search_provider=active_search_provider,
@@ -506,6 +611,16 @@ def create_app(
             return data
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="run not found") from exc
+
+    @app.get("/api/runs/{run_id}/snapshot")
+    def get_run_snapshot(run_id: str):
+        try:
+            run = repository.get_run(run_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="run not found") from exc
+        events = repository.list_run_events(run_id)
+        artifacts = repository.list_artifacts(run.project_id)
+        return _build_run_snapshot(run, events, artifacts).model_dump(mode="json")
 
     @app.get("/api/runs/{run_id}/workflow-definition")
     def get_run_workflow_definition(run_id: str):
@@ -944,9 +1059,13 @@ def create_app(
     def update_search_config(payload: SearchConfig):
         nonlocal active_search_provider, active_content_extraction_provider, active_search_config
         active_search_config = payload
+        persisted_config = load_runtime_config(runtime_config_path)
         save_runtime_config(
             runtime_config_path,
-            payload.model_dump(mode="json"),
+            {
+                **persisted_config,
+                **payload.model_dump(mode="json"),
+            },
         )
         active_search_provider = build_search_provider_from_config(
             provider_mode=payload.search_provider_mode,
@@ -1117,6 +1236,16 @@ def create_app(
                 base_url=payload.base_url,
                 api_key=payload.api_key,
                 model=payload.model,
+            )
+            persisted_config = load_runtime_config(runtime_config_path)
+            save_runtime_config(
+                runtime_config_path,
+                {
+                    **persisted_config,
+                    "llm_base_url": payload.base_url,
+                    "llm_api_key": payload.api_key,
+                    "llm_model": payload.model,
+                },
             )
             return {"success": True, "message": "LLM 配置已更新"}
         except Exception as exc:

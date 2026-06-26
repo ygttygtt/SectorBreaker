@@ -53,7 +53,17 @@ from backend.app.schemas.projects import (
     ResearchProjectCreate,
     SourcePolicy,
 )
-from backend.app.schemas.runs import ResearchRun, ResumeRequest, RunEvent, RunStatus, UserInput
+from backend.app.schemas.runs import (
+    ResearchRun,
+    ResumeRequest,
+    RunArtifactSummary,
+    RunEvent,
+    RunProgress,
+    RunSnapshot,
+    RunStatus,
+    UserInput,
+    V1RunStage,
+)
 from backend.app.schemas.state import ResearchGate, ResearchState
 
 __all__ = [
@@ -87,6 +97,9 @@ __all__ = [
     "ResearchState",
     "ResumeRequest",
     "RunEvent",
+    "RunArtifactSummary",
+    "RunProgress",
+    "RunSnapshot",
     "RunStatus",
     "SkippedAgent",
     "ScopeAnalysisOutput",
@@ -104,6 +117,7 @@ __all__ = [
     "VerificationLevel",
     "VerificationPlan",
     "VerificationStatus",
+    "V1RunStage",
     "WorkflowDefinition",
     "WorkflowEdge",
     "WorkflowNode",

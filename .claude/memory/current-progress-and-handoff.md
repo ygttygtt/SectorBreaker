@@ -14,6 +14,7 @@ metadata:
 
 当前状态：
 
+- Runnable V1 重构已开始落地：`auto_run=true` 现在走简化 V1 主路径，新增后端 `RunSnapshot`、最近 run 恢复接口、七个稳定知识产物、`_sources/evidence-ledger.md` 导出布局，以及真实验收脚本的 LLM/Search/Artifact/Export 检查。当前自动化回归通过；真实 API 验收还需要补 OpenAI-compatible LLM 配置，`.env` 里已有 Tavily 但没有 LLM 值。
 - 文档与协作规范已建立。
 - 核心 schema、provider interfaces、provider factory、SQLite migration/repository 已建立。
 - 已新增 `source_policy`、`SupervisorPlan`、`AgentTask`、`AgentSelectionDecision`、`AgentSelectionSignal`、`EvidenceClaim`、`QAReport`、workflow definition schemas。

@@ -8,6 +8,8 @@ const {
   mockCreateProject,
   mockStartRun,
   mockGetRun,
+  mockGetRunSnapshot,
+  mockGetActiveRun,
   mockGetSearchConfig,
   mockUpdateSearchConfig,
   mockTestSearchConnection,
@@ -121,6 +123,20 @@ const {
     id: "run-1", project_id: "project-1", status: "waiting_for_human",
     current_gate: "scope", created_at: new Date().toISOString(), completed_at: null,
   }),
+  mockGetRunSnapshot: vi.fn().mockResolvedValue({
+    run_id: "run-1",
+    project_id: "project-1",
+    status: "completed",
+    current_stage: "completed",
+    progress: { current: 3, total: 3 },
+    events: [],
+    errors: [],
+    artifact_summary: [
+      { id: "A1", title: "领域总览", content_path: "00-领域总览.md", artifact_type: "domain_overview" },
+    ],
+    updated_at: new Date().toISOString(),
+  }),
+  mockGetActiveRun: vi.fn().mockResolvedValue(null),
   mockListArtifacts: vi.fn().mockResolvedValue([
     { id: "ART-RESEARCH-FRAME", title: "研究框架", content_path: "00-研究框架/research-frame.md" },
   ]),
@@ -168,6 +184,8 @@ vi.mock("./api/client", () => ({
     createProject: mockCreateProject,
     startRun: mockStartRun,
     getRun: mockGetRun,
+    getRunSnapshot: mockGetRunSnapshot,
+    getActiveRun: mockGetActiveRun,
     getRunWorkflowDefinition: mockGetWorkflow,
     getProjectWorkflowDefinition: mockGetWorkflow,
     getLLMConfig: mockGetLLMConfig,
@@ -240,7 +258,7 @@ test("startRun is called when button is clicked", async () => {
   await waitFor(() => expect(mockStartRun).toHaveBeenCalled());
 });
 
-test("onComplete fetches artifacts and transitions to reviewing", async () => {
+test("onComplete fetches artifacts and transitions to result when snapshot completed", async () => {
   render(<App />);
   fireEvent.change(screen.getByPlaceholderText(/AI Agent 工具/), { target: { value: "AI Agent 工具" } });
   await waitFor(() => expect(screen.getByRole("button", { name: /生成计划/ })).not.toBeDisabled());
@@ -250,10 +268,45 @@ test("onComplete fetches artifacts and transitions to reviewing", async () => {
   // Trigger onComplete
   await onCompleteRef!();
 
-  // Should call getRun, listArtifacts, listEvidence
-  await waitFor(() => expect(mockGetRun).toHaveBeenCalled());
+  await waitFor(() => expect(mockGetRunSnapshot).toHaveBeenCalled());
   expect(mockListArtifacts).toHaveBeenCalled();
   expect(mockListEvidence).toHaveBeenCalled();
+  expect(await screen.findByText("证据账本")).toBeInTheDocument();
+});
+
+test("failed snapshot renders visible error instead of blank screen", async () => {
+  mockGetRunSnapshot.mockResolvedValueOnce({
+    run_id: "run-1",
+    project_id: "project-1",
+    status: "failed",
+    current_stage: "knowledge_structuring",
+    progress: { current: 2, total: 3 },
+    events: [],
+    errors: [{
+      event_type: "error",
+      gate: "knowledge_structuring",
+      step: null,
+      agent: null,
+      message: "LLM 调用失败",
+      data: null,
+      progress_current: null,
+      progress_total: null,
+      severity: "error",
+      timestamp: Date.now(),
+    }],
+    artifact_summary: [],
+    updated_at: new Date().toISOString(),
+  });
+
+  render(<App />);
+  fireEvent.change(screen.getByPlaceholderText(/AI Agent 工具/), { target: { value: "AI Agent 工具" } });
+  await waitFor(() => expect(screen.getByRole("button", { name: /生成计划/ })).not.toBeDisabled());
+  fireEvent.click(screen.getByRole("button", { name: /生成计划/ }));
+  await waitFor(() => expect(onCompleteRef).toBeTruthy());
+  await onCompleteRef!();
+
+  expect((await screen.findAllByText("LLM 调用失败")).length).toBeGreaterThan(0);
+  expect(screen.getByText(/运行状态：failed/)).toBeInTheDocument();
 });
 
 test("config panel can test search connectivity", async () => {
@@ -357,6 +410,17 @@ test("renders QA report as readable action lists", async () => {
     created_at: new Date().toISOString(),
     completed_at: null,
   });
+  mockGetRunSnapshot.mockResolvedValueOnce({
+    run_id: "run-1",
+    project_id: "project-1",
+    status: "collecting",
+    current_stage: "qa_critic",
+    progress: { current: 2, total: 3 },
+    events: mockEventsState.current,
+    errors: [],
+    artifact_summary: [],
+    updated_at: new Date().toISOString(),
+  });
 
   render(<App />);
   fireEvent.change(screen.getByPlaceholderText(/AI Agent 工具/), { target: { value: "AI Agent 工具" } });
@@ -388,8 +452,6 @@ test("filters evidence ledger in result view", async () => {
   fireEvent.click(screen.getByRole("button", { name: /生成计划/ }));
   await waitFor(() => expect(onCompleteRef).toBeTruthy());
   await onCompleteRef!();
-
-  fireEvent.click(await screen.findByRole("button", { name: "跳过补充" }));
 
   expect(await screen.findByText("证据账本")).toBeInTheDocument();
   expect(screen.getByText("用户输入范围")).toBeInTheDocument();

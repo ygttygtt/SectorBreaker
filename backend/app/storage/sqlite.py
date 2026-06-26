@@ -473,6 +473,59 @@ class SQLiteRepository:
             completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
         )
 
+    def get_active_run(self, project_id: str) -> ResearchRun | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM runs
+                WHERE project_id = ? AND status IN (?, ?, ?)
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (
+                    project_id,
+                    RunStatus.PENDING.value,
+                    RunStatus.RUNNING.value,
+                    RunStatus.WAITING_FOR_HUMAN.value,
+                ),
+            ).fetchone()
+        if row is None:
+            return None
+        return ResearchRun(
+            id=row["id"],
+            project_id=row["project_id"],
+            status=RunStatus(row["status"]),
+            current_gate=row["current_gate"],
+            current_step=row["current_step"],
+            workflow_state=row["workflow_state"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+            completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
+        )
+
+    def get_latest_run(self, project_id: str) -> ResearchRun | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM runs
+                WHERE project_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (project_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return ResearchRun(
+            id=row["id"],
+            project_id=row["project_id"],
+            status=RunStatus(row["status"]),
+            current_gate=row["current_gate"],
+            current_step=row["current_step"],
+            workflow_state=row["workflow_state"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+            completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
+        )
+
     def update_run(
         self,
         run_id: str,

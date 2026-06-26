@@ -27,6 +27,7 @@ Claude Code should also read `CLAUDE.md` and `.claude/memory/MEMORY.md`.
 
 The latest completed implementation milestone is:
 
+- Runnable V1 rearchitecture is in progress: `auto_run=true` now follows a simplified V1 path with backend `RunSnapshot`, latest-run restore, seven stable knowledge artifacts, and `_sources/evidence-ledger.md` export layout. Real acceptance must still be rerun after providing an OpenAI-compatible LLM config; current `.env` has Tavily but no LLM values.
 - Backend: FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + explainable agent selection traces.
 - Frontend: Vite + React + TypeScript explainable research workbench with real workflow graph, vertical layout, and active-node centering.
 - Environment: conda environment `sectorbreaker`.

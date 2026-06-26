@@ -65,6 +65,22 @@ def _print_backend_start_hint() -> None:
     )
 
 
+V1_REQUIRED_ARTIFACT_PATHS = {
+    "00-领域总览.md",
+    "01-入门路线.md",
+    "02-核心概念.md",
+    "03-玩家与工具地图.md",
+    "04-趋势与证据.md",
+    "05-问题与机会.md",
+    "99-待验证问题.md",
+}
+
+V1_REQUIRED_EXPORT_PATHS = V1_REQUIRED_ARTIFACT_PATHS | {
+    "_sources/evidence-ledger.md",
+    "manifest.json",
+}
+
+
 def main() -> int:
     load_local_env()
 
@@ -87,6 +103,18 @@ def main() -> int:
         for item in os.getenv("SECTORBREAKER_ACCEPTANCE_BLOCKED_DOMAINS", "").split(",")
         if item.strip()
     ]
+
+    _print_section("LLM Config")
+    try:
+        llm_status = _http_json("GET", "/api/config/llm")
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        _print_backend_start_hint()
+        return 1
+    _print_json(llm_status)
+    if not llm_status.get("configured"):
+        print("LLM is not configured. Fill .env or save an OpenAI-compatible LLM config in the UI first.", file=sys.stderr)
+        return 1
 
     _print_section("Search Config")
     try:
@@ -177,7 +205,37 @@ def main() -> int:
         print("No search-channel evidence was written into the project evidence ledger.", file=sys.stderr)
         return 1
 
-    print("\nAcceptance passed: search config, live search test, project run, and evidence writeback all succeeded.")
+    _print_section("Artifact Check")
+    artifacts = _http_json("GET", f"/api/projects/{project_id}/artifacts")
+    assert isinstance(artifacts, list)
+    artifact_paths = {
+        item.get("content_path")
+        for item in artifacts
+        if isinstance(item, dict)
+    }
+    missing_artifact_paths = sorted(V1_REQUIRED_ARTIFACT_PATHS - artifact_paths)
+    _print_json(
+        {
+            "project_id": project_id,
+            "artifact_count": len(artifacts),
+            "required_v1_paths_present": not missing_artifact_paths,
+            "missing_v1_artifact_paths": missing_artifact_paths,
+        }
+    )
+    if missing_artifact_paths:
+        print(f"V1 artifacts are missing required paths: {missing_artifact_paths}", file=sys.stderr)
+        return 1
+
+    _print_section("Export Check")
+    export_manifest = _http_json("POST", f"/api/projects/{project_id}/exports")
+    _print_json(export_manifest)
+    export_paths = set(export_manifest.get("artifact_paths", []))
+    missing_export_paths = sorted(V1_REQUIRED_EXPORT_PATHS - export_paths)
+    if missing_export_paths:
+        print(f"V1 export manifest is missing required paths: {missing_export_paths}", file=sys.stderr)
+        return 1
+
+    print("\nAcceptance passed: LLM config, search config, live search, project run, evidence writeback, V1 artifacts, and Obsidian export all succeeded.")
     return 0
 
 

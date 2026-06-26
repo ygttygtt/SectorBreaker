@@ -706,6 +706,44 @@ def test_api_restores_persisted_search_runtime_config_after_restart(tmp_path: Pa
     assert "brave" in status.json()["providers"]
 
 
+def test_api_restores_persisted_llm_runtime_config_after_restart(tmp_path: Path) -> None:
+    database_path = tmp_path / "sectorbreaker.sqlite3"
+    export_root = tmp_path / "exports"
+
+    first_client = TestClient(
+        create_app(
+            database_path=database_path,
+            export_root=export_root,
+        )
+    )
+
+    save_response = first_client.post(
+        "/api/config/llm",
+        json={
+            "base_url": "https://api.example.com/v1",
+            "api_key": "test-key",
+            "model": "test-model",
+        },
+    )
+
+    assert save_response.status_code == 200
+
+    restarted_client = TestClient(
+        create_app(
+            database_path=database_path,
+            export_root=export_root,
+        )
+    )
+
+    status = restarted_client.get("/api/config/llm")
+    assert status.status_code == 200
+    assert status.json() == {
+        "configured": True,
+        "base_url": "https://api.example.com/v1",
+        "model": "test-model",
+    }
+
+
 def test_api_restores_persisted_content_extraction_provider_after_restart(tmp_path: Path) -> None:
     database_path = tmp_path / "sectorbreaker.sqlite3"
     export_root = tmp_path / "exports"
@@ -963,6 +1001,94 @@ def test_api_pauses_for_supervisor_plan_confirmation(tmp_path: Path) -> None:
     assert definition.status_code == 200
     node_ids = {node["id"] for node in definition.json()["nodes"]}
     assert "market_agent" in node_ids
+
+
+def test_api_exposes_run_snapshot_for_active_run(tmp_path: Path) -> None:
+    client = TestClient(create_app(
+        database_path=tmp_path / "sectorbreaker.sqlite3",
+        export_root=tmp_path / "exports",
+        search_provider=FakeSearchProvider(results=[]),
+        llm_provider=_default_fake_llm(),
+    ))
+    project_id = client.post("/api/projects", json={
+        "title": "Agent Development",
+        "domain": "Agent development",
+        "market_scope": "mixed",
+        "depth": "quick",
+        "source_policy": "open_web",
+    }).json()["id"]
+
+    run = client.post(f"/api/projects/{project_id}/runs", params={"auto_run": "true"}).json()
+    snapshot = client.get(f"/api/runs/{run['id']}/snapshot")
+
+    assert snapshot.status_code == 200
+    payload = snapshot.json()
+    assert payload["run_id"] == run["id"]
+    assert payload["project_id"] == project_id
+    assert payload["status"] in {"collecting", "structuring", "exporting", "completed", "failed"}
+    assert "current_stage" in payload
+    assert "events" in payload
+    assert "artifact_summary" in payload
+
+
+def test_api_exposes_active_run_for_project_restore(tmp_path: Path) -> None:
+    client = TestClient(create_app(
+        database_path=tmp_path / "sectorbreaker.sqlite3",
+        export_root=tmp_path / "exports",
+        search_provider=FakeSearchProvider(results=[]),
+        llm_provider=_default_fake_llm(),
+    ))
+    project_id = client.post("/api/projects", json={
+        "title": "Agent Development",
+        "domain": "Agent development",
+        "market_scope": "mixed",
+        "depth": "quick",
+        "source_policy": "open_web",
+    }).json()["id"]
+
+    run = client.post(f"/api/projects/{project_id}/runs", params={"auto_run": "true"}).json()
+    active_run = client.get(f"/api/projects/{project_id}/active-run")
+
+    assert active_run.status_code == 200
+    assert active_run.json()["id"] == run["id"]
+
+
+def test_api_v1_run_creates_knowledge_system_artifacts(tmp_path: Path) -> None:
+    search_provider = FakeSearchProvider(results=[{
+        "title": "Agent frameworks trend",
+        "url": "https://example.com/agent-frameworks",
+        "snippet": "Agent frameworks are evolving around tooling, memory, and evaluation.",
+    }])
+    llm_provider = _default_fake_llm()
+    client = TestClient(create_app(
+        database_path=tmp_path / "sectorbreaker.sqlite3",
+        export_root=tmp_path / "exports",
+        search_provider=search_provider,
+        llm_provider=llm_provider,
+    ))
+    project_id = client.post("/api/projects", json={
+        "title": "Agent Development",
+        "domain": "Agent development",
+        "market_scope": "mixed",
+        "depth": "quick",
+        "source_policy": "open_web",
+    }).json()["id"]
+
+    run = client.post(f"/api/projects/{project_id}/runs", params={"auto_run": "true"}).json()
+    run_result = _wait_for_run(client, run["id"], timeout=30)
+    assert run_result["status"] == "completed"
+
+    artifacts = client.get(f"/api/projects/{project_id}/artifacts").json()
+    paths = {item["content_path"] for item in artifacts}
+    assert "00-领域总览.md" in paths
+    assert "01-入门路线.md" in paths
+    assert "02-核心概念.md" in paths
+    assert "03-玩家与工具地图.md" in paths
+    assert "04-趋势与证据.md" in paths
+    assert "05-问题与机会.md" in paths
+    assert "99-待验证问题.md" in paths
+    assert search_provider.search_requests
+    assert llm_provider.messages
 
 
 def test_api_run_auto_includes_ingested_document_evidence(tmp_path: Path) -> None:
