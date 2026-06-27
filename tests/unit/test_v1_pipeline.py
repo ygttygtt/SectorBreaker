@@ -136,11 +136,73 @@ def test_v1_reliable_first_falls_back_to_open_web_when_reliable_search_is_empty(
         )
     )
 
-    assert len(search_provider.queries) == 2
+    assert len(search_provider.queries) >= 2
     assert search_provider.queries[0].allowed_domains
     assert search_provider.queries[1].allowed_domains == []
     assert len(repository.evidence) == 1
     assert repository.evidence[0].source_title == "AI Agent framework trends 2026"
+
+
+def test_v1_pipeline_runs_supplemental_search_when_evidence_is_insufficient() -> None:
+    class FakeRepository:
+        def __init__(self) -> None:
+            self.evidence = []
+            self.artifacts = []
+
+        def list_evidence(self, project_id: str):
+            return []
+
+        def add_evidence(self, item):
+            self.evidence.append(item)
+
+        def add_artifact(self, artifact):
+            self.artifacts.append(artifact)
+
+    class SparseThenSupplementalSearch:
+        def __init__(self) -> None:
+            self.queries: list[SearchQuery] = []
+
+        async def search(self, query: SearchQuery) -> list[SearchResult]:
+            self.queries.append(query)
+            if len(self.queries) == 1:
+                return [
+                    SearchResult(
+                        title="AI Agent information gathering overview",
+                        url="https://example.com/agent-overview",
+                        snippet="AI Agent information gathering uses tools, workflow orchestration, search APIs, evaluation, and source verification.",
+                    )
+                ]
+            return [
+                SearchResult(
+                    title=f"AI Agent source verification practice {index}",
+                    url=f"https://example.com/agent-source-{index}",
+                    snippet="AI Agent information gathering needs cross-source verification, official documents, implementation cases, and evaluation.",
+                )
+                for index in range(2, 10)
+            ]
+
+    repository = FakeRepository()
+    search_provider = SparseThenSupplementalSearch()
+    events = []
+
+    async def emit(event):
+        events.append(event)
+
+    asyncio.run(
+        run_v1_knowledge_pipeline(
+            project=_project().model_copy(update={"source_policy": SourcePolicy.OPEN_WEB}),
+            repository=repository,  # type: ignore[arg-type]
+            search_provider=search_provider,
+            llm_provider=None,
+            emit=emit,
+        )
+    )
+
+    assert len(search_provider.queries) == 2
+    assert "权威资料" in search_provider.queries[1].query
+    assert len(repository.evidence) >= 8
+    assert any("补充一轮开放搜索" in event.message for event in events)
+    assert any("资料基本可用" in event.message or "资料充足度检查通过" in event.message for event in events)
 
 
 def test_v1_pipeline_filters_developer_repository_and_attachment_noise() -> None:

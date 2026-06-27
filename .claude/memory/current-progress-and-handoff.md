@@ -19,6 +19,7 @@ metadata:
 - V1.1 已收缩为“学习型领域建库”：主路径暂不做竞品收入结构和内容生态，先构建结构化 `DomainKnowledgeBase`（总览、概念、主流架构、工具、趋势、学习路径、待验证问题），再渲染 7 个 Obsidian artifacts，避免继续输出一行模板文档。
 - V1.1 已修复中文复合主题过滤误杀：`大模型开发就业` 这类主题不再要求完整短语命中；大模型就业/应用开发主题有专属 fallback，覆盖 RAG、Agent、模型 API、Python/后端、作品集和岗位验证问题。
 - V1.1 已改为逐文档 LLM 写作：构建 `DomainKnowledgeBase` 后，`Document Writer` 会对 7 个 Obsidian artifact 分别调用 LLM 写完整 Markdown，并发出 `document_writing` 进度事件；短/空输出才回退到 deterministic renderer。
+- V1.1 已新增证据充足度检查和生成心跳：可用证据少于 8 条时会补充一轮开放搜索并去重，仍不足时发 warning；Knowledge Builder / Document Writer 的长 LLM 调用会定期发 `node_progress`，避免 UI 长时间无反馈。
 - 重要排障记忆：旧 `uvicorn` 进程和 Vite 代理端口不一致会造成“后端配置好了但 UI 仍显示未配置/像没修”的假象。验收前先确认只有一个目标后端，当前默认是 `uvicorn backend.app.api.app:app --port 8030`，并在 `vite.config.ts` 或 `VITE_API_PROXY_TARGET` 变更后重启 Vite。
 - 文档与协作规范已建立。
 - 核心 schema、provider interfaces、provider factory、SQLite migration/repository 已建立。

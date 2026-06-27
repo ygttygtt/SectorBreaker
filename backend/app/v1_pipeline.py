@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from collections.abc import Awaitable, Callable
@@ -91,6 +92,8 @@ _MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)]\([^)]+\)")
 _RAW_URL_RE = re.compile(r"https?://\S+")
 _WHITESPACE_RE = re.compile(r"\s+")
 _V1_SNIPPET_MAX_CHARS = 420
+_V1_TARGET_EVIDENCE_COUNT = 10
+_V1_MIN_ACCEPTABLE_EVIDENCE_COUNT = 8
 _V1_BLOCKED_DOMAINS = (
     "github.com",
     "youtube.com",
@@ -195,17 +198,63 @@ async def run_v1_knowledge_pipeline(
                 blocked_domains=v1_blocked_domains,
             ))
             results = _filter_v1_search_results(results, project=project)
-        for index, result in enumerate(results, start=1):
-            item = _search_result_to_evidence(project, result, index)
-            repository.add_evidence(item)
-            evidence.append(item)
+        await _persist_search_results(
+            project=project,
+            repository=repository,
+            evidence=evidence,
+            results=results,
+            emit_event=emit_event,
+        )
+        if len(evidence) < _V1_MIN_ACCEPTABLE_EVIDENCE_COUNT:
             await emit_event(RunEvent(
-                event_type="evidence_collected",
+                event_type="node_progress",
                 gate="source_collection",
                 agent="Search Scout",
-                message=f"已记录来源：{result.title}",
-                data={"evidence_id": item.id, "url": result.url},
+                message=(
+                    f"当前证据 {len(evidence)} 条，低于建议阈值 "
+                    f"{_V1_MIN_ACCEPTABLE_EVIDENCE_COUNT} 条，正在补充一轮开放搜索"
+                ),
+                progress_current=len(evidence),
+                progress_total=_V1_TARGET_EVIDENCE_COUNT,
             ))
+            supplemental_results = await search_provider.search(SearchQuery(
+                query=_build_v1_supplemental_search_query(project.domain),
+                market_scope=project.market_scope.value,
+                max_results=8,
+                allowed_domains=[],
+                blocked_domains=v1_blocked_domains,
+            ))
+            supplemental_results = _filter_v1_search_results(supplemental_results, project=project)
+            await _persist_search_results(
+                project=project,
+                repository=repository,
+                evidence=evidence,
+                results=supplemental_results,
+                emit_event=emit_event,
+            )
+
+    sufficiency = _assess_evidence_sufficiency(evidence)
+    if sufficiency["status"] != "sufficient":
+        await emit_event(RunEvent(
+            event_type="node_degraded",
+            gate="source_collection",
+            agent="Search Scout",
+            message=sufficiency["message"],
+            progress_current=len(evidence),
+            progress_total=_V1_TARGET_EVIDENCE_COUNT,
+            severity="warning",
+            data=sufficiency,
+        ))
+    else:
+        await emit_event(RunEvent(
+            event_type="node_progress",
+            gate="source_collection",
+            agent="Search Scout",
+            message=sufficiency["message"],
+            progress_current=len(evidence),
+            progress_total=_V1_TARGET_EVIDENCE_COUNT,
+            data=sufficiency,
+        ))
 
     await emit_event(RunEvent(
         event_type="node_completed",
@@ -223,12 +272,32 @@ async def run_v1_knowledge_pipeline(
         progress_current=2,
         progress_total=3,
     ))
+    await emit_event(RunEvent(
+        event_type="node_progress",
+        gate="knowledge_structuring",
+        agent="Knowledge Builder",
+        message="正在抽取概念、架构、工具、趋势和学习路径",
+        progress_current=1,
+        progress_total=2,
+    ))
 
     database = await _build_knowledge_database(
         project=project,
         evidence=evidence,
         llm_provider=llm_provider,
+        emit_event=emit_event,
     )
+    await emit_event(RunEvent(
+        event_type="node_progress",
+        gate="knowledge_structuring",
+        agent="Knowledge Builder",
+        message=(
+            f"领域数据库生成完成：{len(database.concepts)} 个概念、"
+            f"{len(database.architectures)} 个架构、{len(database.tools)} 个工具"
+        ),
+        progress_current=2,
+        progress_total=2,
+    ))
     source_evidence_ids = [item.id for item in evidence]
     artifacts = await _build_artifacts(
         project,
@@ -257,6 +326,59 @@ async def run_v1_knowledge_pipeline(
         progress_total=3,
     ))
     return artifacts
+
+
+async def _persist_search_results(
+    *,
+    project: ResearchProject,
+    repository: SQLiteRepository,
+    evidence: list[EvidenceItem],
+    results: list[SearchResult],
+    emit_event: Callable[[RunEvent], Awaitable[None]],
+) -> None:
+    seen_urls = {item.source_url for item in evidence if item.source_url}
+    for result in results:
+        if result.url in seen_urls:
+            continue
+        item = _search_result_to_evidence(project, result, len(evidence) + 1)
+        repository.add_evidence(item)
+        evidence.append(item)
+        seen_urls.add(result.url)
+        await emit_event(RunEvent(
+            event_type="evidence_collected",
+            gate="source_collection",
+            agent="Search Scout",
+            message=f"已记录来源：{result.title}",
+            data={"evidence_id": item.id, "url": result.url},
+        ))
+
+
+def _assess_evidence_sufficiency(evidence: list[EvidenceItem]) -> dict[str, Any]:
+    source_urls = {item.source_url for item in evidence if item.source_url}
+    evidence_count = len(evidence)
+    if evidence_count >= _V1_TARGET_EVIDENCE_COUNT:
+        status = "sufficient"
+        message = f"资料充足度检查通过：已收集 {evidence_count} 条证据，可进入建库"
+    elif evidence_count >= _V1_MIN_ACCEPTABLE_EVIDENCE_COUNT:
+        status = "borderline"
+        message = f"资料基本可用：已收集 {evidence_count} 条证据，但仍建议后续补充更多信源"
+    elif evidence_count > 0:
+        status = "insufficient"
+        message = (
+            f"资料不足：当前只有 {evidence_count} 条证据，低于建议阈值 "
+            f"{_V1_MIN_ACCEPTABLE_EVIDENCE_COUNT} 条，本轮会继续生成但应标记为待补证"
+        )
+    else:
+        status = "empty"
+        message = "资料不足：当前没有可用搜索证据，本轮只能使用 fallback 框架生成，必须补充信源"
+    return {
+        "status": status,
+        "evidence_count": evidence_count,
+        "unique_source_count": len(source_urls),
+        "target_evidence_count": _V1_TARGET_EVIDENCE_COUNT,
+        "minimum_acceptable_evidence_count": _V1_MIN_ACCEPTABLE_EVIDENCE_COUNT,
+        "message": message,
+    }
 
 
 def _search_result_to_evidence(project: ResearchProject, result: SearchResult, index: int) -> EvidenceItem:
@@ -311,6 +433,14 @@ def _build_v1_search_query(domain: str) -> str:
     return (
         f"{domain_text} 最新趋势 核心框架 主要工具 玩家格局 "
         "production adoption evaluation challenges 2026"
+    )
+
+
+def _build_v1_supplemental_search_query(domain: str) -> str:
+    domain_text = domain.strip()
+    return (
+        f"{domain_text} 权威资料 官方文档 研究报告 实践案例 "
+        "architecture tools evaluation tutorial best practices 2026"
     )
 
 
@@ -414,11 +544,43 @@ def _truncate_text(text: str, max_chars: int) -> str:
     return normalized[: max_chars - 1].rstrip(" ,.;:，。") + "…"
 
 
+async def _complete_structured_with_heartbeat(
+    *,
+    llm_provider: LLMProvider,
+    messages: list[ChatMessage],
+    response_schema: type[Any],
+    emit_event: Callable[[RunEvent], Awaitable[None]],
+    gate: str,
+    agent: str,
+    waiting_message: str,
+    progress_current: int,
+    progress_total: int,
+    interval_seconds: float = 15,
+) -> Any:
+    task = asyncio.create_task(llm_provider.complete_structured(messages, response_schema))
+    heartbeat_count = 0
+    while not task.done():
+        done, _ = await asyncio.wait({task}, timeout=interval_seconds)
+        if done:
+            break
+        heartbeat_count += 1
+        await emit_event(RunEvent(
+            event_type="node_progress",
+            gate=gate,
+            agent=agent,
+            message=f"{waiting_message}（已等待约 {int(heartbeat_count * interval_seconds)} 秒）",
+            progress_current=progress_current,
+            progress_total=progress_total,
+        ))
+    return await task
+
+
 async def _build_knowledge_database(
     *,
     project: ResearchProject,
     evidence: list[EvidenceItem],
     llm_provider: LLMProvider | None,
+    emit_event: Callable[[RunEvent], Awaitable[None]] | None = None,
 ) -> DomainKnowledgeBase:
     fallback = _fallback_database(project, evidence)
     if llm_provider is None:
@@ -432,10 +594,21 @@ async def _build_knowledge_database(
         f"证据：{_evidence_brief(evidence)}"
     )
     try:
-        generated = await llm_provider.complete_structured(
-            [ChatMessage(role="user", content=prompt)],
-            DomainKnowledgeBase,
-        )
+        messages = [ChatMessage(role="user", content=prompt)]
+        if emit_event is None:
+            generated = await llm_provider.complete_structured(messages, DomainKnowledgeBase)
+        else:
+            generated = await _complete_structured_with_heartbeat(
+                llm_provider=llm_provider,
+                messages=messages,
+                response_schema=DomainKnowledgeBase,
+                emit_event=emit_event,
+                gate="knowledge_structuring",
+                agent="Knowledge Builder",
+                waiting_message="仍在生成结构化领域库，正在让 LLM 整合证据",
+                progress_current=1,
+                progress_total=2,
+            )
     except Exception:
         return fallback
     if not isinstance(generated, DomainKnowledgeBase):
@@ -816,6 +989,9 @@ async def _build_artifacts(
             writing_goal=writing_goal,
             fallback_markdown=fallback_markdown,
             llm_provider=llm_provider,
+            emit_event=emit_event,
+            progress_current=index,
+            progress_total=len(specs),
         )
         artifacts.append(Artifact(
             id=f"ART-V1-{artifact_type.value.upper()}-{uuid4().hex[:8]}",
@@ -840,6 +1016,9 @@ async def _write_artifact_markdown(
     writing_goal: str,
     fallback_markdown: str,
     llm_provider: LLMProvider | None,
+    emit_event: Callable[[RunEvent], Awaitable[None]],
+    progress_current: int,
+    progress_total: int,
 ) -> str:
     if llm_provider is None:
         return fallback_markdown
@@ -860,9 +1039,16 @@ async def _write_artifact_markdown(
         "如果某部分证据不足，请保留章节并标注“待验证”，但仍要给出学习者可执行的理解框架。"
     )
     try:
-        generated = await llm_provider.complete_structured(
-            [ChatMessage(role="user", content=prompt)],
-            str,
+        generated = await _complete_structured_with_heartbeat(
+            llm_provider=llm_provider,
+            messages=[ChatMessage(role="user", content=prompt)],
+            response_schema=str,
+            emit_event=emit_event,
+            gate="document_writing",
+            agent="Document Writer",
+            waiting_message=f"仍在写作：{artifact_title}，LLM 正在生成 Markdown 正文",
+            progress_current=progress_current,
+            progress_total=progress_total,
         )
     except Exception:
         return fallback_markdown
