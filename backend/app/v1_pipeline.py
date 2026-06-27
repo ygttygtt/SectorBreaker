@@ -50,6 +50,41 @@ class V1KnowledgeContent(BaseModel):
     sections: list[Any] = Field(default_factory=list)
 
 
+class DomainConcept(BaseModel):
+    name: str
+    definition: str
+    why_it_matters: str
+    related: list[str] = Field(default_factory=list)
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class DomainArchitecture(BaseModel):
+    name: str
+    summary: str
+    use_cases: list[str] = Field(default_factory=list)
+    strengths: list[str] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class DomainTool(BaseModel):
+    name: str
+    category: str
+    use_case: str
+    tradeoffs: str
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class DomainKnowledgeBase(BaseModel):
+    overview: str = ""
+    concepts: list[DomainConcept] = Field(default_factory=list)
+    architectures: list[DomainArchitecture] = Field(default_factory=list)
+    tools: list[DomainTool] = Field(default_factory=list)
+    trends: list[str] = Field(default_factory=list)
+    learning_path: list[str] = Field(default_factory=list)
+    open_questions: list[str] = Field(default_factory=list)
+
+
 _MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*]\([^)]+\)")
 _MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)]\([^)]+\)")
 _RAW_URL_RE = re.compile(r"https?://\S+")
@@ -188,13 +223,13 @@ async def run_v1_knowledge_pipeline(
         progress_total=3,
     ))
 
-    content = await _build_knowledge_content(
+    database = await _build_knowledge_database(
         project=project,
         evidence=evidence,
         llm_provider=llm_provider,
     )
     source_evidence_ids = [item.id for item in evidence]
-    artifacts = _build_artifacts(project, content, source_evidence_ids)
+    artifacts = _build_artifacts(project, database, source_evidence_ids)
     for artifact in artifacts:
         repository.add_artifact(artifact)
 
@@ -352,6 +387,164 @@ def _truncate_text(text: str, max_chars: int) -> str:
     return normalized[: max_chars - 1].rstrip(" ,.;:，。") + "…"
 
 
+async def _build_knowledge_database(
+    *,
+    project: ResearchProject,
+    evidence: list[EvidenceItem],
+    llm_provider: LLMProvider | None,
+) -> DomainKnowledgeBase:
+    fallback = _fallback_database(project, evidence)
+    if llm_provider is None:
+        return fallback
+
+    prompt = (
+        "你是 SectorBreaker 的领域建库 Agent。请不要写行业报告，而是构建可导入 Obsidian 的结构化知识库。"
+        "只聚焦学习和理解一个陌生领域：概念、主流架构、工具框架、趋势、学习路径、待验证问题。"
+        "不要输出竞品收入结构或内容生态分析。每个对象尽量引用 evidence_ids。\n\n"
+        f"项目：{project.title}\n领域：{project.domain}\n市场范围：{project.market_scope.value}\n"
+        f"证据：{_evidence_brief(evidence)}"
+    )
+    try:
+        generated = await llm_provider.complete_structured(
+            [ChatMessage(role="user", content=prompt)],
+            DomainKnowledgeBase,
+        )
+    except Exception:
+        return fallback
+    if not isinstance(generated, DomainKnowledgeBase):
+        return fallback
+    return _merge_database_with_fallback(generated, fallback)
+
+
+def _fallback_database(project: ResearchProject, evidence: list[EvidenceItem]) -> DomainKnowledgeBase:
+    evidence_ids = [item.id for item in evidence] or ["待补充证据"]
+    topic = project.domain
+    evidence_themes = _evidence_theme_lines(evidence)
+    return DomainKnowledgeBase(
+        overview=(
+            f"{topic} 知识库用于先抹平信息差：建立术语、主流架构、工具框架、趋势和待验证问题。"
+            f"当前版本基于 {len(evidence)} 条搜索证据生成，适合作为继续补资料的 Obsidian 起点。"
+            f"{' 证据主题包括：' + evidence_themes if evidence_themes else ''}"
+        ),
+        concepts=[
+            DomainConcept(
+                name="AI Agent",
+                definition="围绕目标自主感知、推理、规划、调用工具并执行动作的软件系统。",
+                why_it_matters="它是理解工具调用、工作流编排、多 Agent 协作和生产落地的共同入口。",
+                related=["工具调用", "规划", "记忆", "评测"],
+                evidence_ids=evidence_ids[:2],
+            ),
+            DomainConcept(
+                name="工具调用",
+                definition="模型通过函数、API、MCP Server 或浏览器等外部能力完成实际动作。",
+                why_it_matters="没有工具调用，Agent 往往只能停留在问答；有工具调用才可能进入真实工作流。",
+                related=["MCP", "函数调用", "权限控制"],
+                evidence_ids=evidence_ids[:2],
+            ),
+            DomainConcept(
+                name="规划与执行",
+                definition="把目标拆解成步骤，选择下一步动作，并根据反馈修正计划。",
+                why_it_matters="复杂任务的可靠性取决于规划、执行、验证和恢复机制是否清晰。",
+                related=["Planner-Executor", "ReAct", "Workflow Agent"],
+                evidence_ids=evidence_ids[:3],
+            ),
+            DomainConcept(
+                name="记忆与上下文",
+                definition="保存任务状态、用户偏好、外部知识和历史决策，以支持跨步骤推理。",
+                why_it_matters="长期任务、个性化助手和组织知识库都依赖可管理的记忆机制。",
+                related=["RAG", "向量数据库", "知识图谱"],
+                evidence_ids=evidence_ids[:3],
+            ),
+        ],
+        architectures=[
+            DomainArchitecture(
+                name="Planner-Executor",
+                summary="先由规划器拆任务，再由执行器逐步调用工具完成任务。",
+                use_cases=["研究助理", "代码生成", "多步骤自动化"],
+                strengths=["结构清晰", "容易插入人工确认", "便于失败定位"],
+                limitations=["计划质量不足时会级联失败", "需要额外验证环节"],
+                evidence_ids=evidence_ids[:3],
+            ),
+            DomainArchitecture(
+                name="Workflow Agent",
+                summary="把 LLM 能力放入确定性工作流节点，用状态机或图控制步骤。",
+                use_cases=["生产系统", "审批流", "可观测自动化"],
+                strengths=["可控性强", "便于测试", "适合工程落地"],
+                limitations=["灵活性低于开放式 Agent", "前期架构设计成本更高"],
+                evidence_ids=evidence_ids[:3],
+            ),
+            DomainArchitecture(
+                name="Multi-Agent",
+                summary="多个角色 Agent 分工协作，例如研究、批判、执行、总结。",
+                use_cases=["复杂研究", "代码审查", "多视角决策"],
+                strengths=["角色边界清晰", "可引入反证和复核"],
+                limitations=["协调成本高", "容易产生重复、漂移和上下文浪费"],
+                evidence_ids=evidence_ids[:3],
+            ),
+        ],
+        tools=[
+            DomainTool(
+                name="LangGraph",
+                category="workflow",
+                use_case="构建有状态、多节点、可暂停恢复的 Agent 工作流。",
+                tradeoffs="适合生产控制，但需要认真设计 state、node、edge 和检查点。",
+                evidence_ids=evidence_ids[:3],
+            ),
+            DomainTool(
+                name="OpenAI Agents SDK",
+                category="sdk",
+                use_case="快速搭建工具调用、handoff 和 Agent 编排。",
+                tradeoffs="上手快，复杂业务仍需要额外的状态、权限和评测体系。",
+                evidence_ids=evidence_ids[:3],
+            ),
+            DomainTool(
+                name="CrewAI / AutoGen",
+                category="multi-agent",
+                use_case="快速试验角色分工式多 Agent 协作。",
+                tradeoffs="适合原型，生产落地时要警惕不可控循环和上下文成本。",
+                evidence_ids=evidence_ids[:3],
+            ),
+        ],
+        trends=[
+            "Agent 开发正在从 demo 转向工程化：状态管理、可观测性、评测和权限控制变得更重要。",
+            "MCP、函数调用和工具生态正在把 Agent 从聊天界面连接到真实系统。",
+            "评测 Agent Development Kits 和生产可靠性正在成为框架选择的重要依据。",
+        ],
+        learning_path=[
+            "先理解 AI Agent、工具调用、规划、记忆、RAG、MCP 等基础概念；完成标志：能解释每个概念解决什么问题。",
+            "比较 Planner-Executor、Workflow Agent、Multi-Agent、RAG Agent 等主流架构；完成标志：能判断一个任务适合哪类架构。",
+            "选择一个框架做最小项目，例如 LangGraph 或 OpenAI Agents SDK；完成标志：能跑通工具调用和错误处理。",
+            "补充工程化能力：日志、评测、权限、人工确认、失败恢复；完成标志：能说明 demo 到生产缺什么。",
+            "把自己的学习笔记转成 Obsidian 卡片，并持续补证据；完成标志：每个关键判断都能回链来源。",
+        ],
+        open_questions=[
+            "哪些框架在生产环境中最稳定，证据来自哪里？",
+            "不同架构的失败模式分别是什么？",
+            "MCP、函数调用、浏览器自动化在真实产品中如何分工？",
+            "哪些能力是学习入门必须掌握，哪些只是高级工程化需求？",
+        ],
+    )
+
+
+def _merge_database_with_fallback(generated: DomainKnowledgeBase, fallback: DomainKnowledgeBase) -> DomainKnowledgeBase:
+    return DomainKnowledgeBase(
+        overview=generated.overview or fallback.overview,
+        concepts=generated.concepts if len(generated.concepts) >= 3 else fallback.concepts,
+        architectures=generated.architectures if len(generated.architectures) >= 2 else fallback.architectures,
+        tools=generated.tools if len(generated.tools) >= 2 else fallback.tools,
+        trends=generated.trends or fallback.trends,
+        learning_path=generated.learning_path if len(generated.learning_path) >= 4 else fallback.learning_path,
+        open_questions=generated.open_questions or fallback.open_questions,
+    )
+
+
+def _evidence_theme_lines(evidence: list[EvidenceItem]) -> str:
+    if not evidence:
+        return ""
+    titles = [item.source_title for item in evidence[:5] if item.source_title]
+    return "；".join(titles)
+
+
 async def _build_knowledge_content(
     *,
     project: ResearchProject,
@@ -440,18 +633,18 @@ def _merge_generated_with_fallback(generated: V1KnowledgeContent, fallback: V1Kn
 
 def _build_artifacts(
     project: ResearchProject,
-    content: V1KnowledgeContent,
+    database: DomainKnowledgeBase,
     source_evidence_ids: list[str],
 ) -> list[Artifact]:
     now = datetime.now(UTC)
     specs = [
-        (ArtifactType.DOMAIN_OVERVIEW, "领域总览", "00-领域总览.md", content.domain_overview),
-        (ArtifactType.LEARNING_PATH, "入门路线", "01-入门路线.md", _markdown_from_value(content.learning_path)),
-        (ArtifactType.CORE_CONCEPTS, "核心概念", "02-核心概念.md", content.core_concepts),
-        (ArtifactType.PLAYER_TOOL_MAP, "玩家与工具地图", "03-玩家与工具地图.md", content.player_tool_map),
-        (ArtifactType.TREND_EVIDENCE, "趋势与证据", "04-趋势与证据.md", content.trend_evidence),
-        (ArtifactType.PROBLEM_OPPORTUNITY_MAP, "问题与机会", "05-问题与机会.md", content.problem_opportunity_map),
-        (ArtifactType.UNRESOLVED_QUESTIONS, "待验证问题", "99-待验证问题.md", content.unresolved_questions),
+        (ArtifactType.DOMAIN_OVERVIEW, "领域总览", "00-领域总览.md", _render_domain_overview(project, database, source_evidence_ids)),
+        (ArtifactType.LEARNING_PATH, "入门路线", "01-入门路线.md", _render_learning_path(project, database)),
+        (ArtifactType.CORE_CONCEPTS, "核心概念", "02-核心概念.md", _render_core_concepts(database)),
+        (ArtifactType.PLAYER_TOOL_MAP, "主流架构与工具地图", "03-玩家与工具地图.md", _render_architecture_tool_map(database)),
+        (ArtifactType.TREND_EVIDENCE, "趋势与证据", "04-趋势与证据.md", _render_trends(database)),
+        (ArtifactType.PROBLEM_OPPORTUNITY_MAP, "问题与机会", "05-问题与机会.md", _render_problem_opportunities(project, database)),
+        (ArtifactType.UNRESOLVED_QUESTIONS, "待验证问题", "99-待验证问题.md", _render_open_questions(database)),
     ]
     return [
         Artifact(
@@ -467,6 +660,157 @@ def _build_artifacts(
         )
         for artifact_type, title, content_path, markdown in specs
     ]
+
+
+def _render_domain_overview(
+    project: ResearchProject,
+    database: DomainKnowledgeBase,
+    source_evidence_ids: list[str],
+) -> str:
+    concept_names = "、".join(concept.name for concept in database.concepts[:6])
+    architecture_names = "、".join(item.name for item in database.architectures[:5])
+    tool_names = "、".join(tool.name for tool in database.tools[:6])
+    evidence_line = "、".join(source_evidence_ids[:8]) or "暂无证据"
+    return (
+        f"# {project.domain} 领域总览\n\n"
+        f"{database.overview}\n\n"
+        "## 怎么使用这个知识库\n\n"
+        "这不是一次性行业报告，而是一个可以继续填充的学习型知识库。建议先读领域总览，"
+        "再按入门路线学习核心概念、主流架构和工具框架，最后把待验证问题变成下一轮搜索任务。\n\n"
+        "## 核心概念速览\n\n"
+        f"{concept_names or '暂无概念'}\n\n"
+        "## 主流架构速览\n\n"
+        f"{architecture_names or '暂无架构'}\n\n"
+        "## 工具与框架速览\n\n"
+        f"{tool_names or '暂无工具'}\n\n"
+        "## 当前证据范围\n\n"
+        f"本轮知识库引用证据：{evidence_line}。所有未被证据充分支撑的判断都应继续标记为待验证。"
+    )
+
+
+def _render_learning_path(project: ResearchProject, database: DomainKnowledgeBase) -> str:
+    lines = [
+        f"# {project.domain} 入门路线",
+        "",
+        "这条路线面向“快速理解陌生领域”，不是创业竞品分析，也不是内容运营分析。",
+        "",
+        "## 学习路径",
+        "",
+    ]
+    for index, step in enumerate(database.learning_path, start=1):
+        lines.append(f"### {index}. {step}")
+        lines.append("")
+        lines.append(f"- 学习目标：理解这一步对应的概念、架构或工具，并能用自己的话复述。")
+        lines.append("- 实践动作：找一个最小例子，记录它的输入、处理过程、输出和失败情况。")
+        lines.append("- Obsidian 卡片：为这一步新建一张卡片，至少包含“定义 / 例子 / 关联概念 / 证据链接”。")
+        lines.append(f"- 完成标志：能把这一步沉淀成一张 Obsidian 卡片，并链接至少一个相关概念或证据。")
+        lines.append("- 常见误区：不要只收藏链接或框架名，要写清楚它解决的问题和不适合的场景。")
+        lines.append("")
+    lines.extend([
+        "## 建议节奏",
+        "",
+        "- 第一轮只求建立全局地图，不追求所有细节一次学完。",
+        "- 第二轮围绕不理解的概念补资料，并把证据补回 `_sources/evidence-ledger.md`。",
+        "- 第三轮选择一个最小项目验证架构，例如工具调用、RAG Agent 或工作流 Agent。",
+    ])
+    return "\n".join(lines)
+
+
+def _render_core_concepts(database: DomainKnowledgeBase) -> str:
+    lines = ["# 核心概念", ""]
+    for concept in database.concepts:
+        lines.extend([
+            f"## {concept.name}",
+            "",
+            f"**定义**：{concept.definition}",
+            "",
+            f"**为什么重要**：{concept.why_it_matters}",
+            "",
+            f"**相关概念**：{_join_or_placeholder(concept.related)}",
+            "",
+            f"**证据**：{_join_or_placeholder(concept.evidence_ids)}",
+            "",
+        ])
+    return "\n".join(lines).strip()
+
+
+def _render_architecture_tool_map(database: DomainKnowledgeBase) -> str:
+    lines = ["# 主流架构与工具地图", ""]
+    lines.append("## 主流架构")
+    lines.append("")
+    for architecture in database.architectures:
+        lines.extend([
+            f"### {architecture.name}",
+            "",
+            architecture.summary,
+            "",
+            f"- 适用场景：{_join_or_placeholder(architecture.use_cases)}",
+            f"- 优势：{_join_or_placeholder(architecture.strengths)}",
+            f"- 局限：{_join_or_placeholder(architecture.limitations)}",
+            f"- 证据：{_join_or_placeholder(architecture.evidence_ids)}",
+            "",
+        ])
+    lines.append("## 工具与框架")
+    lines.append("")
+    for tool in database.tools:
+        lines.extend([
+            f"### {tool.name}",
+            "",
+            f"- 类型：{tool.category}",
+            f"- 用途：{tool.use_case}",
+            f"- 取舍：{tool.tradeoffs}",
+            f"- 证据：{_join_or_placeholder(tool.evidence_ids)}",
+            "",
+        ])
+    return "\n".join(lines).strip()
+
+
+def _render_trends(database: DomainKnowledgeBase) -> str:
+    lines = ["# 趋势与证据", ""]
+    for trend in database.trends:
+        lines.append(f"- {trend}")
+    lines.extend([
+        "",
+        "## 如何继续验证",
+        "",
+        "把每条趋势拆成可搜索的问题：谁提出了这个趋势？有哪些项目或论文支撑？有没有反例？"
+        "下一轮搜索应优先补充原始论文、官方文档、工程案例和评测基准。",
+    ])
+    return "\n".join(lines)
+
+
+def _render_problem_opportunities(project: ResearchProject, database: DomainKnowledgeBase) -> str:
+    architecture_names = "、".join(item.name for item in database.architectures)
+    tool_names = "、".join(tool.name for tool in database.tools)
+    return (
+        f"# {project.domain} 问题与机会\n\n"
+        "这里的“机会”不是商业创业机会，而是学习和建库时下一步最值得补齐的认知缺口。\n\n"
+        "## 当前主要问题\n\n"
+        f"- 概念容易混用：需要区分 {_join_or_placeholder([concept.name for concept in database.concepts[:5]])}。\n"
+        f"- 架构选择困难：需要比较 {architecture_names or '不同 Agent 架构'} 的适用边界。\n"
+        f"- 工具框架很多：需要理解 {tool_names or '主流框架'} 的取舍，而不是只看热度。\n\n"
+        "## 下一步补库机会\n\n"
+        "- 为每个核心概念补一张概念卡：定义、例子、反例、相关工具、证据。\n"
+        "- 为每个主流架构补一张架构卡：流程图、适用场景、失败模式、代表框架。\n"
+        "- 为每个工具补一张工具卡：定位、上手成本、生产风险、替代品。\n"
+    )
+
+
+def _render_open_questions(database: DomainKnowledgeBase) -> str:
+    lines = ["# 待验证问题", ""]
+    for question in database.open_questions:
+        lines.extend([
+            f"## {question}",
+            "",
+            "- 当前状态：待验证。",
+            "- 下一步：补充至少两个来源，并记录支持或反驳证据。",
+            "",
+        ])
+    return "\n".join(lines).strip()
+
+
+def _join_or_placeholder(values: list[str], placeholder: str = "待补充") -> str:
+    return "、".join(value for value in values if value) or placeholder
 
 
 def _evidence_brief(evidence: list[EvidenceItem]) -> str:
