@@ -43,7 +43,7 @@ For Cursor, Windsurf, Gemini, Codex, Claude Code, or other tools, also read `doc
 - Runnable V1 rearchitecture has started. A simplified product path now exists for `auto_run=true`: backend-owned `RunSnapshot`, latest-run restore endpoint, V1 knowledge pipeline, seven stable knowledge artifacts, and V1 Obsidian export layout. The frontend primary landing action now starts this V1 knowledge-base construction path directly instead of entering the old Supervisor Plan confirmation path. The automated fake-provider regression path passes, and the real-provider acceptance path has passed locally with the configured OpenAI-compatible LLM plus Tavily.
 - V1 usability closeout now covers the first complete local product loop: Tavily-only onboarding, Mimo/OpenAI-compatible LLM runtime config, Vite proxy to the active FastAPI port, real-time event display, completed-run trace display, cleaned evidence snippets, and result-page overflow protection. A real UI run for `Agent开发` completed with 5 evidence items, 7 V1 artifacts, visible run trace, no white screen, no horizontal overflow, and no GitHub navigation/XLS/Instagram noise in the rendered result.
 - V1.1 now narrows the product promise to "build a learning-oriented domain knowledge base." The main auto-run path intentionally excludes competitor revenue analysis and content ecosystem scraping. It now builds a structured `DomainKnowledgeBase` first (overview, concepts, architectures, tools, trends, learning path, open questions) and renders the seven Obsidian artifacts from that database instead of relying on one-line fallback Markdown templates.
-- Important local debugging note: stale `uvicorn` processes and the old Vite proxy default to `127.0.0.1:8030` can make the frontend appear unconfigured even when the current backend on `127.0.0.1:8000` is correct. Before UI acceptance, ensure only one `uvicorn backend.app.api.app:app --port 8000` process is running and restart Vite after config changes.
+- Important local debugging note: stale `uvicorn` processes on another port can make the frontend hit old code. The default Vite proxy now targets `127.0.0.1:8030`; before UI acceptance, ensure only one intended `uvicorn backend.app.api.app:app --port 8030` process is running and restart Vite after config changes.
 - LangGraph workflow now includes Scope, Supervisor Plan, Source Strategy, Source Intake, Claim Extractor, Counterevidence, Evidence Ledger, Market, Player, Transaction, Synthesis, Knowledge Map, QA Critic, Export, and RAG Indexer gates.
 - Runs pause at `supervisor_plan` for user confirmation unless `auto_run=true`.
 - Assistant briefs are optional manual Markdown/text inputs and are treated as low-trust lead material.
@@ -89,8 +89,7 @@ For Cursor, Windsurf, Gemini, Codex, Claude Code, or other tools, also read `doc
 - Result evidence ledger now exposes quality/status chips, outbound source links, and client-side filters for quality, verification status, and attention-only review.
 - Frontend config panel now shows reliable source onboarding with connector status, key requirements, and setup links.
 - Landing page search warning is now clickable and opens settings for source onboarding.
-- Vite now proxies `/api` to `http://127.0.0.1:8000` by default, matching the standard local FastAPI port.
-- Vite proxies `/api` to `http://127.0.0.1:8000`.
+- Vite now proxies `/api` to `http://127.0.0.1:8030` by default, matching the current local FastAPI command used for V1 acceptance.
 
 ## Verification Commands
 

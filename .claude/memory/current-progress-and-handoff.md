@@ -15,9 +15,9 @@ metadata:
 当前状态：
 
 - Runnable V1 重构已开始落地：`auto_run=true` 现在走简化 V1 主路径，新增后端 `RunSnapshot`、最近 run 恢复接口、七个稳定知识产物、`_sources/evidence-ledger.md` 导出布局，以及真实验收脚本的 LLM/Search/Artifact/Export 检查。前端主按钮现在默认走 V1 `auto_run=true` 知识库构建路径，不再把首页主流程带入旧的 Supervisor Plan 确认页。当前自动化回归通过；真实 API 验收已在本地用已配置的 OpenAI-compatible LLM 和 Tavily 跑通。
-- V1 第一版本地闭环已真实跑通：本地 runtime config 使用 Tavily + Mimo/OpenAI-compatible LLM，前端 `/api` 代理指向标准后端 `127.0.0.1:8000`；UI 输入 `Agent开发` 后可完成真实 run，结果页显示运行轨迹、`5 / 5 条证据`、7 个 Obsidian V1 artifacts，无白屏、无横向溢出、无 GitHub navigation/XLS/Instagram 噪音。
+- V1 第一版本地闭环已真实跑通：本地 runtime config 使用 Tavily + Mimo/OpenAI-compatible LLM，前端 `/api` 默认代理指向当前后端 `127.0.0.1:8030`；UI 输入 `Agent开发` 后可完成真实 run，结果页显示运行轨迹、`5 / 5 条证据`、7 个 Obsidian V1 artifacts，无白屏、无横向溢出、无 GitHub navigation/XLS/Instagram 噪音。
 - V1.1 已收缩为“学习型领域建库”：主路径暂不做竞品收入结构和内容生态，先构建结构化 `DomainKnowledgeBase`（总览、概念、主流架构、工具、趋势、学习路径、待验证问题），再渲染 7 个 Obsidian artifacts，避免继续输出一行模板文档。
-- 重要排障记忆：本轮发现旧 `uvicorn` 进程和 Vite 旧代理端口会造成“后端配置好了但 UI 仍显示未配置/像没修”的假象。验收前先确认只有一个 `uvicorn backend.app.api.app:app --port 8000`，并在 `vite.config.ts` 或 `VITE_API_PROXY_TARGET` 变更后重启 Vite。
+- 重要排障记忆：旧 `uvicorn` 进程和 Vite 代理端口不一致会造成“后端配置好了但 UI 仍显示未配置/像没修”的假象。验收前先确认只有一个目标后端，当前默认是 `uvicorn backend.app.api.app:app --port 8030`，并在 `vite.config.ts` 或 `VITE_API_PROXY_TARGET` 变更后重启 Vite。
 - 文档与协作规范已建立。
 - 核心 schema、provider interfaces、provider factory、SQLite migration/repository 已建立。
 - 已新增 `source_policy`、`SupervisorPlan`、`AgentTask`、`AgentSelectionDecision`、`AgentSelectionSignal`、`EvidenceClaim`、`QAReport`、workflow definition schemas。

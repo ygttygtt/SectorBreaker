@@ -32,7 +32,7 @@ The latest completed implementation milestone is:
 - V1.1 scope is intentionally learning-oriented domain knowledge base construction. The main path now skips competitor/revenue and content-ecosystem work, builds a structured `DomainKnowledgeBase`, and renders the Obsidian artifacts from concepts, architectures, tools, trends, learning path, and open questions.
 - Backend: FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + explainable agent selection traces.
 - Frontend: Vite + React + TypeScript explainable research workbench with real workflow graph, vertical layout, and active-node centering.
-- Local debugging note: if the landing page reports LLM/search as unconfigured while `/api/config/*` on `127.0.0.1:8000` is configured, check for stale `uvicorn` processes and restart Vite. The default Vite proxy now targets `http://127.0.0.1:8000`.
+- Local debugging note: the default Vite proxy targets `http://127.0.0.1:8030`. If the landing page reports LLM/search as unconfigured, check for stale `uvicorn` processes on other ports and restart Vite after changing backend ports.
 - Environment: conda environment `sectorbreaker`.
 
 Verified commands at this baseline:
@@ -57,7 +57,7 @@ Default backend:
 
 ```bash
 conda activate sectorbreaker
-uvicorn backend.app.api.app:app --host 127.0.0.1 --port 8000 --reload
+uvicorn backend.app.api.app:app --host 127.0.0.1 --port 8030 --reload
 ```
 
 Default frontend:

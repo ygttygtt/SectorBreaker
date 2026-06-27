@@ -53,18 +53,25 @@ const eventNodeMap: Record<string, string> = {
   scope: "scope",
   supervisor_plan: "supervisor_plan",
   source_strategy: "source_strategy",
+  source_collection: "source_intake",
   evidence: "source_intake",
   claim_extractor: "claim_extractor",
   counterevidence: "counterevidence",
   evidence_ledger: "evidence_ledger",
+  knowledge_structuring: "business_database",
   market_agent: "market_agent",
   player_agent: "player_agent",
   transaction_agent: "transaction_agent",
   synthesis: "synthesis",
   knowledge_map: "business_database",
   qa_critic: "qa_critic",
+  obsidian_export: "export",
   export: "export",
 };
+
+export function nodeIdForEvent(event: Pick<RunEvent, "gate" | "step" | "agent">) {
+  return eventNodeMap[event.gate] ?? event.step ?? event.agent?.toLowerCase().replace(/\s+/g, "_");
+}
 
 function extractPlan(events: RunEvent[]): SupervisorPlan | null {
   const event = [...events].reverse().find((item) => item.gate === "supervisor_plan" && item.data);
@@ -177,7 +184,7 @@ function QAReportPanel({ qa }: { qa: QaPayload }) {
 function deriveStatuses(events: RunEvent[]): Record<string, NodeStatus> {
   const statuses: Record<string, NodeStatus> = {};
   for (const event of events) {
-    const nodeId = eventNodeMap[event.gate] ?? event.step ?? event.agent?.toLowerCase().replace(/\s+/g, "_");
+    const nodeId = nodeIdForEvent(event);
     if (!nodeId) continue;
     if (event.event_type === "node_started" || event.event_type === "node_progress") statuses[nodeId] = "running";
     if (event.event_type === "node_completed") statuses[nodeId] = "completed";
@@ -382,7 +389,7 @@ function ResearchView({
   const [elapsed, setElapsed] = useState("00:00");
   const statuses = useMemo(() => deriveStatuses(events), [events]);
   const latest = events[events.length - 1];
-  const activeNodeId = latest ? eventNodeMap[latest.gate] : "scope";
+  const activeNodeId = latest ? nodeIdForEvent(latest) : "scope";
   const evidenceEvents = events.filter((event) => event.event_type === "evidence_collected").length;
   const qaReport = asQaPayload(extractQa(events));
   const snapshotProgress = snapshot?.progress.total

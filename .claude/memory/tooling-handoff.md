@@ -23,7 +23,7 @@ metadata:
 - V1.1 当前主线是学习型领域建库，不做竞品收入结构和内容生态。后端先构建 `DomainKnowledgeBase`，再导出概念、架构、工具、趋势、学习路线和待验证问题，避免一行模板文档。
 - 后端：FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + 可解释选择轨迹
 - 前端：Vite + React + TypeScript，可解释研究工作台，真实 workflow graph，纵向布局与活动节点居中
-- 前端默认 `/api` 代理到 `http://127.0.0.1:8000`。如果 UI 误报 LLM/搜索未配置，优先排查旧 `uvicorn` 进程和 Vite 是否需要重启。
+- 前端默认 `/api` 代理到 `http://127.0.0.1:8030`。如果 UI 误报 LLM/搜索未配置，优先排查旧 `uvicorn` 进程和 Vite 是否需要重启。
 - 当前会显式展示“搜索未配置”提示，避免把无联网检索误当成正常研究能力
 - 后端搜索 provider 已扩展为 Tavily / Serper / Brave / Exa；V1 前端配置面板暂时只暴露 Tavily
 - 保存 Tavily runtime 配置后，前端会立即刷新 landing 页搜索状态，不需要手动刷新
