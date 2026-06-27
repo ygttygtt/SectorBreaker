@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
@@ -229,7 +230,13 @@ async def run_v1_knowledge_pipeline(
         llm_provider=llm_provider,
     )
     source_evidence_ids = [item.id for item in evidence]
-    artifacts = _build_artifacts(project, database, source_evidence_ids)
+    artifacts = await _build_artifacts(
+        project,
+        database,
+        source_evidence_ids,
+        llm_provider=llm_provider,
+        emit_event=emit_event,
+    )
     for artifact in artifacts:
         repository.add_artifact(artifact)
 
@@ -773,23 +780,44 @@ def _merge_generated_with_fallback(generated: V1KnowledgeContent, fallback: V1Kn
     )
 
 
-def _build_artifacts(
+async def _build_artifacts(
     project: ResearchProject,
     database: DomainKnowledgeBase,
     source_evidence_ids: list[str],
+    *,
+    llm_provider: LLMProvider | None,
+    emit_event: Callable[[RunEvent], Awaitable[None]],
 ) -> list[Artifact]:
     now = datetime.now(UTC)
     specs = [
-        (ArtifactType.DOMAIN_OVERVIEW, "领域总览", "00-领域总览.md", _render_domain_overview(project, database, source_evidence_ids)),
-        (ArtifactType.LEARNING_PATH, "入门路线", "01-入门路线.md", _render_learning_path(project, database)),
-        (ArtifactType.CORE_CONCEPTS, "核心概念", "02-核心概念.md", _render_core_concepts(database)),
-        (ArtifactType.PLAYER_TOOL_MAP, "主流架构与工具地图", "03-玩家与工具地图.md", _render_architecture_tool_map(database)),
-        (ArtifactType.TREND_EVIDENCE, "趋势与证据", "04-趋势与证据.md", _render_trends(database)),
-        (ArtifactType.PROBLEM_OPPORTUNITY_MAP, "问题与机会", "05-问题与机会.md", _render_problem_opportunities(project, database)),
-        (ArtifactType.UNRESOLVED_QUESTIONS, "待验证问题", "99-待验证问题.md", _render_open_questions(database)),
+        (ArtifactType.DOMAIN_OVERVIEW, "领域总览", "00-领域总览.md", _render_domain_overview(project, database, source_evidence_ids), "解释这个领域是什么、为什么值得学、全局地图和证据覆盖范围。"),
+        (ArtifactType.LEARNING_PATH, "入门路线", "01-入门路线.md", _render_learning_path(project, database), "写出可执行的学习阶梯、每阶段目标、实践任务、完成标志和常见误区。"),
+        (ArtifactType.CORE_CONCEPTS, "核心概念", "02-核心概念.md", _render_core_concepts(database), "写出核心概念库，每个概念包含定义、通俗解释、例子、关联概念和证据。"),
+        (ArtifactType.PLAYER_TOOL_MAP, "主流架构与工具地图", "03-玩家与工具地图.md", _render_architecture_tool_map(database), "写出主流架构、适用场景、优缺点、工具框架和新手选择建议。"),
+        (ArtifactType.TREND_EVIDENCE, "趋势与证据", "04-趋势与证据.md", _render_trends(database), "写出趋势、争议、证据解释、现实约束和需要继续验证的判断。"),
+        (ArtifactType.PROBLEM_OPPORTUNITY_MAP, "问题与机会", "05-问题与机会.md", _render_problem_opportunities(project, database), "写出学习者真正会遇到的问题、认知缺口、实践机会和补库策略。"),
+        (ArtifactType.UNRESOLVED_QUESTIONS, "待验证问题", "99-待验证问题.md", _render_open_questions(database), "写出后续研究任务，每个问题说明重要性、需要什么证据、下一步怎么查。"),
     ]
-    return [
-        Artifact(
+    artifacts: list[Artifact] = []
+    for index, (artifact_type, title, content_path, fallback_markdown, writing_goal) in enumerate(specs, start=1):
+        await emit_event(RunEvent(
+            event_type="node_progress",
+            gate="document_writing",
+            agent="Document Writer",
+            message=f"正在写作：{title}",
+            progress_current=index,
+            progress_total=len(specs),
+        ))
+        markdown = await _write_artifact_markdown(
+            project=project,
+            database=database,
+            artifact_title=title,
+            content_path=content_path,
+            writing_goal=writing_goal,
+            fallback_markdown=fallback_markdown,
+            llm_provider=llm_provider,
+        )
+        artifacts.append(Artifact(
             id=f"ART-V1-{artifact_type.value.upper()}-{uuid4().hex[:8]}",
             project_id=project.id,
             artifact_type=artifact_type,
@@ -799,9 +827,63 @@ def _build_artifacts(
             source_evidence_ids=source_evidence_ids,
             schema_version="v1",
             created_at=now,
+        ))
+    return artifacts
+
+
+async def _write_artifact_markdown(
+    *,
+    project: ResearchProject,
+    database: DomainKnowledgeBase,
+    artifact_title: str,
+    content_path: str,
+    writing_goal: str,
+    fallback_markdown: str,
+    llm_provider: LLMProvider | None,
+) -> str:
+    if llm_provider is None:
+        return fallback_markdown
+
+    prompt = (
+        "你是 SectorBreaker 的资深研究写作者。你的任务不是复述搜索结果，而是把结构化领域库"
+        "写成一份对初学者真正有用、可导入 Obsidian 的 Markdown 文档。\n\n"
+        "硬性要求：\n"
+        "- 只输出 Markdown 正文，不要 JSON，不要代码块包裹。\n"
+        "- 内容要充实，通常不少于 1200 个中文字符；如果信息不足，要写清楚哪些是待验证，而不是写空话。\n"
+        "- 每个判断要尽量回链 evidence id，例如 `证据：EV-...`。\n"
+        "- 要有解释、关系、例子、学习建议和下一步，不要只列名词。\n"
+        "- 不要写竞品收入结构或内容生态，除非用户主题本身要求。\n\n"
+        f"项目：{project.title}\n领域：{project.domain}\n文档：{artifact_title} ({content_path})\n"
+        f"写作目标：{writing_goal}\n\n"
+        "结构化领域库：\n"
+        f"{json.dumps(database.model_dump(mode='json'), ensure_ascii=False, indent=2)}\n\n"
+        "如果某部分证据不足，请保留章节并标注“待验证”，但仍要给出学习者可执行的理解框架。"
+    )
+    try:
+        generated = await llm_provider.complete_structured(
+            [ChatMessage(role="user", content=prompt)],
+            str,
         )
-        for artifact_type, title, content_path, markdown in specs
-    ]
+    except Exception:
+        return fallback_markdown
+    cleaned = _clean_generated_markdown(str(generated))
+    if _is_generated_markdown_usable(cleaned):
+        return cleaned
+    return fallback_markdown
+
+
+def _clean_generated_markdown(value: str) -> str:
+    cleaned = value.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:markdown|md)?\s*", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+    return cleaned.strip()
+
+
+def _is_generated_markdown_usable(value: str) -> bool:
+    if len(value) < 500:
+        return False
+    return value.count("\n## ") + value.count("\n### ") >= 2
 
 
 def _render_domain_overview(

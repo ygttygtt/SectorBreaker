@@ -219,6 +219,7 @@ afterEach(() => {
 test("maps V1 run events to visible workflow graph nodes", () => {
   expect(nodeIdForEvent({ gate: "source_collection", step: null, agent: "Search Scout" })).toBe("source_intake");
   expect(nodeIdForEvent({ gate: "knowledge_structuring", step: null, agent: "Knowledge Builder" })).toBe("business_database");
+  expect(nodeIdForEvent({ gate: "document_writing", step: null, agent: "Document Writer" })).toBe("business_database");
   expect(nodeIdForEvent({ gate: "obsidian_export", step: null, agent: "Export Writer" })).toBe("export");
 });
 

@@ -59,6 +59,8 @@ const eventNodeMap: Record<string, string> = {
   counterevidence: "counterevidence",
   evidence_ledger: "evidence_ledger",
   knowledge_structuring: "business_database",
+  document_writing: "business_database",
+  quality_review: "qa_critic",
   market_agent: "market_agent",
   player_agent: "player_agent",
   transaction_agent: "transaction_agent",

@@ -22,6 +22,7 @@ metadata:
 - V1 第一版真实 UI 闭环已跑通：本地 runtime config 使用 Tavily + Mimo/OpenAI-compatible LLM；`http://127.0.0.1:5173` 输入 `Agent开发` 可跑到完成，结果页有运行轨迹、`5 / 5 条证据`、7 个 artifacts，无白屏、无横向溢出、无 GitHub navigation/XLS/Instagram 噪音。
 - V1.1 当前主线是学习型领域建库，不做竞品收入结构和内容生态。后端先构建 `DomainKnowledgeBase`，再导出概念、架构、工具、趋势、学习路线和待验证问题，避免一行模板文档。
 - V1.1 已修复中文复合主题过滤误杀，并为大模型就业/应用开发主题提供专属 fallback 内容。
+- V1.1 已改为逐文档 LLM 写作：构建 `DomainKnowledgeBase` 后，后端会让 LLM 分别写 7 个 Obsidian Markdown artifact，并发出 `document_writing` 进度事件，前端据此更新流程状态。
 - 后端：FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + 可解释选择轨迹
 - 前端：Vite + React + TypeScript，可解释研究工作台，真实 workflow graph，纵向布局与活动节点居中
 - 前端默认 `/api` 代理到 `http://127.0.0.1:8030`。如果 UI 误报 LLM/搜索未配置，优先排查旧 `uvicorn` 进程和 Vite 是否需要重启。
@@ -48,6 +49,7 @@ metadata:
 - 最新 UI 验收：真实 `Agent开发` run completed，运行轨迹可见，证据账本 `5 / 5`，7 个 Obsidian V1 artifacts，布局不溢出。
 - 最新自动化验收：V1 pipeline 单测 8 passed；V1 artifact API/acceptance script focused tests 6 passed。
 - 最新自动化验收：V1 pipeline 单测 10 passed；`大模型开发就业` 搜索诊断确认 Tavily 有结果，需避免过滤误杀。
+- 最新自动化验收：V1 pipeline 单测 11 passed；`frontend App.test.tsx` 16 passed。
 
 最高风险任务：
 

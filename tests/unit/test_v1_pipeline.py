@@ -294,6 +294,99 @@ def test_v1_large_model_career_fallback_is_topic_specific() -> None:
     assert all("LangGraph" not in concept.name for concept in database.concepts[:1])
 
 
+def test_v1_pipeline_uses_llm_to_write_each_export_artifact_and_emits_progress() -> None:
+    class FakeRepository:
+        def __init__(self) -> None:
+            self.evidence = []
+            self.artifacts = []
+
+        def list_evidence(self, project_id: str):
+            return []
+
+        def add_evidence(self, item):
+            self.evidence.append(item)
+
+        def add_artifact(self, artifact):
+            self.artifacts.append(artifact)
+
+    class UsefulSearch:
+        async def search(self, query: SearchQuery) -> list[SearchResult]:
+            return [
+                SearchResult(
+                    title="大模型应用开发岗位技能要求",
+                    url="https://example.com/llm-job",
+                    snippet="大模型应用开发岗位要求 Python、RAG、Agent、模型 API、后端工程化和业务理解。",
+                )
+            ]
+
+    class WritingLLM:
+        def __init__(self) -> None:
+            self.string_calls = 0
+
+        async def complete_structured(self, messages, response_schema):
+            if response_schema is DomainKnowledgeBase:
+                return response_schema.model_validate({
+                    "overview": "大模型开发就业需要理解应用开发、RAG、Agent、工程化和作品集。",
+                    "concepts": [
+                        {"name": "大模型应用开发", "definition": "调用和集成大模型能力。", "why_it_matters": "岗位核心。", "related": ["RAG"], "evidence_ids": ["EV-V1-project-v1-clean-1"]},
+                        {"name": "RAG", "definition": "检索增强生成。", "why_it_matters": "企业知识库常用。", "related": ["向量数据库"], "evidence_ids": ["EV-V1-project-v1-clean-1"]},
+                        {"name": "Agent", "definition": "会规划和调用工具的系统。", "why_it_matters": "应用层进阶能力。", "related": ["工具调用"], "evidence_ids": ["EV-V1-project-v1-clean-1"]},
+                    ],
+                    "architectures": [
+                        {"name": "RAG 应用架构", "summary": "检索后生成。", "use_cases": ["知识库"], "strengths": ["常见"], "limitations": ["依赖数据"], "evidence_ids": ["EV-V1-project-v1-clean-1"]},
+                        {"name": "Agent 工作流架构", "summary": "规划并调用工具。", "use_cases": ["自动化"], "strengths": ["进阶"], "limitations": ["调试难"], "evidence_ids": ["EV-V1-project-v1-clean-1"]},
+                    ],
+                    "tools": [
+                        {"name": "Python", "category": "language", "use_case": "开发后端和脚本。", "tradeoffs": "需要工程化。", "evidence_ids": ["EV-V1-project-v1-clean-1"]},
+                        {"name": "LangChain / LangGraph", "category": "framework", "use_case": "RAG 和 Agent。", "tradeoffs": "抽象多。", "evidence_ids": ["EV-V1-project-v1-clean-1"]},
+                    ],
+                    "trends": ["应用开发岗位重视 RAG、Agent 和工程化。"],
+                    "learning_path": ["学 API", "学 RAG", "学 Agent", "做项目"],
+                    "open_questions": ["岗位 JD 高频技能是什么？"],
+                })
+            if response_schema is str:
+                self.string_calls += 1
+                return (
+                    "# LLM 写作产物\n\n"
+                    "## 背景\n\n大模型开发就业不是简单学习一个框架，而是理解岗位如何要求模型 API、"
+                    "RAG、Agent、后端工程化、业务理解和作品集表达。\n\n"
+                    "## 结构化说明\n\n这份文档会把概念、架构、工具、学习路径和证据组织成可继续维护的知识卡片。"
+                    "它不是搜索摘要堆叠，而是基于证据重新组织后的学习资料。\n\n"
+                    "## 学习建议\n\n学习者应该先确认岗位方向，再选择项目。应用开发岗通常需要能把模型 API 接入后端，"
+                    "能实现 RAG 检索，能解释 Agent 工具调用流程，并能把日志、异常、权限和成本控制写进项目。"
+                    "如果只会调用一个聊天接口，输出就很难区别于普通网页问答；如果能展示完整工程链路，"
+                    "就能更像一个真实岗位候选人。证据：EV-V1-project-v1-clean-1。\n\n"
+                    "## 作品集\n\n作品集至少应包含一个知识库问答项目、一个工具调用或 Agent 工作流项目、"
+                    "一个部署后的演示入口，以及一份说明文档。说明文档要讲清楚问题、架构、数据流、失败处理、"
+                    "评测方式和下一步改进，而不是只贴截图。证据：EV-V1-project-v1-clean-1。\n\n"
+                    "## 证据\n\n- EV-V1-project-v1-clean-1\n\n"
+                    "## 下一步\n\n继续补充岗位原始 JD、官方文档和项目案例，用来验证学习路线是否符合真实招聘要求。\n"
+                )
+            raise AssertionError(f"unexpected schema: {response_schema}")
+
+    repository = FakeRepository()
+    llm = WritingLLM()
+    events = []
+
+    async def emit(event):
+        events.append(event)
+
+    asyncio.run(
+        run_v1_knowledge_pipeline(
+            project=_project().model_copy(update={"domain": "大模型开发就业", "title": "大模型开发就业"}),
+            repository=repository,  # type: ignore[arg-type]
+            search_provider=UsefulSearch(),
+            llm_provider=llm,
+            emit=emit,
+        )
+    )
+
+    assert llm.string_calls == 7
+    assert len(repository.artifacts) == 7
+    assert all("LLM 写作产物" in artifact.content for artifact in repository.artifacts)
+    assert any(event.gate == "document_writing" and "正在写作" in event.message for event in events)
+
+
 def test_v1_renders_useful_markdown_from_domain_database() -> None:
     database = DomainKnowledgeBase(
         overview="AI Agent 开发知识库用于理解概念、架构、工具链和学习路径。",
