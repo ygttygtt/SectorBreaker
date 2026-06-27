@@ -296,6 +296,11 @@ def _build_v1_search_query(domain: str) -> str:
             '"AI Agent" development frameworks engineering production '
             'evaluation orchestration MCP LangGraph OpenAI Agents SDK 2026'
         )
+    if "大模型" in domain_text or "llm" in domain_text.lower():
+        return (
+            f"{domain_text} 大模型应用开发 岗位 技能要求 RAG Agent "
+            "模型API Python LangChain LangGraph 就业方向 2026"
+        )
     return (
         f"{domain_text} 最新趋势 核心框架 主要工具 玩家格局 "
         "production adoption evaluation challenges 2026"
@@ -332,15 +337,30 @@ def _is_v1_result_topic_relevant(domain: str, title: str, cleaned_snippet: str) 
         ai_markers = ("ai", "agentic", "llm", "大模型", "智能体", "人工智能")
         agent_markers = ("agent", "agents", "智能体")
         return any(marker in text for marker in ai_markers) and any(marker in text for marker in agent_markers)
+    if "大模型" in domain_text or "llm" in domain_text:
+        model_markers = ("大模型", "llm", "large model", "模型api", "模型 api", "rag", "agent")
+        career_markers = ("就业", "岗位", "招聘", "职业", "技能", "薪", "工程师", "开发")
+        return any(marker in text for marker in model_markers) and any(marker in text for marker in career_markers)
 
-    tokens = [
+    tokens = _topic_tokens(domain_text)
+    if not tokens:
+        return True
+    return any(token in text for token in tokens[:4])
+
+
+def _topic_tokens(domain_text: str) -> list[str]:
+    split_tokens = [
         token
         for token in re.split(r"[\s,，;；/|]+", domain_text)
         if len(token) >= 2
     ]
-    if not tokens:
-        return True
-    return any(token in text for token in tokens[:4])
+    if split_tokens:
+        tokens = split_tokens
+    else:
+        tokens = [domain_text]
+    chinese_markers = ("大模型", "开发", "就业", "岗位", "职业", "架构", "工具", "框架", "智能体", "应用")
+    tokens.extend(marker for marker in chinese_markers if marker in domain_text)
+    return list(dict.fromkeys(tokens))
 
 
 def _clean_search_snippet(raw_text: str | None, *, fallback: str = "") -> str:
@@ -420,6 +440,8 @@ def _fallback_database(project: ResearchProject, evidence: list[EvidenceItem]) -
     evidence_ids = [item.id for item in evidence] or ["待补充证据"]
     topic = project.domain
     evidence_themes = _evidence_theme_lines(evidence)
+    if "大模型" in topic or "llm" in topic.lower():
+        return _large_model_career_database(project, evidence, evidence_ids, evidence_themes)
     return DomainKnowledgeBase(
         overview=(
             f"{topic} 知识库用于先抹平信息差：建立术语、主流架构、工具框架、趋势和待验证问题。"
@@ -522,6 +544,126 @@ def _fallback_database(project: ResearchProject, evidence: list[EvidenceItem]) -
             "不同架构的失败模式分别是什么？",
             "MCP、函数调用、浏览器自动化在真实产品中如何分工？",
             "哪些能力是学习入门必须掌握，哪些只是高级工程化需求？",
+        ],
+    )
+
+
+def _large_model_career_database(
+    project: ResearchProject,
+    evidence: list[EvidenceItem],
+    evidence_ids: list[str],
+    evidence_themes: str,
+) -> DomainKnowledgeBase:
+    topic = project.domain
+    return DomainKnowledgeBase(
+        overview=(
+            f"{topic} 知识库用于快速理解大模型应用开发相关岗位、技能栈、学习路径和就业判断。"
+            f"当前版本基于 {len(evidence)} 条搜索证据生成。"
+            f"{' 证据主题包括：' + evidence_themes if evidence_themes else ' 由于证据不足，以下内容均应作为待验证学习框架。'}"
+        ),
+        concepts=[
+            DomainConcept(
+                name="大模型应用开发",
+                definition="围绕大模型 API、提示词、RAG、Agent、工作流和业务系统集成构建可用应用的工程方向。",
+                why_it_matters="多数就业机会不要求训练基础模型，而是要求把模型能力接入真实业务场景。",
+                related=["RAG", "Agent", "模型 API", "工程化"],
+                evidence_ids=evidence_ids[:3],
+            ),
+            DomainConcept(
+                name="RAG",
+                definition="通过检索外部知识并注入上下文，让大模型基于企业文档、知识库或网页资料回答问题。",
+                why_it_matters="RAG 是大模型应用开发岗位最常见的落地能力之一，连接搜索、向量数据库和业务知识。",
+                related=["向量数据库", "Embedding", "知识库问答"],
+                evidence_ids=evidence_ids[:3],
+            ),
+            DomainConcept(
+                name="Agent 开发",
+                definition="让模型围绕目标进行规划、调用工具、执行任务并根据反馈调整。",
+                why_it_matters="招聘描述里常把 Agent、工具调用、工作流编排作为应用层岗位的进阶要求。",
+                related=["工具调用", "LangGraph", "MCP", "Workflow"],
+                evidence_ids=evidence_ids[:3],
+            ),
+            DomainConcept(
+                name="模型 API 与工程集成",
+                definition="调用商业或开源模型服务，并处理鉴权、限流、成本、日志、异常和业务系统接入。",
+                why_it_matters="就业岗位更看重能否把模型稳定接进产品，而不只是会写 prompt。",
+                related=["OpenAI-compatible API", "FastAPI", "异步任务", "可观测性"],
+                evidence_ids=evidence_ids[:3],
+            ),
+        ],
+        architectures=[
+            DomainArchitecture(
+                name="RAG 应用架构",
+                summary="文档切分、向量化、检索、重排、上下文注入和回答生成组成的知识库应用架构。",
+                use_cases=["企业知识库", "客服问答", "文档助手"],
+                strengths=["就业需求常见", "容易做作品集", "能体现工程能力"],
+                limitations=["依赖数据质量", "需要评测召回率和幻觉问题"],
+                evidence_ids=evidence_ids[:3],
+            ),
+            DomainArchitecture(
+                name="Agent 工作流架构",
+                summary="把模型调用、工具调用、人工确认、状态管理和导出动作组织成可控流程。",
+                use_cases=["研究助手", "办公自动化", "代码/数据处理助手"],
+                strengths=["能体现复杂任务编排能力", "适合做进阶项目"],
+                limitations=["调试成本高", "需要防止失控循环和错误级联"],
+                evidence_ids=evidence_ids[:3],
+            ),
+            DomainArchitecture(
+                name="模型应用后端架构",
+                summary="用后端服务封装模型 API、缓存、队列、日志、权限和业务接口。",
+                use_cases=["AI SaaS", "企业内部工具", "智能客服"],
+                strengths=["贴近真实岗位", "能展示完整工程链路"],
+                limitations=["需要后端、部署和成本控制能力"],
+                evidence_ids=evidence_ids[:3],
+            ),
+        ],
+        tools=[
+            DomainTool(
+                name="Python",
+                category="language",
+                use_case="大模型应用开发、数据处理、后端 API、脚本自动化的主力语言。",
+                tradeoffs="生态成熟，但需要补工程结构、测试和部署能力。",
+                evidence_ids=evidence_ids[:3],
+            ),
+            DomainTool(
+                name="LangChain / LangGraph",
+                category="framework",
+                use_case="构建 RAG、工具调用、Agent 工作流和可控状态图。",
+                tradeoffs="生态资料多，但抽象层较多，学习时要回到具体数据流和状态流。",
+                evidence_ids=evidence_ids[:3],
+            ),
+            DomainTool(
+                name="向量数据库",
+                category="infrastructure",
+                use_case="支撑 RAG 检索，常见选择包括 Milvus、Qdrant、Chroma、pgvector。",
+                tradeoffs="入门容易，真正做好需要理解切分、召回、重排和评测。",
+                evidence_ids=evidence_ids[:3],
+            ),
+            DomainTool(
+                name="FastAPI / 后端服务",
+                category="backend",
+                use_case="把模型能力封装成可被前端或业务系统调用的 API。",
+                tradeoffs="能体现就业项目完整度，但需要关注异常、鉴权、异步和部署。",
+                evidence_ids=evidence_ids[:3],
+            ),
+        ],
+        trends=[
+            "大模型就业机会更偏向应用开发和业务集成，而不是人人都去训练基础模型。",
+            "RAG、Agent、模型 API 调用、Python 工程能力和业务理解正在成为应用层岗位关键词。",
+            "作品集需要从 demo 走向可部署项目：日志、评测、错误处理和成本控制会显著拉开差距。",
+        ],
+        learning_path=[
+            "先学大模型应用开发边界：API 调用、Prompt、上下文窗口、成本和限流；完成标志：能写一个稳定调用模型的后端接口。",
+            "学习 RAG 基础：文档切分、Embedding、向量检索、重排和回答生成；完成标志：能做一个可评测的知识库问答项目。",
+            "学习 Agent 与工具调用：函数调用、MCP、工作流编排和状态管理；完成标志：能做一个会调用工具并记录步骤的任务助手。",
+            "补工程化能力：FastAPI、数据库、异步任务、日志、权限、部署；完成标志：能把项目部署并给别人试用。",
+            "整理就业作品集：岗位 JD 关键词、项目说明、技术难点、效果评测；完成标志：能用项目证明自己具备岗位要求。",
+        ],
+        open_questions=[
+            "目标岗位到底要求模型训练、应用开发还是业务集成？",
+            "招聘 JD 中最常出现的技能关键词是什么？",
+            "哪些项目最能证明大模型应用开发能力？",
+            "RAG、Agent、微调、模型部署分别对应哪些岗位层级？",
         ],
     )
 

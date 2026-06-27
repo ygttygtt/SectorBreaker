@@ -21,6 +21,8 @@ from backend.app.v1_pipeline import (
     _render_learning_path,
     _evidence_brief,
     _evidence_lines,
+    _fallback_database,
+    _is_v1_result_topic_relevant,
     _search_result_to_evidence,
     run_v1_knowledge_pipeline,
 )
@@ -270,6 +272,26 @@ def test_v1_builds_structured_domain_knowledge_base_from_evidence() -> None:
     assert len(database.learning_path) >= 4
     assert any("工具调用" in concept.name or "Tool" in concept.name for concept in database.concepts)
     assert any("LangGraph" in tool.name for tool in database.tools)
+
+
+def test_v1_chinese_topic_relevance_does_not_require_exact_full_phrase() -> None:
+    assert _is_v1_result_topic_relevant(
+        "大模型开发就业",
+        "2026 最火 AI 岗位！大模型驱动下的 5 大就业方向",
+        "大模型应用开发岗位需要 RAG 开发、Agent 架构设计、模型 API 调用、Python 工程能力和业务理解。",
+    )
+
+
+def test_v1_large_model_career_fallback_is_topic_specific() -> None:
+    database = _fallback_database(_project().model_copy(update={
+        "title": "大模型开发就业",
+        "domain": "大模型开发就业",
+    }), [])
+
+    assert any("大模型" in concept.name for concept in database.concepts)
+    assert any("RAG" in architecture.name or "Agent" in architecture.name for architecture in database.architectures)
+    assert any("Python" in tool.name or "LangChain" in tool.name for tool in database.tools)
+    assert all("LangGraph" not in concept.name for concept in database.concepts[:1])
 
 
 def test_v1_renders_useful_markdown_from_domain_database() -> None:
