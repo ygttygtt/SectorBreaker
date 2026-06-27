@@ -19,8 +19,10 @@ metadata:
 
 - conda 环境：`sectorbreaker`
 - Runnable V1 重构已部分落地：`auto_run=true` 走简化 V1 主路径，前端主按钮现在默认进入 V1 知识库构建，不再把默认用户路径带到旧 Supervisor Plan 确认页。前端开始消费后端 `RunSnapshot`，导出布局改为稳定 Obsidian V1 文件集。真实验收已在本地用已配置的 OpenAI-compatible LLM 和 Tavily 跑通。
+- V1 第一版真实 UI 闭环已跑通：本地 runtime config 使用 Tavily + Mimo/OpenAI-compatible LLM；`http://127.0.0.1:5173` 输入 `Agent开发` 可跑到完成，结果页有运行轨迹、`5 / 5 条证据`、7 个 artifacts，无白屏、无横向溢出、无 GitHub navigation/XLS/Instagram 噪音。
 - 后端：FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + 可解释选择轨迹
 - 前端：Vite + React + TypeScript，可解释研究工作台，真实 workflow graph，纵向布局与活动节点居中
+- 前端默认 `/api` 代理到 `http://127.0.0.1:8000`。如果 UI 误报 LLM/搜索未配置，优先排查旧 `uvicorn` 进程和 Vite 是否需要重启。
 - 当前会显式展示“搜索未配置”提示，避免把无联网检索误当成正常研究能力
 - 后端搜索 provider 已扩展为 Tavily / Serper / Brave / Exa；V1 前端配置面板暂时只暴露 Tavily
 - 保存 Tavily runtime 配置后，前端会立即刷新 landing 页搜索状态，不需要手动刷新
@@ -41,6 +43,7 @@ metadata:
 - 前端 landing/review 已支持 `.md` / `.txt` 上传 assistant brief 与 user material
 - 测试基线：Python 23 passed；前端 14 passed；前端 build passed
 - 最新真实验收：`python run_real_search_acceptance.py` passed，包含 LLM、Tavily 搜索、完整 project run、evidence 写入、V1 artifacts 和 Obsidian export。
+- 最新 UI 验收：真实 `Agent开发` run completed，运行轨迹可见，证据账本 `5 / 5`，7 个 Obsidian V1 artifacts，布局不溢出。
 
 最高风险任务：
 

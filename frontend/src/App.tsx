@@ -113,6 +113,38 @@ function labelForVerification(value?: string) {
   return "未验证";
 }
 
+function cleanDisplaySnippet(value?: string, fallback = "该来源未提供摘要，需打开来源复核。") {
+  const raw = (value || "").trim();
+  if (!raw) return fallback;
+  const cleaned = raw
+    .replace(/!\[[^\]]*]\([^)]+\)/g, "")
+    .replace(/\[([^\]]+)]\([^)]+\)/g, "$1")
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/[#*`|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const noisePatterns = [
+    /skip to content/i,
+    /sign in/i,
+    /navigation menu/i,
+    /search code, repositories/i,
+    /you signed in with another tab/i,
+    /reload to refresh your session/i,
+    /dismiss alert/i,
+  ];
+  const sentences = cleaned
+    .split(/(?<=[。.!?])\s+|\s{2,}/)
+    .map((item) => item.trim())
+    .filter((item) => item && !noisePatterns.some((pattern) => pattern.test(item)));
+  const readable = sentences.join(" ").trim() || fallback;
+  return readable.length > 360 ? `${readable.slice(0, 359).trim()}…` : readable;
+}
+
+function formatEventTime(timestamp: number) {
+  const millis = timestamp > 1_000_000_000_000 ? timestamp : timestamp * 1000;
+  return new Date(millis).toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
 function QAReportPanel({ qa }: { qa: QaPayload }) {
   const blocking = qa.blocking_issues ?? [];
   const retry = qa.retry_tasks ?? [];
@@ -633,6 +665,7 @@ function ResultView({
   project,
   artifacts,
   evidence,
+  events,
   chat,
   setChat,
   exportManifest,
@@ -644,6 +677,7 @@ function ResultView({
   project: Project;
   artifacts: Artifact[];
   evidence: Evidence[];
+  events: RunEvent[];
   chat: ChatResponse | null;
   setChat: (c: ChatResponse | null) => void;
   exportManifest: ExportManifest | null;
@@ -672,6 +706,7 @@ function ResultView({
       return true;
     });
   }, [attentionOnly, evidence, qualityFilter, verificationFilter]);
+  const traceEvents = useMemo(() => events.filter((event) => event.message).slice(-14), [events]);
 
   async function askQuestion() {
     if (!question.trim()) return;
@@ -703,6 +738,22 @@ function ResultView({
         <button className="secondary btn-sm" onClick={onNewResearch} type="button"><Play size={14} />新研究</button>
       </header>
       <main className="result-pro-grid">
+        <section className="result-card result-card--wide result-card--trace">
+          <h3><Clock3 size={16} />运行轨迹</h3>
+          {traceEvents.length > 0 ? (
+            <ol className="result-run-trace">
+              {traceEvents.map((event, index) => (
+                <li key={`${event.timestamp}-${event.gate}-${index}`}>
+                  <span>{formatEventTime(event.timestamp)}</span>
+                  <strong>{event.agent ?? event.gate}</strong>
+                  <p>{event.message}</p>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="result-empty">暂无运行事件。后续运行会在这里保留每一步轨迹。</p>
+          )}
+        </section>
         <section className="result-card">
           <h3><FileText size={16} />产物</h3>
           <ul className="result-artifact-list">
@@ -763,7 +814,7 @@ function ResultView({
                   {item.source_type && <span className="evidence-chip">{item.source_type}</span>}
                   {item.needs_counterevidence && <span className="evidence-chip evidence-chip--attention">待反证</span>}
                 </div>
-                <p>{item.snippet}</p>
+                <p>{cleanDisplaySnippet(item.snippet, item.source_title)}</p>
                 {(item.bias_risk || item.collected_by) && (
                   <span>
                     {item.bias_risk ?? item.collected_by}
@@ -1035,6 +1086,7 @@ export function App() {
           project={project}
           artifacts={artifacts}
           evidence={evidence}
+          events={effectiveEvents}
           chat={chat}
           setChat={setChat}
           exportManifest={exportManifest}

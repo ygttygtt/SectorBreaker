@@ -8,6 +8,7 @@ from backend.app.schemas import (
     ProjectDocumentCreate,
     ResearchDepth,
     ResearchProjectCreate,
+    RunEvent,
     SourceChannel,
     SourcePolicy,
     SourceQuality,
@@ -179,3 +180,32 @@ def test_sqlite_repository_replaces_existing_evidence_by_id(tmp_path: Path) -> N
     assert saved.source_title == "New title"
     assert saved.source_url == "https://example.com/new"
     assert saved.confidence == 0.9
+
+
+def test_sqlite_repository_returns_run_events_with_database_cursor(tmp_path: Path) -> None:
+    database_path = tmp_path / "sectorbreaker.sqlite3"
+    init_database(database_path)
+    repository = SQLiteRepository(database_path)
+    project = repository.create_project(
+        ResearchProjectCreate(
+            title="Event Cursor",
+            domain="事件游标",
+            market_scope=MarketScope.MIXED,
+            depth=ResearchDepth.QUICK,
+        )
+    )
+    run = repository.create_run(project.id)
+
+    first_id = repository.add_run_event(
+        RunEvent(event_type="node_started", gate="source_collection", message="开始收集"),
+        run.id,
+    )
+    second_id = repository.add_run_event(
+        RunEvent(event_type="node_completed", gate="source_collection", message="收集完成"),
+        run.id,
+    )
+
+    records = repository.list_run_event_records(run.id, after_id=first_id)
+
+    assert first_id < second_id
+    assert [(record_id, event.message) for record_id, event in records] == [(second_id, "收集完成")]

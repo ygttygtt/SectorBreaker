@@ -587,23 +587,29 @@ class SQLiteRepository:
             return cursor.lastrowid  # type: ignore[return-value]
 
     def list_run_events(self, run_id: str, after_id: int = 0) -> list[RunEvent]:
+        return [event for _, event in self.list_run_event_records(run_id, after_id=after_id)]
+
+    def list_run_event_records(self, run_id: str, after_id: int = 0) -> list[tuple[int, RunEvent]]:
         with self._connect() as connection:
             rows = connection.execute(
                 "SELECT * FROM run_events WHERE run_id = ? AND id > ? ORDER BY id",
                 (run_id, after_id),
             ).fetchall()
         return [
-            RunEvent(
-                event_type=row["event_type"],
-                gate=row["gate"],
-                step=row["step"],
-                agent=row["agent"],
-                message=row["message"],
-                data=json.loads(row["data"]) if row["data"] else None,
-                progress_current=row["progress_current"],
-                progress_total=row["progress_total"],
-                severity=row["severity"] or "info",
-                timestamp=datetime.fromisoformat(row["created_at"]).timestamp(),
+            (
+                row["id"],
+                RunEvent(
+                    event_type=row["event_type"],
+                    gate=row["gate"],
+                    step=row["step"],
+                    agent=row["agent"],
+                    message=row["message"],
+                    data=json.loads(row["data"]) if row["data"] else None,
+                    progress_current=row["progress_current"],
+                    progress_total=row["progress_total"],
+                    severity=row["severity"] or "info",
+                    timestamp=datetime.fromisoformat(row["created_at"]).timestamp(),
+                ),
             )
             for row in rows
         ]

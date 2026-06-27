@@ -28,8 +28,10 @@ Claude Code should also read `CLAUDE.md` and `.claude/memory/MEMORY.md`.
 The latest completed implementation milestone is:
 
 - Runnable V1 rearchitecture is in progress: `auto_run=true` now follows a simplified V1 path with backend `RunSnapshot`, latest-run restore, seven stable knowledge artifacts, and `_sources/evidence-ledger.md` export layout. The frontend primary landing action starts this V1 path by default; do not reintroduce the old Supervisor Plan confirmation as the main CTA unless the product direction changes. Real acceptance has passed locally with the configured OpenAI-compatible LLM plus Tavily.
+- V1 first local product loop is now verified end to end: Tavily-only onboarding, Mimo/OpenAI-compatible runtime LLM config, Vite proxy to the active FastAPI port, real-time progress display, completed-run trace display, cleaned evidence snippets, and result-page overflow protection. A real UI run for `Agent开发` completed with 5 / 5 evidence items, 7 V1 artifacts, visible run trace, no white screen, no horizontal overflow, and no GitHub navigation/XLS/Instagram noise.
 - Backend: FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + explainable agent selection traces.
 - Frontend: Vite + React + TypeScript explainable research workbench with real workflow graph, vertical layout, and active-node centering.
+- Local debugging note: if the landing page reports LLM/search as unconfigured while `/api/config/*` on `127.0.0.1:8000` is configured, check for stale `uvicorn` processes and restart Vite. The default Vite proxy now targets `http://127.0.0.1:8000`.
 - Environment: conda environment `sectorbreaker`.
 
 Verified commands at this baseline:
@@ -61,7 +63,7 @@ Default frontend:
 
 ```bash
 cd frontend
-npm run dev -- --host 127.0.0.1 --port 3000
+npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
 If ports are occupied:

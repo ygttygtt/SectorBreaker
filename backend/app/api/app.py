@@ -773,10 +773,10 @@ def create_app(
         async def event_generator():
             last_id = 0
             # First, replay any events that were stored before SSE connected
-            existing = repository.list_run_events(run_id, after_id=0)
-            for event in existing:
+            existing = repository.list_run_event_records(run_id, after_id=0)
+            for event_id, event in existing:
                 yield f"data: {event.model_dump_json()}\n\n"
-                last_id += 1
+                last_id = event_id
 
             # If run is already done (or waiting), close after replay
             if run.status in (RunStatus.COMPLETED, RunStatus.FAILED):
@@ -788,12 +788,12 @@ def create_app(
             max_idle = 600  # 5 minutes timeout at 0.5s intervals
             while idle_count < max_idle:
                 await asyncio.sleep(0.5)
-                new_events = repository.list_run_events(run_id, after_id=last_id)
+                new_events = repository.list_run_event_records(run_id, after_id=last_id)
                 if new_events:
                     idle_count = 0
-                    for event in new_events:
+                    for event_id, event in new_events:
                         yield f"data: {event.model_dump_json()}\n\n"
-                        last_id += 1
+                        last_id = event_id
                 else:
                     idle_count += 1
 
@@ -801,16 +801,18 @@ def create_app(
                 try:
                     current_run = repository.get_run(run_id)
                     if current_run.status in (RunStatus.COMPLETED, RunStatus.FAILED):
-                        remaining = repository.list_run_events(run_id, after_id=last_id)
-                        for event in remaining:
+                        remaining = repository.list_run_event_records(run_id, after_id=last_id)
+                        for event_id, event in remaining:
                             yield f"data: {event.model_dump_json()}\n\n"
+                            last_id = event_id
                         yield "data: [DONE]\n\n"
                         return
                     if current_run.status == RunStatus.WAITING_FOR_HUMAN:
                         # Drain remaining events but DON'T send [DONE]
-                        remaining = repository.list_run_events(run_id, after_id=last_id)
-                        for event in remaining:
+                        remaining = repository.list_run_event_records(run_id, after_id=last_id)
+                        for event_id, event in remaining:
                             yield f"data: {event.model_dump_json()}\n\n"
+                            last_id = event_id
                         # Keep connection open — workflow is paused
                         # Continue polling for when resume is called
                         idle_count = 0

@@ -508,6 +508,76 @@ test("filters evidence ledger in result view", async () => {
   expect(screen.getByText("营销博客")).toBeInTheDocument();
 });
 
+test("completed result shows run trace and cleans long evidence snippets", async () => {
+  mockGetRunSnapshot.mockResolvedValueOnce({
+    run_id: "run-1",
+    project_id: "project-1",
+    status: "completed",
+    current_stage: "completed",
+    progress: { current: 3, total: 3 },
+    events: [
+      {
+        event_type: "node_started",
+        gate: "source_collection",
+        step: null,
+        agent: null,
+        message: "开始收集 V1 领域资料",
+        data: null,
+        progress_current: 1,
+        progress_total: 3,
+        severity: "info",
+        timestamp: Date.now(),
+      },
+      {
+        event_type: "node_completed",
+        gate: "knowledge_structuring",
+        step: null,
+        agent: null,
+        message: "V1 知识系统生成完成",
+        data: null,
+        progress_current: 2,
+        progress_total: 3,
+        severity: "info",
+        timestamp: Date.now(),
+      },
+    ],
+    errors: [],
+    artifact_summary: [
+      { id: "A1", title: "领域总览", content_path: "00-领域总览.md", artifact_type: "domain_overview" },
+    ],
+    updated_at: new Date().toISOString(),
+  });
+  mockListEvidence.mockResolvedValueOnce([
+    {
+      id: "EV-LONG",
+      source_title: "VoltAgent/awesome-openclaw-skills - GitHub",
+      source_url: "https://github.com/VoltAgent/awesome-openclaw-skills",
+      source_quality: "unknown",
+      verification_status: "partially_verified",
+      source_type: "web",
+      needs_counterevidence: true,
+      snippet:
+        "[Skip to content](https://github.com/VoltAgent/awesome-openclaw-skills#start-of-content). " +
+        "[Sign in](https://github.com/login). Navigation Menu. Search code, repositories, users, issues, pull requests. " +
+        "Agent development frameworks compare LangGraph, CrewAI, OpenAI Agents SDK, evaluation, tool calling, memory, orchestration, deployment, and production safety patterns. " +
+        "This practical repository is useful as a lead but needs verification. ".repeat(12),
+    },
+  ]);
+
+  render(<App />);
+  fireEvent.change(screen.getByPlaceholderText(/AI Agent 工具/), { target: { value: "Agent开发" } });
+  await waitFor(() => expect(screen.getByRole("button", { name: /开始构建知识库/ })).not.toBeDisabled());
+  fireEvent.click(screen.getByRole("button", { name: /开始构建知识库/ }));
+  await waitFor(() => expect(onCompleteRef).toBeTruthy());
+  await onCompleteRef!();
+
+  expect(await screen.findByText("运行轨迹")).toBeInTheDocument();
+  expect(screen.getByText("V1 知识系统生成完成")).toBeInTheDocument();
+  expect(screen.queryByText(/Skip to content/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Navigation Menu/)).not.toBeInTheDocument();
+  expect(screen.getByText(/Agent development frameworks compare LangGraph/)).toBeInTheDocument();
+});
+
 test("config panel shows reliable source onboarding and key requirements", async () => {
   render(<App />);
 
