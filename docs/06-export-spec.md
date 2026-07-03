@@ -48,3 +48,16 @@ Every export must include `manifest.json` with:
 - artifact paths;
 - evidence ids;
 - app version when available.
+## V1 Rich Obsidian Knowledge Export
+
+The runnable V1 path exports seven primary learning-oriented Markdown documents and a bounded set of Obsidian knowledge cards.
+
+- Concept cards live under `concepts/`.
+- Architecture cards live under `architectures/`.
+- Tool cards live under `tools/`.
+- Open-question cards live under `questions/`.
+- Primary documents should use Obsidian wikilinks such as `[[RAG]]` when the structured knowledge base has a corresponding card.
+- Card front matter uses `type: "knowledge_card"` while primary documents use `type: "main_artifact"`.
+- Generated artifacts include `aliases`, `status`, `artifact_type`, `schema_version`, `evidence_ids`, and `tags` fields to support Obsidian Properties, graph exploration, and future retrieval.
+
+V1 document generation includes a bounded review pass. The reviewer should not compress documents merely because wording is verbose; it should identify missing explanation, examples, evidence links, learning steps, Obsidian links, and unresolved questions. At most one expansion pass is allowed per primary document so the workflow remains predictable.

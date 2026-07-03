@@ -198,11 +198,17 @@ class MarkdownExporter:
 
     @staticmethod
     def _render_artifact(project: ResearchProject, artifact: Artifact) -> str:
-        evidence_ids = ", ".join(artifact.source_evidence_ids)
-        tags = f"[{artifact.artifact_type.value}]" if artifact.artifact_type else "[]"
+        evidence_ids = ", ".join(f'"{item}"' for item in artifact.source_evidence_ids)
+        tags = f'["sectorbreaker", "{artifact.artifact_type.value}"]' if artifact.artifact_type else '["sectorbreaker"]'
+        alias = artifact.title.replace('"', '\\"')
+        artifact_kind = "knowledge_card" if artifact.schema_version.endswith("card") else "main_artifact"
+        status = "needs_review" if not artifact.source_evidence_ids else "draft"
         return (
             "---\n"
             f'project: "{project.title}"\n'
+            f'aliases: ["{alias}"]\n'
+            f'type: "{artifact_kind}"\n'
+            f'status: "{status}"\n'
             f'artifact_type: "{artifact.artifact_type.value}"\n'
             f'schema_version: "{artifact.schema_version}"\n'
             f"evidence_ids: [{evidence_ids}]\n"

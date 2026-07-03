@@ -87,6 +87,14 @@ class DomainKnowledgeBase(BaseModel):
     open_questions: list[str] = Field(default_factory=list)
 
 
+class ArtifactExpansionReview(BaseModel):
+    needs_expansion: bool = False
+    detail_score: int = Field(default=7, ge=1, le=10)
+    missing_angles: list[str] = Field(default_factory=list)
+    expansion_brief: str = ""
+    quality_notes: str = ""
+
+
 _MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*]\([^)]+\)")
 _MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)]\([^)]+\)")
 _RAW_URL_RE = re.compile(r"https?://\S+")
@@ -1004,6 +1012,25 @@ async def _build_artifacts(
             schema_version="v1",
             created_at=now,
         ))
+    card_artifacts = _build_obsidian_card_artifacts(
+        project=project,
+        database=database,
+        source_evidence_ids=source_evidence_ids,
+        created_at=now,
+    )
+    if card_artifacts:
+        await emit_event(RunEvent(
+            event_type="node_progress",
+            gate="obsidian_export",
+            agent="Knowledge Mapper",
+            message=(
+                f"正在生成 Obsidian 知识卡片：{len(card_artifacts)} 张，"
+                "用于支撑主文档中的双向链接"
+            ),
+            progress_current=1,
+            progress_total=1,
+        ))
+        artifacts.extend(card_artifacts)
     return artifacts
 
 
@@ -1031,6 +1058,7 @@ async def _write_artifact_markdown(
         "- 内容要充实，通常不少于 1200 个中文字符；如果信息不足，要写清楚哪些是待验证，而不是写空话。\n"
         "- 每个判断要尽量回链 evidence id，例如 `证据：EV-...`。\n"
         "- 要有解释、关系、例子、学习建议和下一步，不要只列名词。\n"
+        "- 关键概念、架构、工具和待验证问题要写成 Obsidian 双向链接，例如 `[[RAG]]`。\n"
         "- 不要写竞品收入结构或内容生态，除非用户主题本身要求。\n\n"
         f"项目：{project.title}\n领域：{project.domain}\n文档：{artifact_title} ({content_path})\n"
         f"写作目标：{writing_goal}\n\n"
@@ -1054,8 +1082,122 @@ async def _write_artifact_markdown(
         return fallback_markdown
     cleaned = _clean_generated_markdown(str(generated))
     if _is_generated_markdown_usable(cleaned):
-        return cleaned
+        return await _review_and_expand_artifact_markdown(
+            project=project,
+            database=database,
+            artifact_title=artifact_title,
+            writing_goal=writing_goal,
+            markdown=cleaned,
+            fallback_markdown=fallback_markdown,
+            llm_provider=llm_provider,
+            emit_event=emit_event,
+            progress_current=progress_current,
+            progress_total=progress_total,
+        )
     return fallback_markdown
+
+
+async def _review_and_expand_artifact_markdown(
+    *,
+    project: ResearchProject,
+    database: DomainKnowledgeBase,
+    artifact_title: str,
+    writing_goal: str,
+    markdown: str,
+    fallback_markdown: str,
+    llm_provider: LLMProvider,
+    emit_event: Callable[[RunEvent], Awaitable[None]],
+    progress_current: int,
+    progress_total: int,
+) -> str:
+    await emit_event(RunEvent(
+        event_type="node_progress",
+        gate="artifact_review",
+        agent="Artifact Reviewer",
+        message=f"正在审查详实度：{artifact_title}",
+        progress_current=progress_current,
+        progress_total=progress_total,
+    ))
+    local_needs_expansion = _artifact_needs_detail_expansion(markdown)
+    review = ArtifactExpansionReview(
+        needs_expansion=local_needs_expansion,
+        detail_score=5 if local_needs_expansion else 8,
+        missing_angles=["内容篇幅、例子或 Obsidian 链接不足"] if local_needs_expansion else [],
+        expansion_brief="补充解释、例子、关联卡片和待验证事项。" if local_needs_expansion else "",
+    )
+    prompt = (
+        "你是 SectorBreaker 的产物审查员。你的任务不是压缩内容，而是判断这篇知识库文档"
+        "是否足够详实、具体、可学习、可继续扩展到 Obsidian。\n\n"
+        "评分标准：\n"
+        "- 详实度：是否有足够解释、例子、上下文、步骤和边界。\n"
+        "- 证据使用：是否尽量引用 evidence id，证据不足时是否标注待验证。\n"
+        "- 学习价值：读者是否能按它继续学习或补库。\n"
+        "- Obsidian 准备度：是否有可链接的概念、架构、工具或问题。\n\n"
+        "不要因为有口水话就建议删短；应指出要补哪些角度，让内容更丰富。\n\n"
+        f"项目：{project.title}\n领域：{project.domain}\n文档：{artifact_title}\n"
+        f"写作目标：{writing_goal}\n\n文档正文：\n{markdown[:6000]}"
+    )
+    try:
+        generated_review = await llm_provider.complete_structured(
+            [ChatMessage(role="user", content=prompt)],
+            ArtifactExpansionReview,
+        )
+        if isinstance(generated_review, ArtifactExpansionReview):
+            review = generated_review
+    except Exception:
+        review = review
+
+    if not review.needs_expansion and review.detail_score >= 7 and not local_needs_expansion:
+        return markdown
+
+    await emit_event(RunEvent(
+        event_type="node_progress",
+        gate="artifact_review",
+        agent="Artifact Reviewer",
+        message=f"发现内容可继续加厚，正在补写：{artifact_title}",
+        progress_current=progress_current,
+        progress_total=progress_total,
+        data=review.model_dump(mode="json"),
+    ))
+    expansion_prompt = (
+        "你是 SectorBreaker 的资深研究写作者。请在保留原文结构和事实边界的基础上，"
+        "把这篇文档扩写成更详实的 Obsidian 知识库主文档。\n\n"
+        "扩写要求：\n"
+        "- 不要删短原文；优先补充解释、例子、学习步骤、反例、边界和待验证问题。\n"
+        "- 生成可点击的 Obsidian 双向链接，例如 [[核心概念名]]、[[架构名]]、[[工具名]]。\n"
+        "- 没有证据支撑的地方标注“待验证”，不要伪装成确定事实。\n"
+        "- 只输出 Markdown 正文，不要 JSON，不要代码块包裹。\n\n"
+        f"审查意见：{review.model_dump(mode='json')}\n\n"
+        "结构化领域库：\n"
+        f"{json.dumps(database.model_dump(mode='json'), ensure_ascii=False, indent=2)}\n\n"
+        f"原文：\n{markdown}"
+    )
+    try:
+        expanded = await _complete_structured_with_heartbeat(
+            llm_provider=llm_provider,
+            messages=[ChatMessage(role="user", content=expansion_prompt)],
+            response_schema=str,
+            emit_event=emit_event,
+            gate="artifact_review",
+            agent="Artifact Reviewer",
+            waiting_message=f"仍在补写：{artifact_title}，LLM 正在加厚内容",
+            progress_current=progress_current,
+            progress_total=progress_total,
+        )
+    except Exception:
+        return markdown or fallback_markdown
+    cleaned = _clean_generated_markdown(str(expanded))
+    if len(cleaned) >= max(len(markdown), 700) and _is_generated_markdown_usable(cleaned):
+        return cleaned
+    return markdown or fallback_markdown
+
+
+def _artifact_needs_detail_expansion(markdown: str) -> bool:
+    normalized = _WHITESPACE_RE.sub("", markdown)
+    heading_count = markdown.count("\n## ") + markdown.count("\n### ")
+    has_wikilink = "[[" in markdown and "]]" in markdown
+    has_evidence = "EV-" in markdown or "证据" in markdown
+    return len(normalized) < 1200 or heading_count < 3 or not has_wikilink or not has_evidence
 
 
 def _clean_generated_markdown(value: str) -> str:
@@ -1072,14 +1214,179 @@ def _is_generated_markdown_usable(value: str) -> bool:
     return value.count("\n## ") + value.count("\n### ") >= 2
 
 
+def _build_obsidian_card_artifacts(
+    *,
+    project: ResearchProject,
+    database: DomainKnowledgeBase,
+    source_evidence_ids: list[str],
+    created_at: datetime,
+) -> list[Artifact]:
+    artifacts: list[Artifact] = []
+    for concept in database.concepts[:16]:
+        title = concept.name.strip()
+        if not title:
+            continue
+        evidence_ids = concept.evidence_ids or source_evidence_ids[:5]
+        artifacts.append(Artifact(
+            id=f"ART-V1-CONCEPT-CARD-{uuid4().hex[:8]}",
+            project_id=project.id,
+            artifact_type=ArtifactType.CORE_CONCEPTS,
+            title=title,
+            content_path=f"concepts/{_obsidian_filename(title)}.md",
+            content=_render_concept_card(project, concept, evidence_ids),
+            source_evidence_ids=evidence_ids,
+            schema_version="v1-card",
+            created_at=created_at,
+        ))
+    for architecture in database.architectures[:10]:
+        title = architecture.name.strip()
+        if not title:
+            continue
+        evidence_ids = architecture.evidence_ids or source_evidence_ids[:5]
+        artifacts.append(Artifact(
+            id=f"ART-V1-ARCH-CARD-{uuid4().hex[:8]}",
+            project_id=project.id,
+            artifact_type=ArtifactType.PLAYER_TOOL_MAP,
+            title=title,
+            content_path=f"architectures/{_obsidian_filename(title)}.md",
+            content=_render_architecture_card(project, architecture, database, evidence_ids),
+            source_evidence_ids=evidence_ids,
+            schema_version="v1-card",
+            created_at=created_at,
+        ))
+    for tool in database.tools[:16]:
+        title = tool.name.strip()
+        if not title:
+            continue
+        evidence_ids = tool.evidence_ids or source_evidence_ids[:5]
+        artifacts.append(Artifact(
+            id=f"ART-V1-TOOL-CARD-{uuid4().hex[:8]}",
+            project_id=project.id,
+            artifact_type=ArtifactType.PLAYER_TOOL_MAP,
+            title=title,
+            content_path=f"tools/{_obsidian_filename(title)}.md",
+            content=_render_tool_card(project, tool, database, evidence_ids),
+            source_evidence_ids=evidence_ids,
+            schema_version="v1-card",
+            created_at=created_at,
+        ))
+    for index, question in enumerate(database.open_questions[:12], start=1):
+        title = _question_card_title(index, question)
+        artifacts.append(Artifact(
+            id=f"ART-V1-QUESTION-CARD-{uuid4().hex[:8]}",
+            project_id=project.id,
+            artifact_type=ArtifactType.UNRESOLVED_QUESTIONS,
+            title=title,
+            content_path=f"questions/{_obsidian_filename(title)}.md",
+            content=_render_question_card(project, title, question, database, source_evidence_ids[:5]),
+            source_evidence_ids=source_evidence_ids[:5],
+            schema_version="v1-card",
+            created_at=created_at,
+        ))
+    return artifacts
+
+
+def _render_concept_card(project: ResearchProject, concept: DomainConcept, evidence_ids: list[str]) -> str:
+    related_links = [_wikilink(name) for name in concept.related if name.strip()]
+    return (
+        f"# {concept.name}\n\n"
+        f"> 类型：概念卡｜领域：{project.domain}\n\n"
+        "## 定义\n\n"
+        f"{concept.definition}\n\n"
+        "## 为什么重要\n\n"
+        f"{concept.why_it_matters}\n\n"
+        "## 新手理解\n\n"
+        "把这张卡当作学习入口：先确认它解决什么问题，再看它和哪些架构、工具或场景相连。"
+        "如果暂时没有足够证据，应在下一轮补库时补充官方文档、论文、工程案例或招聘 JD。\n\n"
+        "## 关联\n\n"
+        f"{_join_or_placeholder(related_links)}\n\n"
+        "## 证据\n\n"
+        f"{_join_or_placeholder(evidence_ids)}\n"
+    )
+
+
+def _render_architecture_card(
+    project: ResearchProject,
+    architecture: DomainArchitecture,
+    database: DomainKnowledgeBase,
+    evidence_ids: list[str],
+) -> str:
+    concept_links = [_wikilink(concept.name) for concept in database.concepts[:6]]
+    tool_links = [_wikilink(tool.name) for tool in database.tools[:6]]
+    return (
+        f"# {architecture.name}\n\n"
+        f"> 类型：架构卡｜领域：{project.domain}\n\n"
+        "## 核心说明\n\n"
+        f"{architecture.summary}\n\n"
+        "## 适用场景\n\n"
+        f"{_bullet_lines(architecture.use_cases)}\n\n"
+        "## 优势\n\n"
+        f"{_bullet_lines(architecture.strengths)}\n\n"
+        "## 局限与失败模式\n\n"
+        f"{_bullet_lines(architecture.limitations)}\n\n"
+        "## 关联概念与工具\n\n"
+        f"- 概念：{_join_or_placeholder(concept_links)}\n"
+        f"- 工具：{_join_or_placeholder(tool_links)}\n\n"
+        "## 证据\n\n"
+        f"{_join_or_placeholder(evidence_ids)}\n"
+    )
+
+
+def _render_tool_card(
+    project: ResearchProject,
+    tool: DomainTool,
+    database: DomainKnowledgeBase,
+    evidence_ids: list[str],
+) -> str:
+    architecture_links = [_wikilink(item.name) for item in database.architectures[:6]]
+    return (
+        f"# {tool.name}\n\n"
+        f"> 类型：工具卡｜领域：{project.domain}\n\n"
+        f"- 分类：{tool.category}\n"
+        f"- 用途：{tool.use_case}\n"
+        f"- 取舍：{tool.tradeoffs}\n\n"
+        "## 什么时候应该关注它\n\n"
+        "当你已经理解相关概念，并需要把知识落到一个可运行的小项目时，再深入研究这个工具。"
+        "优先记录它解决的问题、上手成本、生产风险和替代方案。\n\n"
+        "## 关联架构\n\n"
+        f"{_join_or_placeholder(architecture_links)}\n\n"
+        "## 证据\n\n"
+        f"{_join_or_placeholder(evidence_ids)}\n"
+    )
+
+
+def _render_question_card(
+    project: ResearchProject,
+    title: str,
+    question: str,
+    database: DomainKnowledgeBase,
+    evidence_ids: list[str],
+) -> str:
+    concept_links = [_wikilink(concept.name) for concept in database.concepts[:6]]
+    return (
+        f"# {title}\n\n"
+        f"> 类型：待验证问题｜领域：{project.domain}\n\n"
+        f"## 问题\n\n{question}\n\n"
+        "## 为什么值得继续查\n\n"
+        "这类问题决定知识库是否只是资料堆积，还是能够支持判断。下一轮应该优先寻找更高质量来源，"
+        "并记录支持证据、反证证据和仍然不确定的边界。\n\n"
+        "## 下一步搜索方向\n\n"
+        f"- 围绕问题关键词继续搜索：{question}\n"
+        f"- 回看相关概念：{_join_or_placeholder(concept_links)}\n"
+        "- 优先补充官方文档、论文、权威媒体、招聘 JD、工程案例或带来源的外部 AI Deep Search 报告。\n\n"
+        "## 当前证据\n\n"
+        f"{_join_or_placeholder(evidence_ids)}\n"
+    )
+
+
 def _render_domain_overview(
     project: ResearchProject,
     database: DomainKnowledgeBase,
     source_evidence_ids: list[str],
 ) -> str:
-    concept_names = "、".join(concept.name for concept in database.concepts[:6])
-    architecture_names = "、".join(item.name for item in database.architectures[:5])
-    tool_names = "、".join(tool.name for tool in database.tools[:6])
+    concept_names = "、".join(_wikilink(concept.name) for concept in database.concepts[:6])
+    architecture_names = "、".join(_wikilink(item.name) for item in database.architectures[:5])
+    tool_names = "、".join(_wikilink(tool.name) for tool in database.tools[:6])
     evidence_line = "、".join(source_evidence_ids[:8]) or "暂无证据"
     return (
         f"# {project.domain} 领域总览\n\n"
@@ -1130,13 +1437,13 @@ def _render_core_concepts(database: DomainKnowledgeBase) -> str:
     lines = ["# 核心概念", ""]
     for concept in database.concepts:
         lines.extend([
-            f"## {concept.name}",
+            f"## {_wikilink(concept.name)}",
             "",
             f"**定义**：{concept.definition}",
             "",
             f"**为什么重要**：{concept.why_it_matters}",
             "",
-            f"**相关概念**：{_join_or_placeholder(concept.related)}",
+            f"**相关概念**：{_join_or_placeholder([_wikilink(name) for name in concept.related])}",
             "",
             f"**证据**：{_join_or_placeholder(concept.evidence_ids)}",
             "",
@@ -1150,7 +1457,7 @@ def _render_architecture_tool_map(database: DomainKnowledgeBase) -> str:
     lines.append("")
     for architecture in database.architectures:
         lines.extend([
-            f"### {architecture.name}",
+            f"### {_wikilink(architecture.name)}",
             "",
             architecture.summary,
             "",
@@ -1164,7 +1471,7 @@ def _render_architecture_tool_map(database: DomainKnowledgeBase) -> str:
     lines.append("")
     for tool in database.tools:
         lines.extend([
-            f"### {tool.name}",
+            f"### {_wikilink(tool.name)}",
             "",
             f"- 类型：{tool.category}",
             f"- 用途：{tool.use_case}",
@@ -1196,9 +1503,9 @@ def _render_problem_opportunities(project: ResearchProject, database: DomainKnow
         f"# {project.domain} 问题与机会\n\n"
         "这里的“机会”不是商业创业机会，而是学习和建库时下一步最值得补齐的认知缺口。\n\n"
         "## 当前主要问题\n\n"
-        f"- 概念容易混用：需要区分 {_join_or_placeholder([concept.name for concept in database.concepts[:5]])}。\n"
-        f"- 架构选择困难：需要比较 {architecture_names or '不同 Agent 架构'} 的适用边界。\n"
-        f"- 工具框架很多：需要理解 {tool_names or '主流框架'} 的取舍，而不是只看热度。\n\n"
+        f"- 概念容易混用：需要区分 {_join_or_placeholder([_wikilink(concept.name) for concept in database.concepts[:5]])}。\n"
+        f"- 架构选择困难：需要比较 {_join_or_placeholder([_wikilink(item.name) for item in database.architectures]) if database.architectures else architecture_names or '不同 Agent 架构'} 的适用边界。\n"
+        f"- 工具框架很多：需要理解 {_join_or_placeholder([_wikilink(tool.name) for tool in database.tools]) if database.tools else tool_names or '主流框架'} 的取舍，而不是只看热度。\n\n"
         "## 下一步补库机会\n\n"
         "- 为每个核心概念补一张概念卡：定义、例子、反例、相关工具、证据。\n"
         "- 为每个主流架构补一张架构卡：流程图、适用场景、失败模式、代表框架。\n"
@@ -1208,15 +1515,41 @@ def _render_problem_opportunities(project: ResearchProject, database: DomainKnow
 
 def _render_open_questions(database: DomainKnowledgeBase) -> str:
     lines = ["# 待验证问题", ""]
-    for question in database.open_questions:
+    for index, question in enumerate(database.open_questions, start=1):
         lines.extend([
-            f"## {question}",
+            f"## {_wikilink(_question_card_title(index, question))}",
+            "",
+            f"原始问题：{question}",
             "",
             "- 当前状态：待验证。",
             "- 下一步：补充至少两个来源，并记录支持或反驳证据。",
             "",
         ])
     return "\n".join(lines).strip()
+
+
+def _obsidian_filename(value: str) -> str:
+    cleaned = re.sub(r'[<>:"/\\|?*\n\r\t]+', "-", value).strip(" .-")
+    cleaned = _WHITESPACE_RE.sub(" ", cleaned)
+    return cleaned[:80].strip() or "未命名卡片"
+
+
+def _wikilink(value: str) -> str:
+    title = value.strip()
+    return f"[[{title}]]" if title else "[[未命名卡片]]"
+
+
+def _bullet_lines(values: list[str]) -> str:
+    filtered = [value.strip() for value in values if value.strip()]
+    if not filtered:
+        return "- 待补充"
+    return "\n".join(f"- {value}" for value in filtered)
+
+
+def _question_card_title(index: int, question: str) -> str:
+    cleaned = re.sub(r"[？?。.!！]+$", "", question.strip())
+    cleaned = _truncate_text(cleaned, 48)
+    return f"待验证问题 {index} - {cleaned or '继续补证'}"
 
 
 def _join_or_placeholder(values: list[str], placeholder: str = "待补充") -> str:

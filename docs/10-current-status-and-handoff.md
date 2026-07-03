@@ -46,6 +46,9 @@ For Cursor, Windsurf, Gemini, Codex, Claude Code, or other tools, also read `doc
 - V1.1 Chinese topic search relevance now handles compound topics such as `大模型开发就业` without requiring exact full-phrase matches. Large-model career topics also have a topic-specific fallback database covering application development, RAG, Agent work, model API integration, Python/backend skills, and portfolio/job-readiness questions.
 - V1.1 output generation now uses the LLM for every exported Markdown artifact. After the structured `DomainKnowledgeBase` is built, `Document Writer` emits `document_writing` progress events and asks the LLM to write each Obsidian document as full Markdown. Short or under-structured generations fall back to the deterministic renderer, but normal output is no longer intended to be search-result passthrough.
 - V1.1 source collection now checks evidence sufficiency before building the knowledge system. If fewer than 8 usable evidence items are available, the V1 path runs one supplemental open-web query, deduplicates URLs, and emits a warning when the run still has thin source coverage. Long LLM calls for knowledge structuring and artifact writing now emit heartbeat progress events instead of leaving the UI silent.
+- V1.2 rich Obsidian output now adds a bounded `Artifact Reviewer` pass after each primary V1 document. The reviewer is tuned to expand thin output rather than compress it: it checks detail, examples, evidence linkage, learning usefulness, and Obsidian readiness, then allows at most one expansion call.
+- V1.2 also generates real Obsidian knowledge cards from the structured `DomainKnowledgeBase`: `concepts/`, `architectures/`, `tools/`, and `questions/`. Main fallback Markdown now uses `[[wikilinks]]` that point to generated card titles, and exported front matter includes Obsidian-friendly `aliases`, `type`, `status`, `evidence_ids`, and `tags`.
+- V1.2 demo-readiness execution plan now lives at `docs/superpowers/plans/2026-07-03-v1-2-demo-readiness.md`. It is the guiding plan for the 2026-07-04 recording push: preserve the runnable V1 spine, improve visible progress, add a result quality panel, upgrade the Obsidian README home page, and add demo-safe failure/restore messaging.
 - Important local debugging note: stale `uvicorn` processes on another port can make the frontend hit old code. The default Vite proxy now targets `127.0.0.1:8030`; before UI acceptance, ensure only one intended `uvicorn backend.app.api.app:app --port 8030` process is running and restart Vite after config changes.
 - LangGraph workflow now includes Scope, Supervisor Plan, Source Strategy, Source Intake, Claim Extractor, Counterevidence, Evidence Ledger, Market, Player, Transaction, Synthesis, Knowledge Map, QA Critic, Export, and RAG Indexer gates.
 - Runs pause at `supervisor_plan` for user confirmation unless `auto_run=true`.
@@ -118,6 +121,7 @@ Current known baseline:
 - Current V1.1 focused verification: `python -m pytest tests/unit/test_v1_pipeline.py -q` => 8 passed; `python -m pytest tests/api/test_app.py::test_api_v1_run_creates_knowledge_system_artifacts tests/unit/test_real_search_acceptance_script.py -q` => 6 passed, 1 Starlette warning.
 - Current V1.1 focused verification: `python -m pytest tests/unit/test_v1_pipeline.py -q` => 10 passed. Manual search diagnostic for `大模型开发就业 岗位 技能要求 职业路径 2026` returned 8 Tavily results before filtering, confirming the earlier 0-evidence run was caused by V1 filtering, not search provider outage.
 - Current V1.1 focused verification: `python -m pytest tests/unit/test_v1_pipeline.py -q` => 11 passed; `cd frontend && npm test -- --run App.test.tsx` => 16 passed.
+- Current V1.2 focused verification: `python -m pytest tests/unit/test_v1_pipeline.py -q` => 12 passed. `git diff --check` passed with only expected Windows LF/CRLF warnings.
 - npm audit high severity: 0 vulnerabilities.
 
 ## What Is Easy
@@ -151,6 +155,8 @@ Why: these parts control hallucination risk, evidence integrity, workflow stabil
 ## Recommended Next Steps
 
 ### Step 1: Planner And Agent Output Hardening
+
+Before broader architecture work, complete the V1.2 demo-readiness plan at `docs/superpowers/plans/2026-07-03-v1-2-demo-readiness.md`. The plan intentionally avoids multi-search UI, full RAG, content scraping, and competitor/revenue analysis until the demo loop is stable.
 
 Replace remaining raw `dict` LLM outputs in business agents with dedicated Pydantic output schemas.
 

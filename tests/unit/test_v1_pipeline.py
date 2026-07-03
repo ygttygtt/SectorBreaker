@@ -443,10 +443,16 @@ def test_v1_pipeline_uses_llm_to_write_each_export_artifact_and_emits_progress()
         )
     )
 
-    assert llm.string_calls == 7
-    assert len(repository.artifacts) == 7
-    assert all("LLM 写作产物" in artifact.content for artifact in repository.artifacts)
+    main_artifacts = [artifact for artifact in repository.artifacts if artifact.schema_version == "v1"]
+    card_artifacts = [artifact for artifact in repository.artifacts if artifact.schema_version == "v1-card"]
+    assert llm.string_calls >= 7
+    assert len(main_artifacts) == 7
+    assert len(card_artifacts) >= 8
+    assert all("LLM 写作产物" in artifact.content for artifact in main_artifacts)
+    assert any(artifact.content_path.startswith("concepts/") for artifact in card_artifacts)
+    assert any("[[RAG]]" in artifact.content for artifact in card_artifacts)
     assert any(event.gate == "document_writing" and "正在写作" in event.message for event in events)
+    assert any(event.gate == "artifact_review" for event in events)
 
 
 def test_v1_renders_useful_markdown_from_domain_database() -> None:
