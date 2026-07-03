@@ -49,6 +49,7 @@ For Cursor, Windsurf, Gemini, Codex, Claude Code, or other tools, also read `doc
 - V1.2 rich Obsidian output now adds a bounded `Artifact Reviewer` pass after each primary V1 document. The reviewer is tuned to expand thin output rather than compress it: it checks detail, examples, evidence linkage, learning usefulness, and Obsidian readiness, then allows at most one expansion call.
 - V1.2 also generates real Obsidian knowledge cards from the structured `DomainKnowledgeBase`: `concepts/`, `architectures/`, `tools/`, and `questions/`. Main fallback Markdown now uses `[[wikilinks]]` that point to generated card titles, and exported front matter includes Obsidian-friendly `aliases`, `type`, `status`, `evidence_ids`, and `tags`.
 - V1.2 demo-readiness execution plan now lives at `docs/superpowers/plans/2026-07-03-v1-2-demo-readiness.md`. It is the guiding plan for the 2026-07-04 recording push: preserve the runnable V1 spine, improve visible progress, add a result quality panel, upgrade the Obsidian README home page, and add demo-safe failure/restore messaging.
+- V1.2 demo-readiness UI/export closeout is implemented: `artifact_review` now maps to the visible QA node, the result page shows quality metrics for evidence/main docs/cards/review events/open questions/export files, failed runs keep a recovery block with partial-result access, and V1 exports write a stronger Obsidian Vault README home page.
 - Important local debugging note: stale `uvicorn` processes on another port can make the frontend hit old code. The default Vite proxy now targets `127.0.0.1:8030`; before UI acceptance, ensure only one intended `uvicorn backend.app.api.app:app --port 8030` process is running and restart Vite after config changes.
 - LangGraph workflow now includes Scope, Supervisor Plan, Source Strategy, Source Intake, Claim Extractor, Counterevidence, Evidence Ledger, Market, Player, Transaction, Synthesis, Knowledge Map, QA Critic, Export, and RAG Indexer gates.
 - Runs pause at `supervisor_plan` for user confirmation unless `auto_run=true`.
@@ -122,6 +123,7 @@ Current known baseline:
 - Current V1.1 focused verification: `python -m pytest tests/unit/test_v1_pipeline.py -q` => 10 passed. Manual search diagnostic for `大模型开发就业 岗位 技能要求 职业路径 2026` returned 8 Tavily results before filtering, confirming the earlier 0-evidence run was caused by V1 filtering, not search provider outage.
 - Current V1.1 focused verification: `python -m pytest tests/unit/test_v1_pipeline.py -q` => 11 passed; `cd frontend && npm test -- --run App.test.tsx` => 16 passed.
 - Current V1.2 focused verification: `python -m pytest tests/unit/test_v1_pipeline.py -q` => 12 passed. `git diff --check` passed with only expected Windows LF/CRLF warnings.
+- Current V1.2 demo verification: `python -m pytest tests/unit/test_v1_pipeline.py tests/unit/test_markdown_exporter.py -q` => 14 passed; `cd frontend && npm test -- --run App.test.tsx` => 16 passed; `cd frontend && npm run build` passed with only the existing Vite chunk-size warning.
 - npm audit high severity: 0 vulnerabilities.
 
 ## What Is Easy

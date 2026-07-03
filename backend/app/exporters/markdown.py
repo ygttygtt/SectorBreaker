@@ -91,6 +91,9 @@ class MarkdownExporter:
         evidence: list[EvidenceItem], project_dir: Path,
     ) -> str | None:
         """Generate project README with navigation."""
+        if self._is_v1_vault(artifacts):
+            return self._generate_v1_vault_readme(project, artifacts, evidence, project_dir)
+
         lines = [
             "---",
             f'project: "{project.title}"',
@@ -141,6 +144,101 @@ class MarkdownExporter:
         readme_path = project_dir / "README.md"
         readme_path.write_text("\n".join(lines), encoding="utf-8")
         return "README.md"
+
+    def _generate_v1_vault_readme(
+        self,
+        project: ResearchProject,
+        artifacts: list[Artifact],
+        evidence: list[EvidenceItem],
+        project_dir: Path,
+    ) -> str:
+        generated_date = datetime.now(UTC).strftime("%Y-%m-%d")
+        artifacts_by_path = {artifact.content_path: artifact for artifact in artifacts}
+        main_order = [
+            ("00-领域总览.md", "领域总览"),
+            ("01-入门路线.md", "入门路线"),
+            ("02-核心概念.md", "核心概念"),
+            ("03-玩家与工具地图.md", "主流架构与工具地图"),
+            ("04-趋势与证据.md", "趋势与证据"),
+            ("05-问题与机会.md", "问题与机会"),
+            ("99-待验证问题.md", "待验证问题"),
+        ]
+        concept_cards = self._artifacts_under(artifacts, "concepts/")
+        architecture_cards = self._artifacts_under(artifacts, "architectures/")
+        tool_cards = self._artifacts_under(artifacts, "tools/")
+        question_cards = self._artifacts_under(artifacts, "questions/")
+        lines = [
+            "---",
+            f'project: "{project.title}"',
+            'type: "vault_home"',
+            'status: "draft"',
+            f"generated_at: \"{generated_date}\"",
+            'tags: ["sectorbreaker", "vault-home"]',
+            "---\n",
+            f"# {project.title} 知识库首页\n",
+            f"**领域**：{project.domain}  ",
+            f"**市场范围**：{project.market_scope.value}  ",
+            f"**研究深度**：{project.depth.value}\n",
+            "## 怎么使用这个 Vault\n",
+            "1. 先读主文档入口，建立领域边界、学习路线和当前趋势。",
+            "2. 再进入知识卡片，沿着 `[[双向链接]]` 补概念、架构、工具和待验证问题。",
+            "3. 最后回到 `_sources/evidence-ledger.md` 检查来源，把薄弱判断继续补证。\n",
+            "## 主文档入口\n",
+        ]
+        for path, label in main_order:
+            if path in artifacts_by_path:
+                lines.append(f"- [[{Path(path).stem}]] — {label}")
+        lines.extend([
+            "",
+            "## 知识卡片入口\n",
+            f"- 概念卡片：{len(concept_cards)} 张",
+            *self._readme_card_links(concept_cards),
+            f"- 架构卡片：{len(architecture_cards)} 张",
+            *self._readme_card_links(architecture_cards),
+            f"- 工具卡片：{len(tool_cards)} 张",
+            *self._readme_card_links(tool_cards),
+            f"- 待验证问题：{len(question_cards)} 张",
+            *self._readme_card_links(question_cards),
+            "",
+            "## 证据与待验证\n",
+            "- [[evidence-ledger]] — 本轮证据账本",
+            "- [[99-待验证问题]] — 下一轮补库问题清单",
+            "",
+            "## 如何继续补库\n",
+            "- 新增来源后，先把链接、摘要和判断写回 `_sources/evidence-ledger.md`。",
+            "- 如果出现新概念、新架构或新工具，优先补充对应卡片，再回链到主文档。",
+            "- 对证据不足的判断保留“待验证”标记，不要把线索当作结论。",
+            "",
+            "## 导出信息\n",
+            f"- 证据数量：{len(evidence)}",
+            f"- 主文档数量：{sum(1 for path, _ in main_order if path in artifacts_by_path)}",
+            f"- 知识卡片数量：{len(concept_cards) + len(architecture_cards) + len(tool_cards) + len(question_cards)}",
+            "- Manifest：[[manifest]]",
+        ])
+        readme_path = project_dir / "README.md"
+        readme_path.write_text("\n".join(lines), encoding="utf-8")
+        return "README.md"
+
+    @staticmethod
+    def _is_v1_vault(artifacts: list[Artifact]) -> bool:
+        paths = {artifact.content_path for artifact in artifacts}
+        return "00-领域总览.md" in paths or any(artifact.schema_version.endswith("card") for artifact in artifacts)
+
+    @staticmethod
+    def _artifacts_under(artifacts: list[Artifact], prefix: str) -> list[Artifact]:
+        return sorted(
+            [artifact for artifact in artifacts if artifact.content_path.startswith(prefix)],
+            key=lambda artifact: artifact.title,
+        )
+
+    @staticmethod
+    def _readme_card_links(artifacts: list[Artifact], limit: int = 12) -> list[str]:
+        if not artifacts:
+            return ["  - 暂无"]
+        lines = [f"  - [[{Path(artifact.content_path).stem}]]" for artifact in artifacts[:limit]]
+        if len(artifacts) > limit:
+            lines.append(f"  - 其余 {len(artifacts) - limit} 张卡片可在对应文件夹中继续查看")
+        return lines
 
     def _generate_evidence_index(
         self, project: ResearchProject, evidence: list[EvidenceItem], project_dir: Path,

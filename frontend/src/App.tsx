@@ -60,6 +60,7 @@ const eventNodeMap: Record<string, string> = {
   evidence_ledger: "evidence_ledger",
   knowledge_structuring: "business_database",
   document_writing: "business_database",
+  artifact_review: "qa_critic",
   quality_review: "qa_critic",
   market_agent: "market_agent",
   player_agent: "player_agent",
@@ -152,6 +153,32 @@ function cleanDisplaySnippet(value?: string, fallback = "该来源未提供摘�
 function formatEventTime(timestamp: number) {
   const millis = timestamp > 1_000_000_000_000 ? timestamp : timestamp * 1000;
   return new Date(millis).toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function isKnowledgeCard(artifact: Artifact) {
+  return artifact.schema_version === "v1-card"
+    || artifact.content_path.startsWith("concepts/")
+    || artifact.content_path.startsWith("architectures/")
+    || artifact.content_path.startsWith("tools/")
+    || artifact.content_path.startsWith("questions/");
+}
+
+function resultQualityMetrics(
+  artifacts: Artifact[],
+  evidence: Evidence[],
+  events: RunEvent[],
+  exportManifest: ExportManifest | null,
+) {
+  const cardArtifacts = artifacts.filter(isKnowledgeCard);
+  const mainArtifacts = artifacts.filter((artifact) => !isKnowledgeCard(artifact));
+  return {
+    evidenceCount: evidence.length,
+    mainDocumentCount: mainArtifacts.length,
+    knowledgeCardCount: cardArtifacts.length,
+    reviewEventCount: events.filter((event) => event.gate === "artifact_review").length,
+    unresolvedQuestionCount: cardArtifacts.filter((artifact) => artifact.content_path.startsWith("questions/")).length,
+    exportFileCount: exportManifest?.artifact_paths.length ?? 0,
+  };
 }
 
 function QAReportPanel({ qa }: { qa: QaPayload }) {
@@ -372,6 +399,7 @@ function ResearchView({
   onWorkflowDefinition,
   isConnected,
   onBack,
+  onViewPartialResult,
   searchConfigured,
 }: {
   project: Project;
@@ -384,6 +412,7 @@ function ResearchView({
   onWorkflowDefinition: (definition: WorkflowDefinition) => void;
   isConnected: boolean;
   onBack: () => void;
+  onViewPartialResult: () => void;
   searchConfigured: boolean;
 }) {
   const [selectedNode, setSelectedNode] = useState<WorkflowNode | null>(null);
@@ -454,6 +483,16 @@ function ResearchView({
             </div>
             <p>{activeMessage ?? latest?.message ?? "正在构建可导出的知识系统。"}</p>
             {snapshot && <p className="inline-note">运行状态：{snapshot.status}，产物 {snapshot.artifact_summary.length} 个。</p>}
+            {snapshot?.status === "failed" && (
+              <div className="run-recovery-card">
+                <strong>运行中断，但当前进度已保留</strong>
+                <span>你可以先查看已生成内容，或回到首页重新运行。若已有产物，也可以在结果页尝试导出已有结果。</span>
+                <div>
+                  <button className="primary btn-sm" onClick={onViewPartialResult} type="button">查看已生成内容</button>
+                  <button className="secondary btn-sm" onClick={onBack} type="button">重新运行</button>
+                </div>
+              </div>
+            )}
             {snapshot?.errors.map((item) => (
               <p className="inline-warning" key={`${item.timestamp}-${item.message}`}>{item.message}</p>
             ))}
@@ -716,6 +755,10 @@ function ResultView({
     });
   }, [attentionOnly, evidence, qualityFilter, verificationFilter]);
   const traceEvents = useMemo(() => events.filter((event) => event.message).slice(-14), [events]);
+  const qualityMetrics = useMemo(
+    () => resultQualityMetrics(artifacts, evidence, events, exportManifest),
+    [artifacts, evidence, events, exportManifest],
+  );
 
   async function askQuestion() {
     if (!question.trim()) return;
@@ -762,6 +805,18 @@ function ResultView({
           ) : (
             <p className="result-empty">暂无运行事件。后续运行会在这里保留每一步轨迹。</p>
           )}
+        </section>
+        <section className="result-card result-card--wide">
+          <h3><Sparkles size={16} />结果质量摘要</h3>
+          <div className="quality-grid">
+            <div><strong>{qualityMetrics.evidenceCount}</strong><span>证据</span></div>
+            <div><strong>{qualityMetrics.mainDocumentCount}</strong><span>主文档</span></div>
+            <div><strong>{qualityMetrics.knowledgeCardCount}</strong><span>知识卡片</span></div>
+            <div><strong>{qualityMetrics.reviewEventCount}</strong><span>审查补写事件</span></div>
+            <div><strong>{qualityMetrics.unresolvedQuestionCount}</strong><span>待验证问题</span></div>
+            <div><strong>{qualityMetrics.exportFileCount || "未导出"}</strong><span>导出文件</span></div>
+          </div>
+          {!exportManifest && <p className="result-empty">点击导出生成 Obsidian Vault，导出后会写入 README、证据账本、主文档和知识卡片。</p>}
         </section>
         <section className="result-card">
           <h3><FileText size={16} />产物</h3>
@@ -1075,6 +1130,7 @@ export function App() {
           onWorkflowDefinition={setWorkflowDefinition}
           isConnected={isConnected}
           onBack={resetToLanding}
+          onViewPartialResult={() => setPhase("result")}
           searchConfigured={searchConfigured}
         />
       )}

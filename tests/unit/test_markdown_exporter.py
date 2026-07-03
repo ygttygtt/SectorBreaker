@@ -74,6 +74,7 @@ def test_markdown_exporter_writes_runnable_v1_vault_layout(tmp_path: Path) -> No
             content_path=path,
             content=f"# {path}\n\nV1 content.",
             source_evidence_ids=["EV-V1-1"],
+            schema_version="v1",
         )
         for index, path in enumerate(
             [
@@ -88,6 +89,48 @@ def test_markdown_exporter_writes_runnable_v1_vault_layout(tmp_path: Path) -> No
             start=1,
         )
     ]
+    artifacts.extend([
+        Artifact(
+            id="ART-V1-CARD-CONCEPT",
+            project_id=project.id,
+            artifact_type=ArtifactType.CORE_CONCEPTS,
+            title="RAG",
+            content_path="concepts/RAG.md",
+            content="# RAG\n\nConcept card.",
+            source_evidence_ids=["EV-V1-1"],
+            schema_version="v1-card",
+        ),
+        Artifact(
+            id="ART-V1-CARD-ARCH",
+            project_id=project.id,
+            artifact_type=ArtifactType.PLAYER_TOOL_MAP,
+            title="Agent 工作流",
+            content_path="architectures/Agent 工作流.md",
+            content="# Agent 工作流\n\nArchitecture card.",
+            source_evidence_ids=["EV-V1-1"],
+            schema_version="v1-card",
+        ),
+        Artifact(
+            id="ART-V1-CARD-TOOL",
+            project_id=project.id,
+            artifact_type=ArtifactType.PLAYER_MAP,
+            title="LangGraph",
+            content_path="tools/LangGraph.md",
+            content="# LangGraph\n\nTool card.",
+            source_evidence_ids=["EV-V1-1"],
+            schema_version="v1-card",
+        ),
+        Artifact(
+            id="ART-V1-CARD-QUESTION",
+            project_id=project.id,
+            artifact_type=ArtifactType.UNRESOLVED_QUESTIONS,
+            title="待验证问题 1 - 评测方式",
+            content_path="questions/待验证问题 1 - 评测方式.md",
+            content="# 待验证问题 1 - 评测方式\n\nQuestion card.",
+            source_evidence_ids=["EV-V1-1"],
+            schema_version="v1-card",
+        ),
+    ])
     evidence = [
         EvidenceItem(
             id="EV-V1-1",
@@ -115,9 +158,20 @@ def test_markdown_exporter_writes_runnable_v1_vault_layout(tmp_path: Path) -> No
         "05-问题与机会.md",
         "99-待验证问题.md",
         "_sources/evidence-ledger.md",
+        "README.md",
         "manifest.json",
     }
     assert expected_paths.issubset(set(manifest.artifact_paths))
     project_dir = tmp_path / "agent-development"
     for relative_path in expected_paths:
         assert (project_dir / relative_path).exists()
+    readme = (project_dir / "README.md").read_text(encoding="utf-8")
+    assert "知识库首页" in readme
+    assert "主文档入口" in readme
+    assert "知识卡片入口" in readme
+    assert "[[00-领域总览]]" in readme
+    assert "[[RAG]]" in readme
+    assert "[[Agent 工作流]]" in readme
+    assert "[[LangGraph]]" in readme
+    assert "[[待验证问题 1 - 评测方式]]" in readme
+    assert "如何继续补库" in readme

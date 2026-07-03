@@ -220,6 +220,7 @@ test("maps V1 run events to visible workflow graph nodes", () => {
   expect(nodeIdForEvent({ gate: "source_collection", step: null, agent: "Search Scout" })).toBe("source_intake");
   expect(nodeIdForEvent({ gate: "knowledge_structuring", step: null, agent: "Knowledge Builder" })).toBe("business_database");
   expect(nodeIdForEvent({ gate: "document_writing", step: null, agent: "Document Writer" })).toBe("business_database");
+  expect(nodeIdForEvent({ gate: "artifact_review", step: null, agent: "Artifact Reviewer" })).toBe("qa_critic");
   expect(nodeIdForEvent({ gate: "obsidian_export", step: null, agent: "Export Writer" })).toBe("export");
 });
 
@@ -318,6 +319,10 @@ test("failed snapshot renders visible error instead of blank screen", async () =
 
   expect((await screen.findAllByText("LLM 调用失败")).length).toBeGreaterThan(0);
   expect(screen.getByText(/运行状态：failed/)).toBeInTheDocument();
+  expect(screen.getByText("运行中断，但当前进度已保留")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "查看已生成内容" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "查看已生成内容" }));
+  expect(await screen.findByText("证据账本")).toBeInTheDocument();
 });
 
 test("config panel can test search connectivity", async () => {
@@ -547,6 +552,18 @@ test("completed result shows run trace and cleans long evidence snippets", async
         severity: "info",
         timestamp: Date.now(),
       },
+      {
+        event_type: "node_progress",
+        gate: "artifact_review",
+        step: null,
+        agent: "Artifact Reviewer",
+        message: "正在审查详实度：领域总览",
+        data: null,
+        progress_current: 1,
+        progress_total: 7,
+        severity: "info",
+        timestamp: Date.now(),
+      },
     ],
     errors: [],
     artifact_summary: [
@@ -554,6 +571,11 @@ test("completed result shows run trace and cleans long evidence snippets", async
     ],
     updated_at: new Date().toISOString(),
   });
+  mockListArtifacts.mockResolvedValueOnce([
+    { id: "A1", title: "领域总览", content_path: "00-领域总览.md", artifact_type: "domain_overview", schema_version: "v1" },
+    { id: "C1", title: "RAG", content_path: "concepts/RAG.md", artifact_type: "core_concepts", schema_version: "v1-card" },
+    { id: "Q1", title: "待验证问题 1", content_path: "questions/待验证问题 1.md", artifact_type: "unresolved_questions", schema_version: "v1-card" },
+  ]);
   mockListEvidence.mockResolvedValueOnce([
     {
       id: "EV-LONG",
@@ -580,6 +602,11 @@ test("completed result shows run trace and cleans long evidence snippets", async
 
   expect(await screen.findByText("运行轨迹")).toBeInTheDocument();
   expect(screen.getByText("V1 知识系统生成完成")).toBeInTheDocument();
+  expect(screen.getByText("结果质量摘要")).toBeInTheDocument();
+  expect(screen.getByText("知识卡片")).toBeInTheDocument();
+  expect(screen.getByText("审查补写事件")).toBeInTheDocument();
+  expect(screen.getByText("待验证问题")).toBeInTheDocument();
+  expect(screen.getByText(/点击导出生成 Obsidian Vault/)).toBeInTheDocument();
   expect(screen.queryByText(/Skip to content/)).not.toBeInTheDocument();
   expect(screen.queryByText(/Navigation Menu/)).not.toBeInTheDocument();
   expect(screen.getByText(/Agent development frameworks compare LangGraph/)).toBeInTheDocument();

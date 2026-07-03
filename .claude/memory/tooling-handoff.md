@@ -26,6 +26,7 @@ metadata:
 - V1.1 已新增证据充足度检查和 LLM 生成心跳：少于 8 条可用证据时补搜一轮并去重，仍不足会 warning；长时间建库/写作时持续发 progress 事件。
 - V1.2 已新增富 Obsidian 输出：主文档写作后运行 bounded `Artifact Reviewer`，偏向扩写详实度而不是删短；导出会额外生成 `concepts/`、`architectures/`、`tools/`、`questions/` 知识卡片，并改进 YAML front matter 以适配 Obsidian Properties。
 - V1.2 展示冲刺计划已写入 `docs/superpowers/plans/2026-07-03-v1-2-demo-readiness.md`。下一步按该计划完成前端进度可视化、结果质量面板、导出 README 首页和 demo-safe failure/restore，不要在录制前扩展 full RAG、多搜索 UI 或内容生态抓取。
+- V1.2 展示冲刺的前端/导出收口已完成：结果页质量摘要、失败恢复块、`artifact_review` 流程映射和 V1 Obsidian Vault README 首页都已落地。后续真实录屏验收交给用户本地跑 Tavily/Mimo。
 - 后端：FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + 可解释选择轨迹
 - 前端：Vite + React + TypeScript，可解释研究工作台，真实 workflow graph，纵向布局与活动节点居中
 - 前端默认 `/api` 代理到 `http://127.0.0.1:8030`。如果 UI 误报 LLM/搜索未配置，优先排查旧 `uvicorn` 进程和 Vite 是否需要重启。

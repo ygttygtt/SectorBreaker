@@ -65,6 +65,7 @@ export interface Artifact {
   content_path: string;
   artifact_type?: string;
   content?: string;
+  schema_version?: string;
 }
 
 export interface Evidence {

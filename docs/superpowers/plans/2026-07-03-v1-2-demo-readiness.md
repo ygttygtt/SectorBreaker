@@ -10,6 +10,8 @@
 
 ---
 
+**Execution Status:** Implemented in the V1.2 demo-readiness closeout. Final recording validation is intentionally left for the user to run locally with real Tavily/Mimo credentials.
+
 ## Scope Guardrails
 
 - Do not add multi-search-provider UI. V1.2 still exposes Tavily as the primary search provider.
