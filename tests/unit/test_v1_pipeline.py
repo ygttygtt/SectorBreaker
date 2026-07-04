@@ -7,8 +7,10 @@ from backend.app.schemas import (
     ProjectStatus,
     ResearchProject,
     ResearchDepth,
+    SourceChannel,
     SourcePolicy,
 )
+from backend.app.schemas.documents import DocumentCitation, DocumentSegment, ProjectDocument
 from backend.app.v1_pipeline import (
     DomainArchitecture,
     DomainConcept,
@@ -140,7 +142,7 @@ def test_v1_reliable_first_falls_back_to_open_web_when_reliable_search_is_empty(
 
     assert len(search_provider.queries) >= 2
     assert search_provider.queries[0].allowed_domains
-    assert search_provider.queries[1].allowed_domains == []
+    assert any(query.allowed_domains == [] for query in search_provider.queries[1:])
     assert len(repository.evidence) == 1
     assert repository.evidence[0].source_title == "AI Agent framework trends 2026"
 
@@ -200,11 +202,95 @@ def test_v1_pipeline_runs_supplemental_search_when_evidence_is_insufficient() ->
         )
     )
 
-    assert len(search_provider.queries) == 2
-    assert "权威资料" in search_provider.queries[1].query
+    assert len(search_provider.queries) >= 4
+    assert any("政策" in query.query or "风险" in query.query for query in search_provider.queries)
+    assert any("案例" in query.query or "玩家" in query.query for query in search_provider.queries)
+    assert any("需求" in query.query or "学习路径" in query.query for query in search_provider.queries)
     assert len(repository.evidence) >= 8
-    assert any("补充一轮开放搜索" in event.message for event in events)
-    assert any("资料基本可用" in event.message or "资料充足度检查通过" in event.message for event in events)
+    coverage_events = [event for event in events if event.gate == "coverage_evaluation" and event.data]
+    assert coverage_events
+    assert any((event.data or {}).get("status") in {"needs_more_sources", "degraded", "sufficient"} for event in coverage_events)
+    assert any(event.gate == "master_agent" and "搜索计划" in event.message for event in events)
+
+
+def test_v1_ingests_uploaded_assistant_report_into_evidence_and_context() -> None:
+    class FakeRepository:
+        def __init__(self) -> None:
+            self.evidence = []
+            self.artifacts = []
+            self.document = ProjectDocument(
+                id="doc-report-1",
+                project_id=_project().id,
+                channel="assistant_brief",
+                file_name="kimi-deepsearch.md",
+                mime_type="text/markdown",
+                content=(
+                    "外部 AI 报告认为 Agent 开发需要关注 ReAct、工具调用、LangGraph、"
+                    "评测和生产治理。参考来源：https://example.com/agent-report"
+                ),
+                word_count=1,
+                char_count=96,
+                segment_count=1,
+                citation_count=1,
+            )
+
+        def list_evidence(self, project_id: str):
+            return []
+
+        def add_evidence(self, item):
+            self.evidence.append(item)
+
+        def add_artifact(self, artifact):
+            self.artifacts.append(artifact)
+
+        def list_documents(self, project_id: str):
+            return [self.document]
+
+        def list_document_segments(self, document_id: str):
+            return [
+                DocumentSegment(
+                    id="seg-1",
+                    document_id=document_id,
+                    order_index=1,
+                    text="Agent 开发需要关注 ReAct、工具调用、LangGraph、评测和生产治理。",
+                    char_count=38,
+                )
+            ]
+
+        def list_document_citations(self, document_id: str):
+            return [
+                DocumentCitation(
+                    id="cit-1",
+                    document_id=document_id,
+                    raw_reference="https://example.com/agent-report",
+                    source_title="Agent Report",
+                    source_url="https://example.com/agent-report",
+                    referenced_segment_ids=["seg-1"],
+                )
+            ]
+
+    repository = FakeRepository()
+    events = []
+
+    async def emit(event):
+        events.append(event)
+
+    asyncio.run(
+        run_v1_knowledge_pipeline(
+            project=_project().model_copy(update={"source_policy": SourcePolicy.USER_MATERIALS_ONLY}),
+            repository=repository,  # type: ignore[arg-type]
+            search_provider=None,
+            llm_provider=None,
+            emit=emit,
+        )
+    )
+
+    evidence_ids = [item.id for item in repository.evidence]
+    assert "EV-DOC-doc-report-1" in evidence_ids
+    assert "EV-DOC-CIT-cit-1" in evidence_ids
+    assert any(item.source_channel == SourceChannel.ASSISTANT_BRIEF for item in repository.evidence)
+    assert any(event.gate == "external_report_intake" for event in events)
+    assert any(event.gate == "master_agent" and event.data for event in events)
 
 
 def test_v1_pipeline_filters_developer_repository_and_attachment_noise() -> None:

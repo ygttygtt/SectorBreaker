@@ -64,6 +64,8 @@ For Cursor, Windsurf, Gemini, Codex, Claude Code, or other tools, also read `doc
 - V1.5 export manifests include an absolute `export_dir`, and the API exposes a guarded local `POST /api/exports/open-folder` endpoint for opening folders inside the configured export root.
 - V1.5 frontend separates the two product modes more clearly: personal `SectorBreaker 领域建库` and enterprise `TalentScope 人才需求情报台` now use different copy, themes, input guidance, Word/PDF upload affordances, and branched workflow preview graphs. Runtime pages remain driven by backend workflow definitions and run events.
 - Architecture requirement captured: `docs/16-master-agent-research-core.md` now records the required Master Agent direction. The Master Agent must be intelligent, tool-capable, stateful during a run, memory-backed by structured context, and able to decide continue/search-again/ask-user/degrade/block. Uploaded external AI reports must be first-class external sources in its context. Hard-coded evidence counts must not be the primary sufficiency rule.
+- V1.6 now implements the first bounded Master Agent research loop for the personal `domain_knowledge` path. The V1 run creates `RunWorkingMemory`, ingests uploaded external reports/user materials/citations before search planning, generates multi-intent `SearchPlan` records, calls the configured `SearchProvider` through structured `SearchIntent`s, records `ToolCallResult` diagnostics, evaluates coverage with `CoverageReport`, and maps the result to `continue` / `search_again` / `degrade` / `block`. Zero evidence blocks before writing; thin evidence is visible as degraded rather than mislabeled sufficient.
+- V1.6 workflow visualization is aligned with actual run gates. Personal project/run workflow definitions now expose `master_agent`, `external_report_intake`, `source_collection`, `evidence_ledger`, `coverage_evaluation`, `knowledge_structuring`, `document_writing`, `artifact_review`, and `export`; frontend event mapping points to these real node IDs.
 - Important local debugging note: stale `uvicorn` processes on another port can make the frontend hit old code. The default Vite proxy now targets `127.0.0.1:8030`; before UI acceptance, ensure only one intended `uvicorn backend.app.api.app:app --port 8030` process is running and restart Vite after config changes.
 - LangGraph workflow now includes Scope, Supervisor Plan, Source Strategy, Source Intake, Claim Extractor, Counterevidence, Evidence Ledger, Market, Player, Transaction, Synthesis, Knowledge Map, QA Critic, Export, and RAG Indexer gates.
 - Runs pause at `supervisor_plan` for user confirmation unless `auto_run=true`.
@@ -141,6 +143,7 @@ Current known baseline:
 - Current V1.3 focused verification: `python -m pytest tests/unit/test_talent_demand_pipeline.py tests/unit/test_talent_demand_models.py tests/unit/test_talent_demand_extraction.py tests/unit/test_talent_demand_skills.py tests/unit/test_talent_demand_source_coverage.py tests/unit/test_talent_demand_export.py tests/api/test_app.py::test_api_talent_demand_run_uses_uploaded_jd_and_creates_talent_artifacts tests/api/test_app.py::test_api_runs_research_and_exports_markdown tests/api/test_app.py::test_api_accepts_talent_demand_project_mode -q` => 16 passed, 1 warning. `cd frontend && npm test -- --run App.test.tsx` => 17 passed. `cd frontend && npm run build` passed with the existing Vite chunk-size warning.
 - Current V1.4 focused verification: `python -m pytest tests/unit/test_job_source_provider.py tests/unit/test_project_retriever.py tests/unit/test_talent_demand_pipeline.py tests/unit/test_talent_demand_source_coverage.py tests/api/test_app.py::test_api_talent_demand_run_uses_uploaded_jd_and_creates_talent_artifacts tests/api/test_app.py::test_api_chat_uses_project_retrieval tests/api/test_app.py::test_api_talent_demand_run_uses_boss_job_source_when_enabled -q` => 13 passed, 1 warning. `cd frontend && npm test -- --run App.test.tsx` => 17 passed. `cd frontend && npm run build` passed with the existing Vite chunk-size warning.
 - Current V1.5 focused verification: `python -m pytest tests/unit/test_v1_pipeline.py -q` => 15 passed; upload/export API subset => 6 passed, 1 warning; `cd frontend && npm test -- --run App.test.tsx` => 17 passed; `cd frontend && npm run build` passed with the existing Vite chunk-size warning.
+- Current V1.6 focused verification: `python -m pytest tests/unit/test_v1_pipeline.py -q` => 16 passed; `python -m pytest tests/api/test_app.py::test_api_exposes_workflow_definition_and_source_policy -q` => 1 passed, 1 warning; `cd frontend && npm test -- --run App.test.tsx` => 17 passed; `cd frontend && npm run build` passed with the existing Vite chunk-size warning.
 - npm audit high severity: 0 vulnerabilities.
 
 ## What Is Easy
@@ -182,11 +185,12 @@ Replace remaining raw `dict` LLM outputs in business agents with dedicated Pydan
 ### Step 1A: Master Agent Research Core
 
 The next major iteration should follow `docs/16-master-agent-research-core.md`.
-Do not continue adding fixed search heuristics as the main intelligence layer.
-Implement structured run memory, external-report intake into V1 context,
-Master-Agent-generated tool/search plans, LLM coverage judgment, bounded
-search/evaluation loops, and graph/UI alignment around the actual executing
-nodes.
+V1.6 has implemented the first bounded version: structured run memory,
+external-report intake into V1 context, Master-Agent-generated tool/search
+plans, coverage judgment, bounded search/evaluation loops, and graph/UI
+alignment around the actual executing nodes. Next upgrades should add full
+`ask_user` human interruption, stronger source verification, and RAG/vector
+retrieval inside the Master Agent context.
 
 ### Step 2: Search Scout And Evidence Curator
 

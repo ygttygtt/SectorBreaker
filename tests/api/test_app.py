@@ -480,7 +480,10 @@ def test_api_exposes_workflow_definition_and_source_policy(tmp_path: Path) -> No
     definition = client.get(f"/api/projects/{project['id']}/workflow-definition")
     assert definition.status_code == 200
     node_ids = {node["id"] for node in definition.json()["nodes"]}
-    assert "supervisor_plan" in node_ids
+    assert "master_agent" in node_ids
+    assert "source_collection" in node_ids
+    assert "coverage_evaluation" in node_ids
+    assert "knowledge_structuring" in node_ids
     assert "evidence_ledger" in node_ids
 
 

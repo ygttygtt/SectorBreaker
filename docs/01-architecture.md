@@ -164,3 +164,35 @@ feedback run:
   人才需求情报台` as distinct personal/enterprise modes with different copy,
   theme, inputs, and branched workflow preview graphs. Running pages still use
   backend run events and workflow definitions as the source of truth.
+
+## V1.6 Master Agent Research Loop
+
+V1.6 implements the first bounded Master-Agent-controlled loop for the personal
+`domain_knowledge` path. It preserves the runnable V1 export spine, but moves
+search planning and source sufficiency judgment out of fixed count heuristics:
+
+1. `master_agent` builds a run-local `RunWorkingMemory` from project config,
+   uploaded documents, evidence, search attempts, tool results, coverage reports,
+   and decisions.
+2. `external_report_intake` runs before search planning. Uploaded external AI
+   reports, user materials, and extracted citations are converted into V1
+   evidence with low/partial trust metadata and enter the Master Agent context.
+3. `source_collection` executes Master-generated `SearchIntent` records through
+   the configured `SearchProvider`. Each tool call records raw results, accepted
+   evidence, rejected counts, rejection reasons, query text, and evidence ids.
+4. `coverage_evaluation` produces a structured `CoverageReport` across concept
+   boundary, current state, trends/reports, policy/risk, cases/players, user
+   demand, and source quality.
+5. `MasterAgentDecision` maps coverage to `continue`, `search_again`,
+   `degrade`, or `block`. Zero evidence remains a hard block. Thin evidence can
+   continue only as a visible degraded run after bounded search attempts or when
+   uploaded materials provide usable context.
+6. `/workflow-definition` for personal projects now returns a V1.6 graph with
+   `master_agent`, `external_report_intake`, `source_collection`,
+   `coverage_evaluation`, `knowledge_structuring`, `document_writing`,
+   `artifact_review`, and `export`, so the UI highlights actual gates.
+
+Limits: V1.6 is bounded to three source rounds and still depends on configured
+search-provider quality. Uploaded external AI reports are first-class research
+inputs, not automatically verified facts. Full vector retrieval and stronger
+source verification remain later upgrades.

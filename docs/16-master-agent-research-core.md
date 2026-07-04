@@ -143,6 +143,33 @@ The UI graph must reflect actual execution state:
 
 ## Implementation Plan
 
+## Current V1.6 Implementation Status
+
+The personal `domain_knowledge` V1 path now implements the first bounded
+version of this design:
+
+- `RunWorkingMemory` records the objective, source policy, uploaded document
+  summaries, attempted queries, tool-call outcomes, coverage reports, and Master
+  Agent decisions during a run.
+- Uploaded external AI reports, user materials, and extracted citations are
+  ingested before search planning and become low/partial-trust evidence rather
+  than ignored side inputs.
+- `SearchPlan` / `SearchIntent` drive multiple research-intent queries through
+  `SearchProvider.search(SearchQuery)`; raw counts, accepted counts, rejected
+  counts, rejection reasons, and evidence IDs are emitted as run events.
+- `CoverageReport` judges coverage across concept boundary, current state,
+  trends/reports, policy/risk, cases/players, user demand, and source quality.
+- `MasterAgentDecision` can continue, search again, degrade, or block. Zero
+  evidence blocks before writing. Thin evidence is never labeled sufficient; it
+  can continue only as a visible degraded run after bounded attempts or when
+  uploaded material provides usable context.
+- The V1 workflow definition and frontend node mapping now expose the real
+  execution gates, including `master_agent` and `coverage_evaluation`.
+
+Remaining targets: full `ask_user` interruption, stronger source verification,
+vector/hybrid RAG inside the loop, and richer tool-call routing remain future
+upgrades.
+
 ### Phase 1: Context And Memory
 
 - Add a `ResearchContext` / `RunWorkingMemory` schema.
@@ -194,4 +221,3 @@ Minimum acceptance examples:
 - A run with missing policy/case/source dimensions triggers another search round
   with new intent-driven queries.
 - The running graph highlights the same nodes that emit run events.
-

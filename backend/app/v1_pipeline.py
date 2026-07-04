@@ -95,6 +95,69 @@ class ArtifactExpansionReview(BaseModel):
     quality_notes: str = ""
 
 
+class DocumentSourceSummary(BaseModel):
+    document_id: str
+    channel: str
+    file_name: str | None = None
+    char_count: int = 0
+    segment_count: int = 0
+    citation_count: int = 0
+    summary: str = ""
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class SearchIntent(BaseModel):
+    intent: str
+    query: str
+    reason: str
+    coverage_dimensions: list[str] = Field(default_factory=list)
+    expected_sources: list[str] = Field(default_factory=list)
+
+
+class SearchPlan(BaseModel):
+    objective: str = ""
+    intents: list[SearchIntent] = Field(default_factory=list)
+
+
+class ToolCallResult(BaseModel):
+    tool: str = "search"
+    intent: str
+    query: str
+    raw_result_count: int = 0
+    accepted_count: int = 0
+    rejected_count: int = 0
+    rejected_reasons: list[str] = Field(default_factory=list)
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class CoverageReport(BaseModel):
+    status: str = "needs_more_sources"
+    can_continue: bool = False
+    coverage_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    covered_dimensions: list[str] = Field(default_factory=list)
+    missing_dimensions: list[str] = Field(default_factory=list)
+    next_search_intents: list[SearchIntent] = Field(default_factory=list)
+    reason: str = ""
+    block_reason: str | None = None
+
+
+class MasterAgentDecision(BaseModel):
+    action: str = "search_again"
+    reason: str = ""
+    coverage_report: CoverageReport
+
+
+class RunWorkingMemory(BaseModel):
+    objective: str
+    source_policy: str
+    document_sources: list[DocumentSourceSummary] = Field(default_factory=list)
+    search_round: int = 0
+    attempted_queries: list[str] = Field(default_factory=list)
+    tool_results: list[ToolCallResult] = Field(default_factory=list)
+    coverage_reports: list[CoverageReport] = Field(default_factory=list)
+    decisions: list[MasterAgentDecision] = Field(default_factory=list)
+
+
 _MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*]\([^)]+\)")
 _MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)]\([^)]+\)")
 _RAW_URL_RE = re.compile(r"https?://\S+")
@@ -102,6 +165,8 @@ _WHITESPACE_RE = re.compile(r"\s+")
 _V1_SNIPPET_MAX_CHARS = 420
 _V1_TARGET_EVIDENCE_COUNT = 10
 _V1_MIN_ACCEPTABLE_EVIDENCE_COUNT = 8
+_V1_MASTER_MAX_SEARCH_ROUNDS = 3
+_V1_MASTER_MAX_INTENTS_PER_ROUND = 4
 _V1_ZERO_EVIDENCE_BLOCK_MESSAGE = (
     "资料收集后仍没有可用证据，已停止生成知识库。请检查搜索配置、换一个更明确的主题、"
     "切换信源策略，或上传外部报告/用户材料后重新运行。"
@@ -196,16 +261,38 @@ async def run_v1_knowledge_pipeline(
         if emit is not None:
             await emit(event)
 
+    evidence = list(repository.list_evidence(project.id))
+    memory = RunWorkingMemory(
+        objective=f"为“{project.domain}”构建可持续补充的 Obsidian 领域知识库",
+        source_policy=project.source_policy.value,
+    )
+
+    await emit_event(RunEvent(
+        event_type="node_started",
+        gate="master_agent",
+        agent="Master Agent",
+        message="主管节点开始理解任务、检查上传材料和已有证据",
+        progress_current=1,
+        progress_total=4,
+    ))
+
+    memory.document_sources = await _ingest_project_documents(
+        project=project,
+        repository=repository,
+        evidence=evidence,
+        emit_event=emit_event,
+    )
+
     await emit_event(RunEvent(
         event_type="node_started",
         gate="source_collection",
         agent="Search Scout",
-        message="开始收集 V1 领域资料",
+        message="Master Agent 开始按调研意图调用搜索工具",
         progress_current=1,
-        progress_total=3,
+        progress_total=_V1_MASTER_MAX_SEARCH_ROUNDS,
+        data={"document_sources": [item.model_dump(mode="json") for item in memory.document_sources]},
     ))
 
-    evidence = list(repository.list_evidence(project.id))
     if project.source_policy != SourcePolicy.USER_MATERIALS_ONLY and search_provider is not None:
         allowed_domains, blocked_domains = search_constraints_for_policy(
             {
@@ -215,94 +302,122 @@ async def run_v1_knowledge_pipeline(
             verification=project.source_policy == SourcePolicy.RELIABLE_ONLY,
         )
         v1_blocked_domains = list(dict.fromkeys(blocked_domains + list(_V1_BLOCKED_DOMAINS)))
-        search_query = _build_v1_search_query(project.domain)
-        results = await search_provider.search(SearchQuery(
-            query=search_query,
-            market_scope=project.market_scope.value,
-            max_results=8,
-            allowed_domains=allowed_domains,
-            blocked_domains=v1_blocked_domains,
-        ))
-        results = _filter_v1_search_results(results, project=project)
-        if (
-            not results
-            and project.source_policy == SourcePolicy.RELIABLE_FIRST
-            and allowed_domains
-        ):
-            await emit_event(RunEvent(
-                event_type="node_degraded",
-                gate="source_collection",
-                agent="Search Scout",
-                message="可靠优先来源暂未命中，已降级补充开放网络搜索",
-                progress_current=1,
-                progress_total=3,
-                severity="warning",
-            ))
-            results = await search_provider.search(SearchQuery(
-                query=search_query,
-                market_scope=project.market_scope.value,
-                max_results=8,
-                allowed_domains=[],
-                blocked_domains=v1_blocked_domains,
-            ))
-            results = _filter_v1_search_results(results, project=project)
-        await _persist_search_results(
-            project=project,
-            repository=repository,
-            evidence=evidence,
-            results=results,
-            emit_event=emit_event,
-        )
-        if len(evidence) < _V1_MIN_ACCEPTABLE_EVIDENCE_COUNT:
-            await emit_event(RunEvent(
-                event_type="node_progress",
-                gate="source_collection",
-                agent="Search Scout",
-                message=(
-                    f"当前证据 {len(evidence)} 条，低于建议阈值 "
-                    f"{_V1_MIN_ACCEPTABLE_EVIDENCE_COUNT} 条，正在补充一轮开放搜索"
-                ),
-                progress_current=len(evidence),
-                progress_total=_V1_TARGET_EVIDENCE_COUNT,
-            ))
-            supplemental_results = await search_provider.search(SearchQuery(
-                query=_build_v1_supplemental_search_query(project.domain),
-                market_scope=project.market_scope.value,
-                max_results=8,
-                allowed_domains=[],
-                blocked_domains=v1_blocked_domains,
-            ))
-            supplemental_results = _filter_v1_search_results(supplemental_results, project=project)
-            await _persist_search_results(
+
+        for round_index in range(1, _V1_MASTER_MAX_SEARCH_ROUNDS + 1):
+            memory.search_round = round_index
+            search_plan = await _build_master_search_plan(
+                project=project,
+                evidence=evidence,
+                memory=memory,
+                llm_provider=llm_provider,
+                round_index=round_index,
+                emit_event=emit_event,
+            )
+            tool_results = await _execute_search_intents(
                 project=project,
                 repository=repository,
                 evidence=evidence,
-                results=supplemental_results,
+                search_provider=search_provider,
+                intents=search_plan.intents,
+                allowed_domains=allowed_domains if round_index == 1 else [],
+                blocked_domains=v1_blocked_domains,
+                memory=memory,
                 emit_event=emit_event,
             )
+            memory.tool_results.extend(tool_results)
+            if (
+                sum(item.accepted_count for item in tool_results) == 0
+                and project.source_policy == SourcePolicy.RELIABLE_FIRST
+                and round_index == 1
+                and allowed_domains
+            ):
+                await emit_event(RunEvent(
+                    event_type="node_degraded",
+                    gate="source_collection",
+                    agent="Search Scout",
+                    message="可靠优先来源暂未命中，Master Agent 已降级补充开放网络搜索",
+                    progress_current=round_index,
+                    progress_total=_V1_MASTER_MAX_SEARCH_ROUNDS,
+                    severity="warning",
+                ))
+                open_web_results = await _execute_search_intents(
+                    project=project,
+                    repository=repository,
+                    evidence=evidence,
+                    search_provider=search_provider,
+                    intents=search_plan.intents,
+                    allowed_domains=[],
+                    blocked_domains=v1_blocked_domains,
+                    memory=memory,
+                    emit_event=emit_event,
+                )
+                memory.tool_results.extend(open_web_results)
 
-    sufficiency = _assess_evidence_sufficiency(evidence)
-    if sufficiency["status"] != "sufficient":
-        await emit_event(RunEvent(
-            event_type="node_degraded",
-            gate="source_collection",
-            agent="Search Scout",
-            message=sufficiency["message"],
-            progress_current=len(evidence),
-            progress_total=_V1_TARGET_EVIDENCE_COUNT,
-            severity="warning",
-            data=sufficiency,
-        ))
+            coverage = await _evaluate_coverage_with_master_agent(
+                project=project,
+                evidence=evidence,
+                memory=memory,
+                llm_provider=llm_provider,
+                emit_event=emit_event,
+            )
+            memory.coverage_reports.append(coverage)
+            decision = _decision_from_coverage(coverage)
+            memory.decisions.append(decision)
+            decision_event: dict[str, Any] = {
+                "event_type": "node_progress" if decision.action in {"continue", "degrade"} else "node_degraded",
+                "gate": "master_agent",
+                "agent": "Master Agent",
+                "message": f"主管判断：{decision.reason}",
+                "progress_current": round_index,
+                "progress_total": _V1_MASTER_MAX_SEARCH_ROUNDS,
+                "data": decision.model_dump(mode="json"),
+            }
+            if decision.action in {"search_again", "degrade"}:
+                decision_event["severity"] = "warning"
+            await emit_event(RunEvent(**decision_event))
+            if decision.action in {"continue", "degrade"}:
+                break
+            if decision.action == "block":
+                await _emit_zero_or_low_evidence_block(
+                    project=project,
+                    evidence=evidence,
+                    search_provider=search_provider,
+                    coverage=coverage,
+                    emit_event=emit_event,
+                )
+            if round_index == _V1_MASTER_MAX_SEARCH_ROUNDS:
+                if coverage.can_continue and evidence:
+                    break
+                await _emit_zero_or_low_evidence_block(
+                    project=project,
+                    evidence=evidence,
+                    search_provider=search_provider,
+                    coverage=coverage,
+                    emit_event=emit_event,
+                )
     else:
-        await emit_event(RunEvent(
-            event_type="node_progress",
-            gate="source_collection",
-            agent="Search Scout",
-            message=sufficiency["message"],
-            progress_current=len(evidence),
-            progress_total=_V1_TARGET_EVIDENCE_COUNT,
-            data=sufficiency,
-        ))
+        coverage = await _evaluate_coverage_with_master_agent(
+            project=project,
+            evidence=evidence,
+            memory=memory,
+            llm_provider=llm_provider,
+            emit_event=emit_event,
+        )
+        memory.coverage_reports.append(coverage)
+        decision = _decision_from_coverage(coverage)
+        memory.decisions.append(decision)
+        decision_event = {
+            "event_type": "node_progress" if decision.action in {"continue", "degrade"} else "node_degraded",
+            "gate": "master_agent",
+            "agent": "Master Agent",
+            "message": f"主管判断：{decision.reason}",
+            "progress_current": 1,
+            "progress_total": 1,
+            "data": decision.model_dump(mode="json"),
+        }
+        if decision.action != "continue":
+            decision_event["severity"] = "warning"
+        await emit_event(RunEvent(**decision_event))
 
     if len(evidence) == 0:
         await emit_event(RunEvent(
@@ -322,13 +437,35 @@ async def run_v1_knowledge_pipeline(
         ))
         raise RuntimeError(_V1_ZERO_EVIDENCE_BLOCK_MESSAGE)
 
+    final_coverage = memory.coverage_reports[-1] if memory.coverage_reports else _fallback_coverage_report(project, evidence, memory)
+    if not final_coverage.can_continue and final_coverage.status == "blocked":
+        await _emit_zero_or_low_evidence_block(
+            project=project,
+            evidence=evidence,
+            search_provider=search_provider,
+            coverage=final_coverage,
+            emit_event=emit_event,
+        )
+    if not final_coverage.can_continue:
+        await emit_event(RunEvent(
+            event_type="node_degraded",
+            gate="coverage_evaluation",
+            agent="Master Agent",
+            message="主管节点认为资料仍不完整，本轮只能降级生成待补证知识库",
+            progress_current=len(evidence),
+            progress_total=_V1_TARGET_EVIDENCE_COUNT,
+            severity="warning",
+            data=final_coverage.model_dump(mode="json"),
+        ))
+
     await emit_event(RunEvent(
         event_type="node_completed",
         gate="source_collection",
         agent="Search Scout",
-        message=f"资料收集完成，当前证据 {len(evidence)} 条",
+        message=f"资料收集完成，当前证据 {len(evidence)} 条；主管覆盖判断：{final_coverage.status}",
         progress_current=1,
         progress_total=3,
+        data=final_coverage.model_dump(mode="json"),
     ))
     await emit_event(RunEvent(
         event_type="node_started",
@@ -401,7 +538,8 @@ async def _persist_search_results(
     evidence: list[EvidenceItem],
     results: list[SearchResult],
     emit_event: Callable[[RunEvent], Awaitable[None]],
-) -> None:
+) -> list[str]:
+    added_ids: list[str] = []
     seen_urls = {item.source_url for item in evidence if item.source_url}
     for result in results:
         if result.url in seen_urls:
@@ -409,6 +547,7 @@ async def _persist_search_results(
         item = _search_result_to_evidence(project, result, len(evidence) + 1)
         repository.add_evidence(item)
         evidence.append(item)
+        added_ids.append(item.id)
         seen_urls.add(result.url)
         await emit_event(RunEvent(
             event_type="evidence_collected",
@@ -417,6 +556,721 @@ async def _persist_search_results(
             message=f"已记录来源：{result.title}",
             data={"evidence_id": item.id, "url": result.url},
         ))
+    return added_ids
+
+
+async def _ingest_project_documents(
+    *,
+    project: ResearchProject,
+    repository: SQLiteRepository,
+    evidence: list[EvidenceItem],
+    emit_event: Callable[[RunEvent], Awaitable[None]],
+) -> list[DocumentSourceSummary]:
+    list_documents = getattr(repository, "list_documents", None)
+    if list_documents is None:
+        return []
+    documents = list_documents(project.id)
+    if not documents:
+        return []
+
+    await emit_event(RunEvent(
+        event_type="node_started",
+        gate="external_report_intake",
+        agent="External Report Agent",
+        message=f"开始读取上传材料：{len(documents)} 个文档",
+        progress_current=1,
+        progress_total=max(1, len(documents)),
+    ))
+
+    existing_ids = {item.id for item in evidence}
+    summaries: list[DocumentSourceSummary] = []
+    for index, document in enumerate(documents, start=1):
+        summary = DocumentSourceSummary(
+            document_id=document.id,
+            channel=document.channel,
+            file_name=document.file_name,
+            char_count=document.char_count,
+            segment_count=document.segment_count,
+            citation_count=document.citation_count,
+            summary=_truncate_text(document.content, 360),
+        )
+        doc_evidence = _document_to_v1_evidence(project, document, len(evidence) + 1)
+        if doc_evidence.id not in existing_ids:
+            repository.add_evidence(doc_evidence)
+            evidence.append(doc_evidence)
+            existing_ids.add(doc_evidence.id)
+            summary.evidence_ids.append(doc_evidence.id)
+
+        list_citations = getattr(repository, "list_document_citations", None)
+        list_segments = getattr(repository, "list_document_segments", None)
+        citations = list_citations(document.id) if list_citations is not None else []
+        segments = list_segments(document.id) if list_segments is not None else []
+        for citation in citations[:12]:
+            citation_evidence = _document_citation_to_v1_evidence(
+                project=project,
+                document=document,
+                citation=citation,
+                segment_text=_segment_text_for_citation(citation, segments),
+                index=len(evidence) + 1,
+            )
+            if citation_evidence.id in existing_ids:
+                continue
+            repository.add_evidence(citation_evidence)
+            evidence.append(citation_evidence)
+            existing_ids.add(citation_evidence.id)
+            summary.evidence_ids.append(citation_evidence.id)
+
+        summaries.append(summary)
+        await emit_event(RunEvent(
+            event_type="evidence_collected",
+            gate="external_report_intake",
+            agent="External Report Agent",
+            message=(
+                f"已采纳上传材料：{document.file_name or document.id}，"
+                f"提取引用 {document.citation_count} 条"
+            ),
+            progress_current=index,
+            progress_total=len(documents),
+            data=summary.model_dump(mode="json"),
+        ))
+
+    await emit_event(RunEvent(
+        event_type="node_completed",
+        gate="external_report_intake",
+        agent="External Report Agent",
+        message=f"上传材料读取完成：{len(summaries)} 个文档，已进入 Master Agent 上下文",
+        progress_current=len(summaries),
+        progress_total=max(1, len(documents)),
+        data={"documents": [item.model_dump(mode="json") for item in summaries]},
+    ))
+    return summaries
+
+
+def _document_to_v1_evidence(project: ResearchProject, document: Any, index: int) -> EvidenceItem:
+    channel = SourceChannel.ASSISTANT_BRIEF if document.channel == "assistant_brief" else SourceChannel.USER_UPLOAD
+    source_type = "assistant_brief" if document.channel == "assistant_brief" else "user_material"
+    snippet = _truncate_text(document.content, _V1_SNIPPET_MAX_CHARS)
+    evidence_id = f"EV-DOC-{document.id}"
+    return EvidenceItem(
+        id=evidence_id,
+        project_id=project.id,
+        source_title=document.file_name or f"上传材料 {index}",
+        source_type=source_type,
+        source_channel=channel,
+        source_policy=project.source_policy.value,
+        raw_excerpt=snippet,
+        snippet=snippet,
+        summary=snippet,
+        claims=[
+            EvidenceClaim(
+                claim_id=f"{evidence_id}-CLAIM-1",
+                text=snippet,
+                support_level=0.45,
+                requires_verification=True,
+                verification_status=VerificationStatus.UNVERIFIED,
+                evidence_ids=[evidence_id],
+                notes="用户上传或外部 AI 报告材料，作为低可信研究输入进入 Master Agent 上下文。",
+            )
+        ],
+        source_quality=SourceQuality.LOW if document.channel == "assistant_brief" else SourceQuality.MEDIUM,
+        claim_strength=ClaimStrength.OPINION,
+        bias_risk="uploaded_external_report" if document.channel == "assistant_brief" else "user_material",
+        needs_counterevidence=document.channel == "assistant_brief",
+        collected_by="v1_external_report_intake",
+        confidence=0.45 if document.channel == "assistant_brief" else 0.55,
+        verification_status=VerificationStatus.UNVERIFIED,
+    )
+
+
+def _document_citation_to_v1_evidence(
+    *,
+    project: ResearchProject,
+    document: Any,
+    citation: Any,
+    segment_text: str,
+    index: int,
+) -> EvidenceItem:
+    evidence_id = f"EV-DOC-CIT-{citation.id}"
+    title = citation.source_title or citation.source_url or citation.raw_reference or f"上传材料引用 {index}"
+    snippet = _truncate_text(segment_text or f"上传材料引用来源：{citation.raw_reference}", _V1_SNIPPET_MAX_CHARS)
+    return EvidenceItem(
+        id=evidence_id,
+        project_id=project.id,
+        source_title=title,
+        source_url=citation.source_url,
+        source_type="web",
+        source_channel=SourceChannel.ASSISTANT_BRIEF if document.channel == "assistant_brief" else SourceChannel.MANUAL_LINK,
+        source_policy=project.source_policy.value,
+        raw_excerpt=snippet,
+        snippet=snippet,
+        summary=snippet,
+        claims=[
+            EvidenceClaim(
+                claim_id=f"{evidence_id}-CLAIM-1",
+                text=snippet,
+                support_level=0.5,
+                requires_verification=True,
+                verification_status=VerificationStatus.PARTIALLY_VERIFIED,
+                evidence_ids=[evidence_id],
+                notes="从上传材料中提取的引用链接，需继续复核原网页。",
+            )
+        ],
+        source_quality=SourceQuality.MEDIUM,
+        claim_strength=ClaimStrength.OPINION,
+        bias_risk="citation_from_uploaded_report",
+        needs_counterevidence=True,
+        collected_by="v1_external_report_citation",
+        confidence=0.5,
+        verification_status=VerificationStatus.PARTIALLY_VERIFIED,
+    )
+
+
+def _segment_text_for_citation(citation: Any, segments: list[Any]) -> str:
+    segment_ids = set(getattr(citation, "referenced_segment_ids", []) or [])
+    for segment in segments:
+        if segment.id in segment_ids:
+            return segment.text
+    return ""
+
+
+async def _build_master_search_plan(
+    *,
+    project: ResearchProject,
+    evidence: list[EvidenceItem],
+    memory: RunWorkingMemory,
+    llm_provider: LLMProvider | None,
+    round_index: int,
+    emit_event: Callable[[RunEvent], Awaitable[None]],
+) -> SearchPlan:
+    fallback = _fallback_search_plan(project=project, memory=memory, round_index=round_index)
+    plan = fallback
+    if llm_provider is not None:
+        prompt = (
+            "你是 SectorBreaker 的 Master Agent。请根据研究目标、上传材料、已有证据和覆盖缺口，"
+            "生成下一轮搜索计划。搜索必须围绕研究意图展开，不要机械拆词。"
+            "最多给出 4 个 SearchIntent，每个 query 应该可直接交给搜索 API。\n\n"
+            f"研究目标：{memory.objective}\n"
+            f"领域：{project.domain}\n"
+            f"市场范围：{project.market_scope.value}\n"
+            f"信源策略：{project.source_policy.value}\n"
+            f"已搜索 query：{memory.attempted_queries[-12:]}\n"
+            f"上传材料：{[item.model_dump(mode='json') for item in memory.document_sources]}\n"
+            f"当前证据摘要：{_evidence_brief(evidence)}\n"
+            f"上一轮覆盖判断：{memory.coverage_reports[-1].model_dump(mode='json') if memory.coverage_reports else '无'}"
+        )
+        try:
+            generated = await llm_provider.complete_structured([ChatMessage(role="user", content=prompt)], SearchPlan)
+            if isinstance(generated, SearchPlan) and generated.intents:
+                plan = generated
+        except Exception as exc:
+            await emit_event(RunEvent(
+                event_type="node_degraded",
+                gate="master_agent",
+                agent="Master Agent",
+                message=f"LLM 搜索计划生成失败，已使用内置多意图计划：{type(exc).__name__}",
+                progress_current=round_index,
+                progress_total=_V1_MASTER_MAX_SEARCH_ROUNDS,
+                severity="warning",
+            ))
+
+    plan = SearchPlan(
+        objective=plan.objective or fallback.objective,
+        intents=_dedupe_search_intents(plan.intents, memory.attempted_queries)[:_V1_MASTER_MAX_INTENTS_PER_ROUND]
+        or fallback.intents[:_V1_MASTER_MAX_INTENTS_PER_ROUND],
+    )
+    await emit_event(RunEvent(
+        event_type="node_progress",
+        gate="master_agent",
+        agent="Master Agent",
+        message=(
+            f"第 {round_index} 轮搜索计划："
+            + "；".join(f"{item.intent} -> {item.query}" for item in plan.intents)
+        ),
+        progress_current=round_index,
+        progress_total=_V1_MASTER_MAX_SEARCH_ROUNDS,
+        data=plan.model_dump(mode="json"),
+    ))
+    return plan
+
+
+def _fallback_search_plan(
+    *,
+    project: ResearchProject,
+    memory: RunWorkingMemory,
+    round_index: int,
+) -> SearchPlan:
+    topic = project.domain.strip()
+    latest_missing = memory.coverage_reports[-1].missing_dimensions if memory.coverage_reports else []
+    dimensions = latest_missing or [
+        "concept_boundary",
+        "current_state",
+        "trends_reports",
+        "policy_risk",
+        "cases_players",
+        "user_demand",
+    ]
+    intent_by_dimension = {
+        "concept_boundary": SearchIntent(
+            intent="建立领域边界与核心术语",
+            query=f"{topic} 核心概念 术语 入门 指南 领域边界",
+            reason="先确认这个领域到底包含什么、不包含什么，避免后续建库跑偏。",
+            coverage_dimensions=["concept_boundary"],
+            expected_sources=["百科/教程", "官方说明", "研究综述"],
+        ),
+        "current_state": SearchIntent(
+            intent="了解现状与市场/应用进展",
+            query=f"{topic} 现状 行业趋势 市场规模 应用进展 2026",
+            reason="补充当前发展阶段、需求变化和关键事实背景。",
+            coverage_dimensions=["current_state"],
+            expected_sources=["研究报告", "行业文章", "公开数据"],
+        ),
+        "trends_reports": SearchIntent(
+            intent="寻找近期趋势和研究报告",
+            query=f"{topic} 趋势 研究报告 数据报告 2025 2026",
+            reason="为趋势判断寻找近期来源，而不是只依赖泛泛介绍。",
+            coverage_dimensions=["trends_reports"],
+            expected_sources=["报告", "数据文章", "机构分析"],
+        ),
+        "policy_risk": SearchIntent(
+            intent="检查政策监管与风险约束",
+            query=f"{topic} 政策 监管 风险 合规 问题 2026",
+            reason="建立风险和边界意识，避免知识库只写机会不写约束。",
+            coverage_dimensions=["policy_risk"],
+            expected_sources=["政府/监管", "标准", "法律/合规解读"],
+        ),
+        "cases_players": SearchIntent(
+            intent="寻找案例、玩家和工具/平台",
+            query=f"{topic} 案例 公司 平台 工具 主要玩家 实践",
+            reason="用案例和参与者把抽象概念落到真实对象。",
+            coverage_dimensions=["cases_players"],
+            expected_sources=["公司官网", "案例", "产品/工具文档"],
+        ),
+        "user_demand": SearchIntent(
+            intent="理解用户需求、学习路径与痛点",
+            query=f"{topic} 用户需求 痛点 学习路径 常见问题 经验",
+            reason="SectorBreaker 的目标是帮助入局，需要知道新用户该学什么、会卡在哪里。",
+            coverage_dimensions=["user_demand"],
+            expected_sources=["问答/社区", "教程", "用户反馈"],
+        ),
+        "source_quality": SearchIntent(
+            intent="补充权威和可复核来源",
+            query=_build_v1_supplemental_search_query(topic),
+            reason="当前来源可信度或数量偏薄，需要补充可回链资料。",
+            coverage_dimensions=["source_quality"],
+            expected_sources=["官方", "机构报告", "公开数据库"],
+        ),
+    }
+
+    selected: list[SearchIntent] = []
+    for dimension in dimensions:
+        normalized = _normalize_dimension_id(dimension)
+        selected.append(intent_by_dimension.get(normalized, intent_by_dimension["source_quality"]))
+    if round_index == 1 and not selected:
+        selected = list(intent_by_dimension.values())[:_V1_MASTER_MAX_INTENTS_PER_ROUND]
+    if round_index >= 2:
+        selected.append(intent_by_dimension["source_quality"])
+    return SearchPlan(
+        objective=f"围绕“{topic}”补足领域建库所需的概念、现状、趋势、风险、案例和需求证据",
+        intents=_dedupe_search_intents(selected, memory.attempted_queries)[:_V1_MASTER_MAX_INTENTS_PER_ROUND]
+        or list(intent_by_dimension.values())[:_V1_MASTER_MAX_INTENTS_PER_ROUND],
+    )
+
+
+def _dedupe_search_intents(intents: list[SearchIntent], attempted_queries: list[str]) -> list[SearchIntent]:
+    attempted = {query.strip().lower() for query in attempted_queries}
+    seen: set[str] = set()
+    deduped: list[SearchIntent] = []
+    for intent in intents:
+        query = _truncate_text(intent.query, 160)
+        key = query.lower()
+        if not query or key in seen or key in attempted:
+            continue
+        seen.add(key)
+        deduped.append(intent.model_copy(update={"query": query}))
+    return deduped
+
+
+async def _execute_search_intents(
+    *,
+    project: ResearchProject,
+    repository: SQLiteRepository,
+    evidence: list[EvidenceItem],
+    search_provider: SearchProvider,
+    intents: list[SearchIntent],
+    allowed_domains: list[str],
+    blocked_domains: list[str],
+    memory: RunWorkingMemory,
+    emit_event: Callable[[RunEvent], Awaitable[None]],
+) -> list[ToolCallResult]:
+    tool_results: list[ToolCallResult] = []
+    for index, intent in enumerate(intents[:_V1_MASTER_MAX_INTENTS_PER_ROUND], start=1):
+        memory.attempted_queries.append(intent.query)
+        await emit_event(RunEvent(
+            event_type="node_progress",
+            gate="source_collection",
+            agent="Search Scout",
+            message=f"正在搜索：{intent.intent}（{intent.query}）",
+            progress_current=index,
+            progress_total=max(1, len(intents[:_V1_MASTER_MAX_INTENTS_PER_ROUND])),
+            data=intent.model_dump(mode="json"),
+        ))
+        try:
+            raw_results = await search_provider.search(SearchQuery(
+                query=intent.query,
+                market_scope=project.market_scope.value,
+                max_results=6,
+                allowed_domains=allowed_domains,
+                blocked_domains=blocked_domains,
+            ))
+        except Exception as exc:
+            result = ToolCallResult(
+                intent=intent.intent,
+                query=intent.query,
+                rejected_reasons=[f"search_error:{type(exc).__name__}"],
+            )
+            tool_results.append(result)
+            await emit_event(RunEvent(
+                event_type="node_degraded",
+                gate="source_collection",
+                agent="Search Scout",
+                message=f"搜索工具调用失败：{intent.intent}，{type(exc).__name__}",
+                progress_current=index,
+                progress_total=max(1, len(intents)),
+                severity="warning",
+                data=result.model_dump(mode="json"),
+            ))
+            continue
+
+        accepted = _filter_v1_search_results(raw_results, project=project)
+        added_ids = await _persist_search_results(
+            project=project,
+            repository=repository,
+            evidence=evidence,
+            results=accepted,
+            emit_event=emit_event,
+        )
+        rejected_count = max(0, len(raw_results) - len(accepted))
+        result = ToolCallResult(
+            intent=intent.intent,
+            query=intent.query,
+            raw_result_count=len(raw_results),
+            accepted_count=len(added_ids),
+            rejected_count=rejected_count,
+            rejected_reasons=_search_rejection_summary(raw_results, accepted, project),
+            evidence_ids=added_ids,
+        )
+        tool_results.append(result)
+        search_event: dict[str, Any] = {
+            "event_type": "node_progress" if added_ids else "node_degraded",
+            "gate": "source_collection",
+            "agent": "Search Scout",
+            "message": (
+                f"搜索完成：{intent.intent}，原始 {len(raw_results)} 条，"
+                f"采纳 {len(added_ids)} 条，过滤/重复 {len(raw_results) - len(added_ids)} 条"
+            ),
+            "progress_current": index,
+            "progress_total": max(1, len(intents)),
+            "data": result.model_dump(mode="json"),
+        }
+        if not added_ids:
+            search_event["severity"] = "warning"
+        await emit_event(RunEvent(**search_event))
+    return tool_results
+
+
+def _search_rejection_summary(
+    raw_results: list[SearchResult],
+    accepted: list[SearchResult],
+    project: ResearchProject,
+) -> list[str]:
+    accepted_urls = {item.url for item in accepted}
+    reasons: list[str] = []
+    for result in raw_results:
+        if result.url in accepted_urls:
+            continue
+        parsed = urlparse(result.url)
+        hostname = (parsed.hostname or "").lower()
+        if any(hostname == domain or hostname.endswith(f".{domain}") for domain in _V1_BLOCKED_DOMAINS):
+            reasons.append("blocked_domain")
+        elif parsed.path.lower().endswith(_V1_ATTACHMENT_EXTENSIONS):
+            reasons.append("attachment")
+        elif len(_clean_search_snippet(result.snippet, fallback="")) < 40:
+            reasons.append("thin_snippet")
+        elif not _is_v1_result_topic_relevant(project.domain, result.title, _clean_search_snippet(result.snippet, fallback="")):
+            reasons.append("topic_mismatch")
+        else:
+            reasons.append("duplicate_or_low_signal")
+    return list(dict.fromkeys(reasons))[:6]
+
+
+async def _evaluate_coverage_with_master_agent(
+    *,
+    project: ResearchProject,
+    evidence: list[EvidenceItem],
+    memory: RunWorkingMemory,
+    llm_provider: LLMProvider | None,
+    emit_event: Callable[[RunEvent], Awaitable[None]],
+) -> CoverageReport:
+    fallback = _fallback_coverage_report(project, evidence, memory)
+    report = fallback
+    if llm_provider is not None and evidence:
+        prompt = (
+            "你是 SectorBreaker 的 Master Agent，请判断当前资料是否足以开始生成 Obsidian 领域知识库。"
+            "不要只看证据条数，要按维度判断：概念边界、现状、趋势、政策/风险、案例/玩家、用户需求、信源质量。"
+            "如果资料明显不足，应返回 needs_more_sources；如果 0 证据必须 blocked；"
+            "如果可以继续但资料薄弱，返回 degraded 并说明缺口。\n\n"
+            f"研究目标：{memory.objective}\n"
+            f"领域：{project.domain}\n"
+            f"搜索轮次：{memory.search_round}/{_V1_MASTER_MAX_SEARCH_ROUNDS}\n"
+            f"上传材料：{[item.model_dump(mode='json') for item in memory.document_sources]}\n"
+            f"工具结果：{[item.model_dump(mode='json') for item in memory.tool_results[-8:]]}\n"
+            f"证据摘要：{_evidence_brief(evidence)}"
+        )
+        try:
+            generated = await llm_provider.complete_structured([ChatMessage(role="user", content=prompt)], CoverageReport)
+            if isinstance(generated, CoverageReport):
+                report = _normalize_coverage_report(generated, fallback, evidence, memory)
+        except Exception as exc:
+            await emit_event(RunEvent(
+                event_type="node_degraded",
+                gate="coverage_evaluation",
+                agent="Master Agent",
+                message=f"LLM 覆盖判断失败，已使用本地覆盖评估：{type(exc).__name__}",
+                progress_current=len(evidence),
+                progress_total=_V1_TARGET_EVIDENCE_COUNT,
+                severity="warning",
+            ))
+
+    coverage_event: dict[str, Any] = {
+        "event_type": "node_progress" if report.can_continue else "node_degraded",
+        "gate": "coverage_evaluation",
+        "agent": "Master Agent",
+        "message": (
+            f"覆盖评估：{report.status}，得分 {report.coverage_score:.2f}；"
+            f"已覆盖 {', '.join(report.covered_dimensions) or '暂无'}；"
+            f"缺口 {', '.join(report.missing_dimensions) or '暂无'}"
+        ),
+        "progress_current": len(evidence),
+        "progress_total": max(_V1_TARGET_EVIDENCE_COUNT, len(evidence)),
+        "data": report.model_dump(mode="json"),
+    }
+    if not report.can_continue or report.status == "degraded":
+        coverage_event["severity"] = "warning"
+    await emit_event(RunEvent(**coverage_event))
+    return report
+
+
+def _fallback_coverage_report(
+    project: ResearchProject,
+    evidence: list[EvidenceItem],
+    memory: RunWorkingMemory,
+) -> CoverageReport:
+    if not evidence:
+        return CoverageReport(
+            status="blocked",
+            can_continue=False,
+            coverage_score=0.0,
+            covered_dimensions=[],
+            missing_dimensions=[
+                "concept_boundary",
+                "current_state",
+                "trends_reports",
+                "policy_risk",
+                "cases_players",
+                "user_demand",
+                "source_quality",
+            ],
+            reason="当前没有任何可用证据，无法生成可信知识库。",
+            block_reason=_V1_ZERO_EVIDENCE_BLOCK_MESSAGE,
+        )
+
+    covered = _covered_dimensions_from_evidence(evidence, memory)
+    required = [
+        "concept_boundary",
+        "current_state",
+        "trends_reports",
+        "policy_risk",
+        "cases_players",
+        "user_demand",
+        "source_quality",
+    ]
+    missing = [item for item in required if item not in covered]
+    score = min(1.0, (len(covered) / len(required)) * 0.75 + min(len(evidence), 12) / 12 * 0.25)
+    has_external_report = any(item.channel == "assistant_brief" for item in memory.document_sources)
+    has_user_material = any(item.channel != "assistant_brief" for item in memory.document_sources)
+    exhausted_rounds = memory.search_round >= _V1_MASTER_MAX_SEARCH_ROUNDS
+
+    if score >= 0.68 and len(covered) >= 5 and len(evidence) >= 4:
+        status = "sufficient"
+        can_continue = True
+        reason = "当前资料已覆盖多个核心维度，可进入知识建库。"
+    elif project.source_policy == SourcePolicy.USER_MATERIALS_ONLY and (has_external_report or has_user_material):
+        status = "degraded"
+        can_continue = True
+        reason = "用户选择仅用户材料，Master Agent 将基于上传材料降级建库并保留缺口。"
+    elif (has_external_report or has_user_material) and len(evidence) >= 2 and score >= 0.38:
+        status = "degraded"
+        can_continue = True
+        reason = "上传报告/材料已提供基础上下文，但仍需标记未验证缺口。"
+    elif exhausted_rounds and len(evidence) > 0:
+        status = "degraded"
+        can_continue = True
+        reason = "已达到本轮最大搜索轮次，仍有覆盖缺口，将降级生成待补证知识库。"
+    else:
+        status = "needs_more_sources"
+        can_continue = False
+        reason = "资料仍缺少关键维度，Master Agent 将继续搜索。"
+
+    return CoverageReport(
+        status=status,
+        can_continue=can_continue,
+        coverage_score=round(score, 2),
+        covered_dimensions=covered,
+        missing_dimensions=missing,
+        next_search_intents=[
+            intent for intent in _fallback_search_plan(project=project, memory=memory, round_index=memory.search_round + 1).intents
+            if any(_normalize_dimension_id(dim) in missing for dim in intent.coverage_dimensions)
+        ][:_V1_MASTER_MAX_INTENTS_PER_ROUND],
+        reason=reason,
+        block_reason=None if can_continue or status == "needs_more_sources" else "资料覆盖不足，无法继续。",
+    )
+
+
+def _normalize_coverage_report(
+    generated: CoverageReport,
+    fallback: CoverageReport,
+    evidence: list[EvidenceItem],
+    memory: RunWorkingMemory,
+) -> CoverageReport:
+    status = generated.status if generated.status in {"sufficient", "needs_more_sources", "blocked", "degraded"} else fallback.status
+    can_continue = generated.can_continue
+    if not evidence:
+        status = "blocked"
+        can_continue = False
+    if status == "sufficient" and len(evidence) < 4 and not memory.document_sources and memory.search_round < _V1_MASTER_MAX_SEARCH_ROUNDS:
+        status = "needs_more_sources"
+        can_continue = False
+    if status == "blocked":
+        can_continue = False
+    if status in {"sufficient", "degraded"}:
+        can_continue = True
+    missing = [_normalize_dimension_id(item) for item in generated.missing_dimensions] or fallback.missing_dimensions
+    covered = [_normalize_dimension_id(item) for item in generated.covered_dimensions] or fallback.covered_dimensions
+    return CoverageReport(
+        status=status,
+        can_continue=can_continue,
+        coverage_score=max(0.0, min(1.0, generated.coverage_score or fallback.coverage_score)),
+        covered_dimensions=list(dict.fromkeys(covered)),
+        missing_dimensions=list(dict.fromkeys(missing)),
+        next_search_intents=generated.next_search_intents or fallback.next_search_intents,
+        reason=generated.reason or fallback.reason,
+        block_reason=generated.block_reason or fallback.block_reason,
+    )
+
+
+def _covered_dimensions_from_evidence(evidence: list[EvidenceItem], memory: RunWorkingMemory) -> list[str]:
+    text = " ".join(
+        f"{item.source_title or ''} {item.snippet or ''} {item.summary or ''}".lower()
+        for item in evidence
+    )
+    dimension_keywords = {
+        "concept_boundary": ("概念", "术语", "定义", "边界", "入门", "guide", "overview", "framework"),
+        "current_state": ("现状", "市场", "规模", "应用", "发展", "adoption", "market", "industry"),
+        "trends_reports": ("趋势", "报告", "数据", "增长", "2025", "2026", "trend", "report"),
+        "policy_risk": ("政策", "监管", "风险", "合规", "治理", "安全", "regulation", "risk", "governance"),
+        "cases_players": ("案例", "公司", "玩家", "平台", "工具", "框架", "实践", "case", "company", "tool"),
+        "user_demand": ("用户", "需求", "痛点", "学习", "岗位", "就业", "技能", "question", "demand", "skill"),
+    }
+    covered = [
+        dimension
+        for dimension, keywords in dimension_keywords.items()
+        if any(keyword in text for keyword in keywords)
+    ]
+    unique_urls = {item.source_url for item in evidence if item.source_url}
+    trusted_channels = {SourceChannel.USER_UPLOAD, SourceChannel.MANUAL_LINK, SourceChannel.SEARCH}
+    if len(unique_urls) >= 3 or any(item.source_channel in trusted_channels for item in evidence) or memory.document_sources:
+        covered.append("source_quality")
+    return list(dict.fromkeys(covered))
+
+
+def _normalize_dimension_id(value: str) -> str:
+    normalized = value.strip().lower()
+    alias_map = {
+        "concepts": "concept_boundary",
+        "concept": "concept_boundary",
+        "概念": "concept_boundary",
+        "边界": "concept_boundary",
+        "current": "current_state",
+        "current_state": "current_state",
+        "现状": "current_state",
+        "trend": "trends_reports",
+        "trends": "trends_reports",
+        "趋势": "trends_reports",
+        "policy": "policy_risk",
+        "risk": "policy_risk",
+        "政策": "policy_risk",
+        "风险": "policy_risk",
+        "case": "cases_players",
+        "cases": "cases_players",
+        "players": "cases_players",
+        "案例": "cases_players",
+        "玩家": "cases_players",
+        "demand": "user_demand",
+        "user": "user_demand",
+        "用户": "user_demand",
+        "需求": "user_demand",
+        "source": "source_quality",
+        "sources": "source_quality",
+        "source_quality": "source_quality",
+        "信源": "source_quality",
+    }
+    return alias_map.get(normalized, normalized)
+
+
+def _decision_from_coverage(coverage: CoverageReport) -> MasterAgentDecision:
+    if coverage.status == "blocked":
+        action = "block"
+    elif coverage.status == "needs_more_sources":
+        action = "search_again"
+    elif coverage.status == "degraded":
+        action = "degrade"
+    else:
+        action = "continue"
+    return MasterAgentDecision(
+        action=action,
+        reason=coverage.reason or coverage.block_reason or f"coverage status: {coverage.status}",
+        coverage_report=coverage,
+    )
+
+
+async def _emit_zero_or_low_evidence_block(
+    *,
+    project: ResearchProject,
+    evidence: list[EvidenceItem],
+    search_provider: SearchProvider | None,
+    coverage: CoverageReport,
+    emit_event: Callable[[RunEvent], Awaitable[None]],
+) -> None:
+    message = coverage.block_reason or coverage.reason or _V1_ZERO_EVIDENCE_BLOCK_MESSAGE
+    if not evidence:
+        message = _V1_ZERO_EVIDENCE_BLOCK_MESSAGE
+    await emit_event(RunEvent(
+        event_type="node_blocked",
+        gate="source_collection" if not evidence else "coverage_evaluation",
+        agent="Master Agent",
+        message=message,
+        progress_current=len(evidence),
+        progress_total=_V1_TARGET_EVIDENCE_COUNT,
+        severity="error",
+        data={
+            "status": "blocked",
+            "reason": coverage.status,
+            "source_policy": project.source_policy.value,
+            "search_configured": search_provider is not None,
+            "coverage": coverage.model_dump(mode="json"),
+        },
+    ))
+    raise RuntimeError(message)
 
 
 def _assess_evidence_sufficiency(evidence: list[EvidenceItem]) -> dict[str, Any]:

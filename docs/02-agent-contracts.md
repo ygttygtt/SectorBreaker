@@ -57,6 +57,14 @@ All Agent outputs that include factual claims must support:
   final claims without evidence metadata.
 - Failure mode: emit a readable decision and stop or ask for user input when the
   workflow lacks enough material to generate a credible knowledge base.
+- V1.6 implementation note: the personal `domain_knowledge` path now implements
+  the first bounded version with `RunWorkingMemory`, `SearchPlan`,
+  `SearchIntent`, `ToolCallResult`, `CoverageReport`, and
+  `MasterAgentDecision`. It can call the configured `SearchProvider`, ingest
+  uploaded reports/documents/citations as evidence, loop through up to three
+  source rounds, degrade visibly when thin evidence remains, and block on zero
+  evidence. `ask_user` remains a documented decision target for a later
+  human-in-the-loop upgrade.
 
 ### Source Strategy Agent
 

@@ -46,6 +46,8 @@ The latest completed implementation milestone is:
 - V1.5 upload/export UX is expanded: external reports and JD/user materials accept Markdown, TXT, DOCX, and PDF; export manifests include `export_dir`; `/api/exports/open-folder` can open local export folders after validating they are inside the configured export root.
 - V1.5 frontend makes product modes clearer: `SectorBreaker 领域建库` for personal knowledge-base building and `TalentScope 人才需求情报台` for enterprise talent-demand intelligence now have distinct copy, themes, inputs, and branched workflow preview graphs.
 - Master Agent architecture requirement is now captured in `docs/16-master-agent-research-core.md`: the next major iteration must move core research decisions into a stateful, tool-capable Master Agent that can judge coverage, call approved tools, use uploaded external reports as first-class sources, and decide continue/search-again/ask-user/degrade/block. Do not treat fixed evidence counts as the primary sufficiency rule.
+- V1.6 implements the first bounded Master Agent loop in the personal `domain_knowledge` path. It records run-local memory, ingests uploaded reports/user materials/citations as evidence before search, creates multi-intent search plans, calls the configured `SearchProvider`, records tool diagnostics, evaluates coverage with `CoverageReport`, and decides continue/search-again/degrade/block. Zero evidence blocks before writing; thin evidence is shown as degraded instead of sufficient.
+- V1.6 workflow graphs now match actual personal run events: `master_agent`, `external_report_intake`, `source_collection`, `evidence_ledger`, `coverage_evaluation`, `knowledge_structuring`, `document_writing`, `artifact_review`, and `export`.
 - The frontend now exposes a mode selector and multi-provider search settings (Tavily recommended, Serper/Brave/Exa visible). It also carries explicit guardrails: do not scrape login-gated job boards by default; use uploads and configured search providers first.
 - Backend: FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + explainable agent selection traces.
 - Frontend: Vite + React + TypeScript explainable research workbench with real workflow graph, vertical layout, and active-node centering.
@@ -80,6 +82,18 @@ cd frontend && npm run build
 Expected result: 15 V1 pipeline tests pass, 6 focused API tests pass with the
 known TestClient warning, 17 frontend App tests pass, and frontend build passes
 with only the existing Vite chunk-size warning.
+
+Latest V1.6 focused verification:
+
+```bash
+python -m pytest tests/unit/test_v1_pipeline.py -q
+python -m pytest tests/api/test_app.py::test_api_exposes_workflow_definition_and_source_policy -q
+cd frontend && npm test -- --run App.test.tsx
+```
+
+Expected result: 16 V1 pipeline tests pass, workflow-definition API test passes
+with the known TestClient warning, 17 frontend App tests pass, and frontend
+build passes with the existing Vite chunk-size warning.
 
 ## Local Run
 
@@ -153,7 +167,7 @@ Architecture review is required before implementing:
 - Multi-provider search routing and crawler expansion, because search quality directly affects evidence integrity.
 - Better counterevidence query planning, extractor failure/domain controls, and stronger uploaded report citation verification beyond first-pass heuristics.
 - Full API test runtime profiling: `tests/api/test_app.py` may exceed 3 minutes locally even though focused API workflow tests pass.
-- Master Agent Research Core from `docs/16-master-agent-research-core.md`: structured run memory, external-report intake in V1 context, LLM coverage judgment, bounded tool/search loop, and graph/UI alignment.
+- Master Agent Research Core follow-up from `docs/16-master-agent-research-core.md`: V1.6 has the bounded loop; remaining high-risk work is full `ask_user` interruption, stronger source verification, richer tool routing, and vector/hybrid RAG inside the Master Agent context.
 
 ## Safe Delegation Candidates
 

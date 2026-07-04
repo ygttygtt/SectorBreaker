@@ -29,7 +29,7 @@ from backend.app.graph.workflow import (
     run_research_workflow,
     run_workflow_until_pause,
 )
-from backend.app.graph.planner import build_workflow_definition
+from backend.app.graph.planner import build_v1_master_workflow_definition, build_workflow_definition
 from backend.app.providers.factory import (
     build_content_extraction_provider,
     build_content_extraction_provider_from_config,
@@ -617,9 +617,11 @@ def create_app(
     @app.get("/api/projects/{project_id}/workflow-definition")
     def get_workflow_definition(project_id: str):
         try:
-            repository.get_project(project_id)
+            project = repository.get_project(project_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="project not found") from exc
+        if project.project_mode == ProjectMode.DOMAIN_KNOWLEDGE:
+            return build_v1_master_workflow_definition().model_dump(mode="json")
         definition = build_workflow_definition()
         return definition.model_dump(mode="json")
 
@@ -765,6 +767,13 @@ def create_app(
             if raw_state.get("supervisor_plan"):
                 from backend.app.schemas import SupervisorPlan
                 plan = SupervisorPlan(**raw_state["supervisor_plan"])
+        if plan is None:
+            try:
+                project = repository.get_project(run.project_id)
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail="project not found") from exc
+            if project.project_mode == ProjectMode.DOMAIN_KNOWLEDGE:
+                return build_v1_master_workflow_definition().model_dump(mode="json")
         return build_workflow_definition(plan).model_dump(mode="json")
 
     @app.post("/api/runs/{run_id}/resume")

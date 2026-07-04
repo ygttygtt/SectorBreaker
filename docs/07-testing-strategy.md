@@ -12,6 +12,9 @@ Tests should make the project safe for lower-context agents to modify. Prefer fo
 - SQLite repositories, insertion ordering, and FTS retrieval.
 - Export writer.
 - Schema validation.
+- V1.6 Master Agent loop: multi-intent search planning, uploaded external
+  report evidence ingestion, coverage-driven retry/degrade/block decisions, and
+  zero-evidence blocking.
 
 ### Graph Tests
 
@@ -44,6 +47,10 @@ Still needed:
 - API-backed project creation and run start.
 - Project Q&A.
 - Export action.
+- V1.6 workflow-node mapping: run events for `master_agent`,
+  `external_report_intake`, `source_collection`, `coverage_evaluation`,
+  `knowledge_structuring`, `document_writing`, and `artifact_review` must map to
+  visible graph nodes.
 
 Still needed:
 

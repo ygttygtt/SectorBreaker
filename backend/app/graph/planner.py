@@ -486,6 +486,105 @@ def _source_policy_reason(policy: SourcePolicy) -> str:
     return "可靠来源优先，不足时使用开放网络补充，是商业情报的稳健默认策略。"
 
 
+def build_v1_master_workflow_definition() -> WorkflowDefinition:
+    """Workflow definition for the product-facing V1.6 Master Agent path."""
+
+    nodes = [
+        WorkflowNode(
+            id="scope",
+            label="定义领域边界",
+            node_type="gate",
+            group="scope",
+            reason="明确研究对象、市场范围、信源策略和学习目标。",
+        ),
+        WorkflowNode(
+            id="master_agent",
+            label="主管节点 / ReAct",
+            node_type="gate",
+            agent_id="master_agent",
+            group="plan",
+            reason="理解任务、读取材料、规划工具调用，并决定继续、补搜、降级或中断。",
+        ),
+        WorkflowNode(
+            id="external_report_intake",
+            label="外部报告入库",
+            node_type="agent",
+            agent_id="external_report_agent",
+            group="source",
+            reason="读取上传报告、用户材料和引用链接，使其作为真实但低可信的研究输入进入证据账本。",
+        ),
+        WorkflowNode(
+            id="source_collection",
+            label="意图驱动搜索",
+            node_type="agent",
+            agent_id="search_scout",
+            group="source",
+            reason="由 Master Agent 生成多维搜索计划，按概念、趋势、政策、案例、需求等角度调用搜索工具。",
+        ),
+        WorkflowNode(
+            id="evidence_ledger",
+            label="证据账本",
+            node_type="store",
+            group="evidence",
+            reason="去重、清洗摘要、保留来源链接、证据 ID 和待验证状态。",
+        ),
+        WorkflowNode(
+            id="coverage_evaluation",
+            label="覆盖充分性判断",
+            node_type="gate",
+            agent_id="master_agent",
+            group="evidence",
+            reason="按概念边界、现状、趋势、政策/风险、案例/玩家、用户需求和信源质量判断是否需要再搜。",
+        ),
+        WorkflowNode(
+            id="knowledge_structuring",
+            label="LLM 知识建库",
+            node_type="group",
+            agent_id="knowledge_builder",
+            group="analysis",
+            reason="在覆盖判断允许后，抽取概念、架构、工具、趋势、学习路径和待验证问题。",
+        ),
+        WorkflowNode(
+            id="document_writing",
+            label="逐文档写作",
+            node_type="agent",
+            agent_id="document_writer",
+            group="synthesis",
+            reason="让 LLM 分别写主文档，避免把搜索结果直接粘贴成模板。",
+        ),
+        WorkflowNode(
+            id="artifact_review",
+            label="详实度审查",
+            node_type="gate",
+            agent_id="artifact_reviewer",
+            group="qa",
+            reason="检查主文档是否过薄、缺例子、缺证据或缺 Obsidian 双向链接，并尽量扩写而不是删短。",
+        ),
+        WorkflowNode(
+            id="export",
+            label="Obsidian 导出 / RAG",
+            node_type="agent",
+            agent_id="export_writer",
+            group="export",
+            reason="写入主文档、知识卡片、证据账本，并支持项目问答。",
+        ),
+    ]
+    edges = [
+        WorkflowEdge(id="v1-e-scope-master", source="scope", target="master_agent", label="研究目标"),
+        WorkflowEdge(id="v1-e-master-report", source="master_agent", target="external_report_intake", label="读取上传材料"),
+        WorkflowEdge(id="v1-e-master-search", source="master_agent", target="source_collection", label="规划搜索工具"),
+        WorkflowEdge(id="v1-e-report-ledger", source="external_report_intake", target="evidence_ledger", label="报告证据"),
+        WorkflowEdge(id="v1-e-search-ledger", source="source_collection", target="evidence_ledger", label="搜索证据"),
+        WorkflowEdge(id="v1-e-ledger-coverage", source="evidence_ledger", target="coverage_evaluation", label="覆盖检查"),
+        WorkflowEdge(id="v1-e-coverage-loop", source="coverage_evaluation", target="master_agent", label="缺口补搜 / 降级决策"),
+        WorkflowEdge(id="v1-e-coverage-knowledge", source="coverage_evaluation", target="knowledge_structuring", label="允许建库"),
+        WorkflowEdge(id="v1-e-knowledge-writing", source="knowledge_structuring", target="document_writing"),
+        WorkflowEdge(id="v1-e-writing-review", source="document_writing", target="artifact_review"),
+        WorkflowEdge(id="v1-e-review-export", source="artifact_review", target="export"),
+    ]
+    return WorkflowDefinition(nodes=nodes, edges=edges)
+
+
 def build_workflow_definition(plan: SupervisorPlan | None = None) -> WorkflowDefinition:
     nodes = [
         WorkflowNode(id="scope", label="范围确认", node_type="gate", group="scope"),
