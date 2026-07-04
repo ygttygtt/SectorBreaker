@@ -69,3 +69,39 @@ External AI reports are optional. When provided, they are stored as `assistant_b
 - Retrieval can move from SQLite FTS to hybrid vector retrieval.
 - Export format is versioned for future Obsidian and web publishing targets.
 - Team collaboration can be added around project ownership and run permissions without changing Agent contracts.
+
+## V1.3 Talent Demand Branch
+
+`ResearchProject.project_mode` now selects the product-facing auto-run branch:
+
+- `domain_knowledge` remains the default V1.2 learning-oriented knowledge-base path.
+- `talent_demand` runs the V1.3 Talent Demand Intelligence path.
+
+The talent-demand branch is intentionally additive. It reuses provider
+interfaces, SQLite repository persistence, Evidence Ledger, run events, and the
+Markdown exporter instead of replacing the older workflow.
+
+Talent-demand auto-run stages:
+
+1. `talent_source_intake`: read uploaded JD/user materials and assistant briefs;
+   use search-provider evidence only as supplement when materials are thin.
+2. `jd_signal_extraction`: conservatively extract role, company, location,
+   salary, experience, education, responsibilities, skills, tools, seniority,
+   and evidence ids.
+3. `skill_normalization`: merge common aliases such as LLM/大模型, RAG, Agent,
+   LangChain, LangGraph, Python, FastAPI, and 向量数据库.
+4. `source_coverage`: compute sample/source coverage and gap warnings.
+5. `talent_synthesis`: build a structured `TalentDemandKnowledgeBase`; LLM is
+   used when configured, deterministic fallback keeps the run demo-safe.
+6. `artifact_review`: expand missing learning/portfolio/gap sections without
+   shrinking content.
+7. `obsidian_export`: persist talent-demand main documents and cards for export.
+
+Legal and operational guardrails:
+
+- Do not scrape login-gated job boards by default.
+- Do not bypass anti-bot protections.
+- Prefer uploaded JD/report text, public search-provider results, company career
+  pages discovered through search, and documented APIs.
+- Search snippets are treated as partial evidence unless stronger extraction and
+  source assessment succeeds.

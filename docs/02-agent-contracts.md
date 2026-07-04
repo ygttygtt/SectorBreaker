@@ -99,3 +99,38 @@ All Agent outputs that include factual claims must support:
 - Output: Markdown files, Obsidian links, export manifest.
 - Must not: generate new facts during export.
 - Failure mode: stop export and report invalid artifact schema.
+
+### Talent Source Scout
+
+- Input: project config, uploaded project documents, existing evidence, optional search provider.
+- Output: evidence items from uploaded JD/user materials, external assistant briefs, and supplemental search results.
+- Must not: scrape login-gated job boards or bypass anti-bot controls.
+- Failure mode: continue with uploaded/local evidence and mark source coverage gaps.
+
+### JD Extractor
+
+- Input: evidence text and evidence ids.
+- Output: `JobPostingSignal` records containing title, company, location, salary text, experience text, education text, responsibilities, skills, tools, seniority, evidence ids, and confidence.
+- Must not: infer salary, seniority, company, or experience when the evidence does not contain a signal.
+- Failure mode: emit conservative partial signals with missing fields left empty.
+
+### Skill Normalizer
+
+- Input: `JobPostingSignal` records.
+- Output: `SkillDemandItem` matrix with canonical names, aliases, categories, frequency, seniority distribution, and representative evidence ids.
+- Must not: call external taxonomies unless an adapter is explicitly configured.
+- Failure mode: use local alias rules and mark future taxonomy enrichment as unavailable.
+
+### Source Coverage Agent
+
+- Input: evidence items and extracted job-posting signals.
+- Output: `SourceCoverageMatrix` with source-channel counts, salary/experience/skill signal counts, weak-source counts, and gap ids.
+- Must not: treat gaps as fatal unless the product path explicitly requires blocking.
+- Failure mode: emit warning-level gaps such as `low_sample`, `no_salary_signal`, `no_experience_signal`, or `search_only_evidence`.
+
+### Talent Analyst
+
+- Input: postings, skill matrix, source coverage, evidence summary, and project purpose.
+- Output: `TalentDemandKnowledgeBase` including overview, role levels, company/industry patterns, salary/experience notes, learning path, portfolio requirements, unresolved questions, and source coverage.
+- Must not: turn unsupported salary/market claims into facts.
+- Failure mode: deterministic fallback builds a usable but clearly limited knowledge base.

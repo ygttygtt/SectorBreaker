@@ -32,6 +32,15 @@ class ArtifactType(StrEnum):
     TREND_EVIDENCE = "trend_evidence"
     PROBLEM_OPPORTUNITY_MAP = "problem_opportunity_map"
     UNRESOLVED_QUESTIONS = "unresolved_questions"
+    # V1.3 talent-demand intelligence
+    TALENT_DEMAND_OVERVIEW = "talent_demand_overview"
+    TALENT_ROLE_PROFILE = "talent_role_profile"
+    TALENT_SKILL_MATRIX = "talent_skill_matrix"
+    TALENT_COMPANY_DISTRIBUTION = "talent_company_distribution"
+    TALENT_SALARY_EXPERIENCE = "talent_salary_experience"
+    TALENT_CAPABILITY_MODEL = "talent_capability_model"
+    TALENT_PORTFOLIO_REQUIREMENTS = "talent_portfolio_requirements"
+    TALENT_UNRESOLVED_QUESTIONS = "talent_unresolved_questions"
 
 
 class Artifact(BaseModel):

@@ -27,7 +27,9 @@ metadata:
 - V1.2 已新增富 Obsidian 输出：主文档写作后运行 bounded `Artifact Reviewer`，偏向扩写详实度而不是删短；导出会额外生成 `concepts/`、`architectures/`、`tools/`、`questions/` 知识卡片，并改进 YAML front matter 以适配 Obsidian Properties。
 - V1.2 展示冲刺计划已写入 `docs/superpowers/plans/2026-07-03-v1-2-demo-readiness.md`。下一步按该计划完成前端进度可视化、结果质量面板、导出 README 首页和 demo-safe failure/restore，不要在录制前扩展 full RAG、多搜索 UI 或内容生态抓取。
 - V1.2 展示冲刺的前端/导出收口已完成：结果页质量摘要、失败恢复块、`artifact_review` 流程映射和 V1 Obsidian Vault README 首页都已落地。后续真实录屏验收交给用户本地跑 Tavily/Mimo。
-- V1.3 计划方向是 `Talent Demand Intelligence Agent`，计划文件是 `docs/superpowers/plans/2026-07-04-v1-3-talent-demand-intelligence.md`。执行时优先保护旧 V1.2 默认流程，新增人才需求模式、JD/报告信源、技能矩阵、Source Coverage Matrix 和人才需求导出。
+- V1.3 `Talent Demand Intelligence Agent` 已可运行。`project_mode="domain_knowledge"` 仍走默认 V1.2 领域建库；`project_mode="talent_demand"` 走新人才需求 pipeline。
+- V1.3 已实现上传 JD/user material、外部 AI 报告、搜索补充、JD 信号抽取、技能归一化、Source Coverage Matrix、人才需求 Obsidian vault 和前端 Source Coverage 面板。后续不要把这个当成纯计划或 UI 壳子。
+- 前端设置页已展示 Tavily / Serper / Brave / Exa provider mode；Tavily 仍是推荐默认。人才需求模式明确不默认抓取登录型招聘网站。
 - 后端：FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + 可解释选择轨迹
 - 前端：Vite + React + TypeScript，可解释研究工作台，真实 workflow graph，纵向布局与活动节点居中
 - 前端默认 `/api` 代理到 `http://127.0.0.1:8030`。如果 UI 误报 LLM/搜索未配置，优先排查旧 `uvicorn` 进程和 Vite 是否需要重启。

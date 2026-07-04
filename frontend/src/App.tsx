@@ -62,6 +62,11 @@ const eventNodeMap: Record<string, string> = {
   document_writing: "business_database",
   artifact_review: "qa_critic",
   quality_review: "qa_critic",
+  talent_source_intake: "source_intake",
+  jd_signal_extraction: "claim_extractor",
+  skill_normalization: "business_database",
+  source_coverage: "evidence_ledger",
+  talent_synthesis: "business_database",
   market_agent: "market_agent",
   player_agent: "player_agent",
   transaction_agent: "transaction_agent",
@@ -157,10 +162,61 @@ function formatEventTime(timestamp: number) {
 
 function isKnowledgeCard(artifact: Artifact) {
   return artifact.schema_version === "v1-card"
+    || artifact.schema_version === "talent-v1-card"
     || artifact.content_path.startsWith("concepts/")
     || artifact.content_path.startsWith("architectures/")
     || artifact.content_path.startsWith("tools/")
-    || artifact.content_path.startsWith("questions/");
+    || artifact.content_path.startsWith("questions/")
+    || artifact.content_path.startsWith("skills/")
+    || artifact.content_path.startsWith("roles/")
+    || artifact.content_path.startsWith("companies/");
+}
+
+type ProjectMode = "domain_knowledge" | "talent_demand";
+
+type SourceCoverageMatrix = {
+  total_evidence?: number;
+  uploaded_jd_count?: number;
+  uploaded_report_count?: number;
+  search_result_count?: number;
+  extracted_page_count?: number;
+  occupation_standard_count?: number;
+  salary_signal_count?: number;
+  experience_signal_count?: number;
+  skill_signal_count?: number;
+  weak_or_unverified_count?: number;
+  gaps?: string[];
+};
+
+function asSourceCoverageMatrix(value: unknown): SourceCoverageMatrix | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  if ("source_coverage" in record) return asSourceCoverageMatrix(record.source_coverage);
+  if (!("total_evidence" in record) && !("skill_signal_count" in record)) return null;
+  return record as SourceCoverageMatrix;
+}
+
+function extractSourceCoverage(events: RunEvent[], artifacts: Artifact[]): SourceCoverageMatrix | null {
+  const eventCoverage = [...events].reverse()
+    .map((event) => asSourceCoverageMatrix(event.data))
+    .find(Boolean);
+  if (eventCoverage) return eventCoverage;
+  const overview = artifacts.find((artifact) => artifact.content_path === "00-岗位需求总览.md" && artifact.content);
+  const match = overview?.content?.match(/```json source_coverage\s*([\s\S]*?)```/);
+  if (!match) return null;
+  try {
+    return asSourceCoverageMatrix(JSON.parse(match[1])) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function gapLabel(value: string) {
+  if (value === "low_sample") return "样本数量偏低";
+  if (value === "no_salary_signal") return "缺少薪资信号";
+  if (value === "no_experience_signal") return "缺少经验信号";
+  if (value === "search_only_evidence") return "主要依赖搜索摘要";
+  return value;
 }
 
 function resultQualityMetrics(
@@ -249,6 +305,9 @@ function LandingView({
     assistantBrief: string,
     autoRun?: boolean,
     assistantBriefFile?: File | null,
+    projectMode?: ProjectMode,
+    jdText?: string,
+    jdFile?: File | null,
   ) => void;
   onOpenSettings: () => void;
   isLoading: boolean;
@@ -258,7 +317,10 @@ function LandingView({
   extractionProviders: string[];
 }) {
   const [domain, setDomain] = useState("");
+  const [projectMode, setProjectMode] = useState<ProjectMode>("domain_knowledge");
   const [sourcePolicy, setSourcePolicy] = useState("reliable_first");
+  const [jdText, setJdText] = useState("");
+  const [jdFile, setJdFile] = useState<File | null>(null);
   const [assistantBrief, setAssistantBrief] = useState("");
   const [assistantBriefFile, setAssistantBriefFile] = useState<File | null>(null);
   const [showBrief, setShowBrief] = useState(false);
@@ -274,7 +336,7 @@ function LandingView({
 
   function submit() {
     if (!domain.trim()) return;
-    onStart(domain.trim(), sourcePolicy, assistantBrief.trim(), true, assistantBriefFile);
+    onStart(domain.trim(), sourcePolicy, assistantBrief.trim(), true, assistantBriefFile, projectMode, jdText.trim(), jdFile);
   }
 
   return (
@@ -315,7 +377,25 @@ function LandingView({
             </div>
           </div>
         )}
-        <label className="field-label" htmlFor="domain">研究领域</label>
+        <div className="mode-switch" role="group" aria-label="项目模式">
+          <button
+            className={projectMode === "domain_knowledge" ? "mode-card mode-card--active" : "mode-card"}
+            type="button"
+            onClick={() => setProjectMode("domain_knowledge")}
+          >
+            <strong>领域建库</strong>
+            <span>快速抹平陌生领域信息差，导出 Obsidian 知识库。</span>
+          </button>
+          <button
+            className={projectMode === "talent_demand" ? "mode-card mode-card--active" : "mode-card"}
+            type="button"
+            onClick={() => setProjectMode("talent_demand")}
+          >
+            <strong>人才需求情报</strong>
+            <span>从 JD / 报告 / 搜索中抽取岗位画像、技能矩阵和能力模型。</span>
+          </button>
+        </div>
+        <label className="field-label" htmlFor="domain">{projectMode === "talent_demand" ? "目标岗位 / 能力方向" : "研究领域"}</label>
         <div className="landing-input-wrap">
           <Search size={18} className="landing-input-icon" />
           <input
@@ -323,10 +403,37 @@ function LandingView({
             className="landing-input"
             value={domain}
             onChange={(event) => setDomain(event.target.value)}
-            placeholder="例如：编程教育、本地生活服务、AI Agent 工具"
+            placeholder={projectMode === "talent_demand" ? "例如：大模型应用开发工程师、AI Agent 工程师" : "例如：编程教育、本地生活服务、AI Agent 工具"}
             autoFocus
           />
         </div>
+        {projectMode === "talent_demand" && (
+          <div className="talent-input-panel">
+            <div className="panel-title">
+              <FileText size={16} />
+              <span>人才需求材料</span>
+            </div>
+            <p>优先上传或粘贴真实 JD / 岗位说明 / 外部调研报告；搜索只作为补充，不默认抓取登录型招聘网站。</p>
+            <textarea
+              className="assistant-brief-input"
+              value={jdText}
+              onChange={(event) => setJdText(event.target.value)}
+              placeholder="可粘贴一段或多段 JD：岗位、公司、地点、薪资、经验、职责、技能要求……"
+              rows={6}
+            />
+            <label className="file-upload-card">
+              <strong>上传 JD / 岗位材料</strong>
+              <span>支持 `.md` / `.txt`，会作为 user_upload 信源进入 Evidence Ledger。</span>
+              <input
+                type="file"
+                aria-label="上传 JD 或岗位材料文件"
+                accept=".md,.markdown,.txt,text/markdown,text/plain"
+                onChange={(event) => setJdFile(event.target.files?.[0] ?? null)}
+              />
+              {jdFile && <em>{jdFile.name}</em>}
+            </label>
+          </div>
+        )}
         <div className="source-policy-grid">
           {sourcePolicies.map((item) => (
             <button
@@ -369,7 +476,7 @@ function LandingView({
         <div className="landing-actions">
           <button className="primary" disabled={!domain.trim() || isLoading || !llmConfigured} onClick={() => submit()} type="button">
             {isLoading ? <Loader2 size={16} className="spinner" /> : <Play size={16} />}
-            开始构建知识库
+            {projectMode === "talent_demand" ? "开始生成人才需求情报" : "开始构建知识库"}
           </button>
           <button className="secondary" onClick={onOpenSettings} type="button">
             <Settings size={16} />
@@ -759,6 +866,7 @@ function ResultView({
     () => resultQualityMetrics(artifacts, evidence, events, exportManifest),
     [artifacts, evidence, events, exportManifest],
   );
+  const sourceCoverage = useMemo(() => extractSourceCoverage(events, artifacts), [artifacts, events]);
 
   async function askQuestion() {
     if (!question.trim()) return;
@@ -786,7 +894,10 @@ function ResultView({
     <div className="result-pro">
       <header className="workbench-topbar">
         <div className="topbar-brand"><Logo size={24} animate={false} /><strong>SectorBreaker</strong></div>
-        <div className="topbar-project"><span>{project.domain}</span><b>研究完成</b></div>
+        <div className="topbar-project">
+          <span>{project.domain}</span>
+          <b>{project.project_mode === "talent_demand" ? "人才需求情报完成" : "研究完成"}</b>
+        </div>
         <button className="secondary btn-sm" onClick={onNewResearch} type="button"><Play size={14} />新研究</button>
       </header>
       <main className="result-pro-grid">
@@ -818,6 +929,26 @@ function ResultView({
           </div>
           {!exportManifest && <p className="result-empty">点击导出生成 Obsidian Vault，导出后会写入 README、证据账本、主文档和知识卡片。</p>}
         </section>
+        {sourceCoverage && (
+          <section className="result-card result-card--wide source-coverage-card">
+            <h3><Database size={16} />信源覆盖矩阵</h3>
+            <div className="quality-grid source-coverage-grid">
+              <div><strong>{sourceCoverage.total_evidence ?? 0}</strong><span>总证据</span></div>
+              <div><strong>{sourceCoverage.uploaded_jd_count ?? 0}</strong><span>上传 JD</span></div>
+              <div><strong>{sourceCoverage.uploaded_report_count ?? 0}</strong><span>外部报告</span></div>
+              <div><strong>{sourceCoverage.search_result_count ?? 0}</strong><span>搜索来源</span></div>
+              <div><strong>{sourceCoverage.skill_signal_count ?? 0}</strong><span>技能信号</span></div>
+              <div><strong>{sourceCoverage.salary_signal_count ?? 0}</strong><span>薪资信号</span></div>
+              <div><strong>{sourceCoverage.experience_signal_count ?? 0}</strong><span>经验信号</span></div>
+              <div><strong>{sourceCoverage.weak_or_unverified_count ?? 0}</strong><span>弱/未验证</span></div>
+            </div>
+            {sourceCoverage.gaps && sourceCoverage.gaps.length > 0 && (
+              <div className="coverage-gap-list">
+                {sourceCoverage.gaps.map((gap) => <span key={gap}>{gapLabel(gap)}</span>)}
+              </div>
+            )}
+          </section>
+        )}
         <section className="result-card">
           <h3><FileText size={16} />产物</h3>
           <ul className="result-artifact-list">
@@ -1030,12 +1161,41 @@ export function App() {
     assistantBrief: string,
     autoRun = true,
     assistantBriefFile: File | null = null,
+    projectMode: ProjectMode = "domain_knowledge",
+    jdText = "",
+    jdFile: File | null = null,
   ) {
     setIsLoading(true);
     try {
-      const proj = await api.createProject({ title: domain, domain, market_scope: "mixed", depth: "quick", source_policy: sourcePolicy });
+      const proj = await api.createProject({
+        title: domain,
+        domain,
+        market_scope: "mixed",
+        depth: "quick",
+        source_policy: sourcePolicy,
+        project_mode: projectMode,
+      });
       setProject(proj);
       setRunSnapshot(null);
+      if (projectMode === "talent_demand" && jdText) {
+        await api.createDocument(proj.id, {
+          channel: "user_upload",
+          file_name: "pasted-jd.md",
+          mime_type: "text/markdown",
+          content: jdText,
+        });
+      }
+      if (projectMode === "talent_demand" && jdFile) {
+        await api.uploadDocument(proj.id, { channel: "user_upload", file: jdFile });
+      }
+      if (assistantBrief) {
+        await api.createDocument(proj.id, {
+          channel: "assistant_brief",
+          file_name: "assistant-brief.md",
+          mime_type: "text/markdown",
+          content: assistantBrief,
+        });
+      }
       if (assistantBriefFile) {
         await api.uploadDocument(proj.id, { channel: "assistant_brief", file: assistantBriefFile });
       }

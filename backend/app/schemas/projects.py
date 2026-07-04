@@ -26,6 +26,11 @@ class SourcePolicy(StrEnum):
     USER_MATERIALS_ONLY = "user_materials_only"
 
 
+class ProjectMode(StrEnum):
+    DOMAIN_KNOWLEDGE = "domain_knowledge"
+    TALENT_DEMAND = "talent_demand"
+
+
 class ProjectStatus(StrEnum):
     DRAFT = "draft"
     RUNNING = "running"
@@ -39,6 +44,7 @@ class ResearchProjectCreate(BaseModel):
     market_scope: MarketScope
     depth: ResearchDepth
     source_policy: SourcePolicy = SourcePolicy.RELIABLE_FIRST
+    project_mode: ProjectMode = ProjectMode.DOMAIN_KNOWLEDGE
     custom_market_scope: str | None = None
 
     @field_validator("title", "domain", "custom_market_scope")
@@ -61,6 +67,7 @@ class ResearchProject(BaseModel):
     market_scope: MarketScope
     depth: ResearchDepth
     source_policy: SourcePolicy = SourcePolicy.RELIABLE_FIRST
+    project_mode: ProjectMode = ProjectMode.DOMAIN_KNOWLEDGE
     status: ProjectStatus = ProjectStatus.DRAFT
     custom_market_scope: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

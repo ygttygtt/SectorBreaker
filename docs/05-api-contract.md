@@ -13,7 +13,16 @@ FastAPI owns backend contracts. Pydantic schemas are the source of truth. The fr
 - `GET /api/projects/{project_id}`: get project.
 - `PATCH /api/projects/{project_id}`: update project configuration before a run starts.
 
-Create accepts `source_policy` (`open_web`, `reliable_first`, `reliable_only`, `user_materials_only`). Current v1 implementation supports create/list/detail and workflow definition. Patch/update remains a contract target.
+Create accepts `source_policy` (`open_web`, `reliable_first`, `reliable_only`, `user_materials_only`) and additive `project_mode`.
+
+`project_mode` values:
+
+- `domain_knowledge` (default): run the V1/V1.2 learning-oriented knowledge-base workflow.
+- `talent_demand`: run the V1.3 Talent Demand Intelligence workflow.
+
+Old create-project payloads that omit `project_mode` remain valid and are stored
+as `domain_knowledge`. Current v1 implementation supports create/list/detail and
+workflow definition. Patch/update remains a contract target.
 
 - `GET /api/projects/{project_id}/workflow-definition`: returns the baseline workflow graph definition.
 
@@ -158,6 +167,35 @@ Upgrade direction:
 - keep `assistant_brief` text input for compatibility;
 - add uploaded document IDs as a parallel path instead of replacing text input
   immediately.
+
+## Talent Demand Mode
+
+When a project has `project_mode="talent_demand"` and a run is started with
+`auto_run=true`, the API routes to the talent-demand pipeline instead of the V1
+domain-knowledge pipeline.
+
+Recommended input path:
+
+- `POST /api/projects/{project_id}/documents` or `/documents/upload` with
+  `channel="user_upload"` for JD samples, internal role descriptions, or pasted
+  hiring requirements.
+- `channel="assistant_brief"` for Gemini/Kimi/DeepSeek/Kwen/other external AI
+  research reports.
+- Search providers are used as supplement when uploaded/source materials are
+  thin.
+
+Talent-demand runs emit these additional gates:
+
+- `talent_source_intake`
+- `jd_signal_extraction`
+- `skill_normalization`
+- `source_coverage`
+- `talent_synthesis`
+- `artifact_review`
+- `obsidian_export`
+
+`source_coverage` events include a `SourceCoverageMatrix` payload. Result UIs
+should render this as warning-level coverage context, not as raw JSON.
 
 ## SSE Events
 

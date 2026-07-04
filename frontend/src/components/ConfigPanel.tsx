@@ -28,7 +28,11 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
   const [isTestingSearch, setIsTestingSearch] = useState(false);
   const [searchTestResult, setSearchTestResult] = useState<SearchTestResult | null>(null);
   const [isSavingSearch, setIsSavingSearch] = useState(false);
+  const [searchProviderMode, setSearchProviderMode] = useState("tavily");
   const [tavilyApiKey, setTavilyApiKey] = useState("");
+  const [serperApiKey, setSerperApiKey] = useState("");
+  const [braveApiKey, setBraveApiKey] = useState("");
+  const [exaApiKey, setExaApiKey] = useState("");
   const [contentExtractionProvider, setContentExtractionProvider] = useState("http");
   const [firecrawlApiKey, setFirecrawlApiKey] = useState("");
   const [jinaReaderEndpointPrefix, setJinaReaderEndpointPrefix] = useState("https://r.jina.ai/http://");
@@ -60,6 +64,9 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
     try {
       const status = await api.getSearchConfig();
       setSearchStatus(status);
+      if (status.requested_provider_mode) {
+        setSearchProviderMode(status.requested_provider_mode);
+      }
       if (status.extraction_provider) {
         setContentExtractionProvider(status.extraction_provider);
       }
@@ -183,14 +190,14 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
     setIsSavingSearch(true);
     try {
       const result = await api.updateSearchConfig({
-        search_provider_mode: "tavily",
+        search_provider_mode: searchProviderMode,
         tavily_api_key: tavilyApiKey || undefined,
         tavily_endpoint: "https://api.tavily.com/search",
-        serper_api_key: undefined,
+        serper_api_key: serperApiKey || undefined,
         serper_endpoint: "https://google.serper.dev/search",
-        brave_api_key: undefined,
+        brave_api_key: braveApiKey || undefined,
         brave_endpoint: "https://api.search.brave.com/res/v1/web/search",
-        exa_api_key: undefined,
+        exa_api_key: exaApiKey || undefined,
         exa_endpoint: "https://api.exa.ai/search",
         content_extraction_provider: contentExtractionProvider,
         firecrawl_api_key: firecrawlApiKey || undefined,
@@ -331,20 +338,70 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
 
             {searchStatus?.requested_extraction_provider && (
               <div className="form-hint">
-                当前搜索 provider: Tavily；
+                当前请求的搜索 provider: {searchStatus.requested_provider_mode || searchProviderMode}；
                 当前请求的抽取 provider: {searchStatus.requested_extraction_provider}
                 {searchStatus.extraction_provider ? `，实际使用: ${searchStatus.extraction_provider}` : ""}
               </div>
             )}
 
             <div className="form-group">
-              <label htmlFor="tavilyApiKey">Tavily API Key</label>
+              <label htmlFor="searchProviderMode">搜索 Provider 模式</label>
+              <select
+                id="searchProviderMode"
+                value={searchProviderMode}
+                onChange={(e) => setSearchProviderMode(e.target.value)}
+              >
+                <option value="auto">auto：自动选择可用 provider</option>
+                <option value="tavily">tavily：推荐默认</option>
+                <option value="serper">serper：Google Search API</option>
+                <option value="brave">brave：Brave Search API</option>
+                <option value="exa">exa：语义搜索</option>
+                <option value="multi">multi：聚合多个 provider</option>
+              </select>
+              <span className="form-hint">人才需求模式不会默认抓取登录型招聘网站；请优先上传 JD/报告，搜索只作为补充。</span>
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="tavilyApiKey">Tavily API Key（推荐）</label>
               <input
                 id="tavilyApiKey"
                 type="password"
                 value={tavilyApiKey}
                 onChange={(e) => setTavilyApiKey(e.target.value)}
                 placeholder="tvly-..."
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="serperApiKey">Serper API Key</label>
+              <input
+                id="serperApiKey"
+                type="password"
+                value={serperApiKey}
+                onChange={(e) => setSerperApiKey(e.target.value)}
+                placeholder="serper-..."
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="braveApiKey">Brave Search API Key</label>
+              <input
+                id="braveApiKey"
+                type="password"
+                value={braveApiKey}
+                onChange={(e) => setBraveApiKey(e.target.value)}
+                placeholder="brave-..."
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="exaApiKey">Exa API Key</label>
+              <input
+                id="exaApiKey"
+                type="password"
+                value={exaApiKey}
+                onChange={(e) => setExaApiKey(e.target.value)}
+                placeholder="exa-..."
               />
             </div>
 

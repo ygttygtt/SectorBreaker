@@ -42,6 +42,7 @@ from backend.app.providers.source_packs import SourceConnector, SourceRegistry
 from backend.app.providers.source_verification import HeuristicSourceVerificationProvider
 from backend.app.schemas import (
     Artifact,
+    ProjectMode,
     ProjectDocumentCreate,
     ResearchProjectCreate,
     ResearchRun,
@@ -55,6 +56,7 @@ from backend.app.schemas import (
     V1RunStage,
 )
 from backend.app.storage.sqlite import SQLiteRepository, init_database
+from backend.app.talent_demand.pipeline import run_talent_demand_pipeline
 from backend.app.v1_pipeline import run_v1_knowledge_pipeline
 
 
@@ -536,14 +538,23 @@ def create_app(
         async def run_in_background() -> None:
             try:
                 if auto_run:
-                    await run_v1_knowledge_pipeline(
-                        project=project,
-                        repository=repository,
-                        search_provider=active_search_provider,
-                        content_extraction_provider=active_content_extraction_provider,
-                        llm_provider=active_llm_provider,
-                        emit=emit_event,
-                    )
+                    if project.project_mode == ProjectMode.TALENT_DEMAND:
+                        await run_talent_demand_pipeline(
+                            project=project,
+                            repository=repository,
+                            search_provider=active_search_provider,
+                            llm_provider=active_llm_provider,
+                            emit=emit_event,
+                        )
+                    else:
+                        await run_v1_knowledge_pipeline(
+                            project=project,
+                            repository=repository,
+                            search_provider=active_search_provider,
+                            content_extraction_provider=active_content_extraction_provider,
+                            llm_provider=active_llm_provider,
+                            emit=emit_event,
+                        )
                     repository.update_run(
                         run.id,
                         status=RunStatus.COMPLETED,

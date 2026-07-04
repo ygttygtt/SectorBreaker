@@ -9,7 +9,17 @@ export interface Project {
   market_scope: string;
   depth: string;
   source_policy?: string;
+  project_mode?: "domain_knowledge" | "talent_demand";
   status: string;
+}
+
+export interface CreateProjectPayload {
+  title: string;
+  domain: string;
+  market_scope: string;
+  depth: string;
+  source_policy: string;
+  project_mode?: "domain_knowledge" | "talent_demand";
 }
 
 export interface RunResponse {
@@ -322,7 +332,7 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   // Projects
-  createProject(data: { title: string; domain: string; market_scope: string; depth: string; source_policy: string }) {
+  createProject(data: CreateProjectPayload) {
     return requestJson<Project>("/api/projects", { method: "POST", body: JSON.stringify(data) });
   },
 

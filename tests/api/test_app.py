@@ -84,6 +84,90 @@ def test_api_runs_research_and_exports_markdown(tmp_path: Path) -> None:
     detail_response = client.get(f"/api/projects/{project_id}")
     assert detail_response.status_code == 200
     assert detail_response.json()["domain"] == "AI Agent 工具"
+    assert detail_response.json()["project_mode"] == "domain_knowledge"
+
+
+def test_api_accepts_talent_demand_project_mode(tmp_path: Path) -> None:
+    client = TestClient(
+        create_app(
+            database_path=tmp_path / "sectorbreaker.sqlite3",
+            export_root=tmp_path / "exports",
+            llm_provider=_default_fake_llm(),
+        )
+    )
+
+    project_response = client.post(
+        "/api/projects",
+        json={
+            "title": "大模型应用开发工程师需求",
+            "domain": "大模型应用开发工程师",
+            "market_scope": "china",
+            "depth": "quick",
+            "source_policy": "reliable_first",
+            "project_mode": "talent_demand",
+        },
+    )
+
+    assert project_response.status_code == 200
+    assert project_response.json()["project_mode"] == "talent_demand"
+
+    detail_response = client.get(f"/api/projects/{project_response.json()['id']}")
+    assert detail_response.status_code == 200
+    assert detail_response.json()["project_mode"] == "talent_demand"
+
+
+def test_api_talent_demand_run_uses_uploaded_jd_and_creates_talent_artifacts(tmp_path: Path) -> None:
+    client = TestClient(
+        create_app(
+            database_path=tmp_path / "sectorbreaker.sqlite3",
+            export_root=tmp_path / "exports",
+            llm_provider=_default_fake_llm(),
+        )
+    )
+    project = client.post(
+        "/api/projects",
+        json={
+            "title": "大模型应用开发工程师需求",
+            "domain": "大模型应用开发工程师",
+            "market_scope": "china",
+            "depth": "quick",
+            "source_policy": "reliable_first",
+            "project_mode": "talent_demand",
+        },
+    ).json()
+    document_response = client.post(
+        f"/api/projects/{project['id']}/documents",
+        json={
+            "channel": "user_upload",
+            "file_name": "jd.md",
+            "mime_type": "text/markdown",
+            "content": (
+                "岗位：大模型应用开发工程师\n"
+                "公司：示例科技\n"
+                "地点：北京\n"
+                "薪资：20-35K·14薪\n"
+                "经验要求：3-5年\n"
+                "职责：\n"
+                "1. 负责 RAG 知识库和 Agent 应用开发。\n"
+                "要求：熟悉 Python、LangGraph、FastAPI 和向量数据库。"
+            ),
+        },
+    )
+    assert document_response.status_code == 200
+
+    run_response = client.post(f"/api/projects/{project['id']}/runs", params={"auto_run": "true"})
+    run_result = _wait_for_run(client, run_response.json()["id"])
+
+    assert run_result["status"] == "completed"
+    artifacts = client.get(f"/api/projects/{project['id']}/artifacts").json()
+    paths = {artifact["content_path"] for artifact in artifacts}
+    assert "00-岗位需求总览.md" in paths
+    assert "02-技能需求矩阵.md" in paths
+    assert "skills/RAG.md" in paths
+
+    events = client.get(f"/api/runs/{run_response.json()['id']}/events").text
+    assert "Talent Source Scout" in events
+    assert "Source Coverage" in events
 
 
 def test_api_project_chat_uses_local_fts(tmp_path: Path) -> None:

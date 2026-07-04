@@ -14,6 +14,25 @@ SectorBreaker is a local-first research workbench that helps a user break into a
 - OpenAI-compatible LLM configuration.
 - Tavily as the default search provider through a replaceable interface.
 
+## V1.3 Enterprise-Oriented Mode
+
+SectorBreaker now also supports an additive `Talent Demand Intelligence Agent`
+mode. This mode does not replace the learning-oriented domain knowledge flow.
+It is designed for HR, training companies, curriculum teams, recruiting
+platforms, and workforce-planning users who need to understand what a role
+market is asking for.
+
+The first implemented scenario is talent-demand intelligence for a target role,
+for example `大模型应用开发工程师`:
+
+- ingest uploaded JD text/files and external AI reports as evidence;
+- optionally supplement thin materials through configured search providers;
+- extract role title, company, location, salary, experience, responsibilities,
+  skills, tools, seniority, and evidence ids;
+- normalize skill aliases into a demand matrix;
+- show a Source Coverage Matrix;
+- export an Obsidian-friendly talent-demand vault.
+
 ## Explicit Non-Goals For V1
 
 - No multi-user account system.
@@ -21,6 +40,8 @@ SectorBreaker is a local-first research workbench that helps a user break into a
 - No automatic subscription monitoring or weekly report daemon.
 - No full vector RAG implementation.
 - No scraping of login-gated or platform-restricted social content.
+- No default scraping of login-gated job boards such as LinkedIn, Indeed,
+  BOSS 直聘, 猎聘, 智联, or similar platforms.
 - No production deployment automation.
 
 ## Core User Journey

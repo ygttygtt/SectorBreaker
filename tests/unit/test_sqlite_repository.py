@@ -5,6 +5,7 @@ from backend.app.schemas import (
     EvidenceClaim,
     EvidenceItem,
     MarketScope,
+    ProjectMode,
     ProjectDocumentCreate,
     ResearchDepth,
     ResearchProjectCreate,
@@ -30,6 +31,7 @@ def test_sqlite_migrations_are_discoverable() -> None:
         "006_run_event_progress.sql",
         "007_documents.sql",
         "008_document_segments_and_citations.sql",
+        "009_project_mode.sql",
     ]
 
 
@@ -67,12 +69,35 @@ def test_sqlite_repository_creates_project_and_evidence(tmp_path: Path) -> None:
     repository.add_evidence(evidence)
 
     assert repository.get_project(project.id).domain == "AI Agent"
+    assert repository.get_project(project.id).project_mode == ProjectMode.DOMAIN_KNOWLEDGE
     saved = repository.list_evidence(project.id)[0]
     assert repository.get_project(project.id).source_policy == SourcePolicy.RELIABLE_ONLY
     assert saved.source_url == "https://example.com/ai-agent-market"
     assert saved.source_quality == SourceQuality.MEDIUM
     assert saved.needs_counterevidence is True
     assert saved.claims[0].claim_id == "CL-001"
+
+
+def test_sqlite_repository_persists_talent_demand_project_mode(tmp_path: Path) -> None:
+    database_path = tmp_path / "sectorbreaker.sqlite3"
+    init_database(database_path)
+    repository = SQLiteRepository(database_path)
+
+    project = repository.create_project(
+        ResearchProjectCreate(
+            title="LLM Talent Demand",
+            domain="大模型应用开发工程师",
+            market_scope=MarketScope.CHINA,
+            depth=ResearchDepth.QUICK,
+            project_mode=ProjectMode.TALENT_DEMAND,
+        )
+    )
+
+    fetched = repository.get_project(project.id)
+    listed = repository.list_projects()[0]
+
+    assert fetched.project_mode == ProjectMode.TALENT_DEMAND
+    assert listed.project_mode == ProjectMode.TALENT_DEMAND
 
 
 def test_sqlite_repository_fts_searches_evidence(tmp_path: Path) -> None:

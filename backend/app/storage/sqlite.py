@@ -19,6 +19,7 @@ from backend.app.schemas import (
     EvidenceClaim,
     EvidenceItem,
     MarketScope,
+    ProjectMode,
     ProjectDocument,
     ProjectDocumentCreate,
     ProjectStatus,
@@ -65,6 +66,7 @@ class SQLiteRepository:
             market_scope=payload.market_scope,
             depth=payload.depth,
             source_policy=payload.source_policy,
+            project_mode=payload.project_mode,
             custom_market_scope=payload.custom_market_scope,
             created_at=now,
             updated_at=now,
@@ -74,8 +76,8 @@ class SQLiteRepository:
                 """
                 INSERT INTO projects (
                     id, title, domain, market_scope, depth, status,
-                    source_policy, custom_market_scope, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    source_policy, project_mode, custom_market_scope, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     project.id,
@@ -85,6 +87,7 @@ class SQLiteRepository:
                     project.depth.value,
                     project.status.value,
                     project.source_policy.value,
+                    project.project_mode.value,
                     project.custom_market_scope,
                     project.created_at.isoformat(),
                     project.updated_at.isoformat(),
@@ -97,37 +100,12 @@ class SQLiteRepository:
             row = connection.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
         if row is None:
             raise KeyError(f"project not found: {project_id}")
-        return ResearchProject(
-            id=row["id"],
-            title=row["title"],
-            domain=row["domain"],
-            market_scope=MarketScope(row["market_scope"]),
-            depth=ResearchDepth(row["depth"]),
-            source_policy=SourcePolicy(row["source_policy"] or SourcePolicy.RELIABLE_FIRST.value),
-            status=ProjectStatus(row["status"]),
-            custom_market_scope=row["custom_market_scope"],
-            created_at=datetime.fromisoformat(row["created_at"]),
-            updated_at=datetime.fromisoformat(row["updated_at"]),
-        )
+        return self._row_to_project(row)
 
     def list_projects(self) -> list[ResearchProject]:
         with self._connect() as connection:
             rows = connection.execute("SELECT * FROM projects ORDER BY created_at DESC").fetchall()
-        return [
-            ResearchProject(
-                id=row["id"],
-                title=row["title"],
-                domain=row["domain"],
-                market_scope=MarketScope(row["market_scope"]),
-                depth=ResearchDepth(row["depth"]),
-                source_policy=SourcePolicy(row["source_policy"] or SourcePolicy.RELIABLE_FIRST.value),
-                status=ProjectStatus(row["status"]),
-                custom_market_scope=row["custom_market_scope"],
-                created_at=datetime.fromisoformat(row["created_at"]),
-                updated_at=datetime.fromisoformat(row["updated_at"]),
-            )
-            for row in rows
-        ]
+        return [self._row_to_project(row) for row in rows]
 
     def add_evidence(self, evidence: EvidenceItem) -> None:
         with self._connect() as connection:
@@ -377,6 +355,25 @@ class SQLiteRepository:
         connection = sqlite3.connect(self.database_path)
         connection.row_factory = sqlite3.Row
         return connection
+
+    @staticmethod
+    def _row_to_project(row: sqlite3.Row) -> ResearchProject:
+        row_keys = set(row.keys())
+        return ResearchProject(
+            id=row["id"],
+            title=row["title"],
+            domain=row["domain"],
+            market_scope=MarketScope(row["market_scope"]),
+            depth=ResearchDepth(row["depth"]),
+            source_policy=SourcePolicy(row["source_policy"] or SourcePolicy.RELIABLE_FIRST.value),
+            project_mode=ProjectMode(
+                row["project_mode"] if "project_mode" in row_keys and row["project_mode"] else ProjectMode.DOMAIN_KNOWLEDGE.value
+            ),
+            status=ProjectStatus(row["status"]),
+            custom_market_scope=row["custom_market_scope"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+            updated_at=datetime.fromisoformat(row["updated_at"]),
+        )
 
     @staticmethod
     def _row_to_evidence(row: sqlite3.Row) -> EvidenceItem:

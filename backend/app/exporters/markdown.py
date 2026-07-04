@@ -91,6 +91,8 @@ class MarkdownExporter:
         evidence: list[EvidenceItem], project_dir: Path,
     ) -> str | None:
         """Generate project README with navigation."""
+        if self._is_talent_vault(artifacts):
+            return self._generate_talent_vault_readme(project, artifacts, evidence, project_dir)
         if self._is_v1_vault(artifacts):
             return self._generate_v1_vault_readme(project, artifacts, evidence, project_dir)
 
@@ -141,6 +143,75 @@ class MarkdownExporter:
 
         lines.append(f"\n**证据数量**：{len(evidence)} | **产物数量**：{len(artifacts)}")
 
+        readme_path = project_dir / "README.md"
+        readme_path.write_text("\n".join(lines), encoding="utf-8")
+        return "README.md"
+
+    def _generate_talent_vault_readme(
+        self,
+        project: ResearchProject,
+        artifacts: list[Artifact],
+        evidence: list[EvidenceItem],
+        project_dir: Path,
+    ) -> str:
+        generated_date = datetime.now(UTC).strftime("%Y-%m-%d")
+        artifacts_by_path = {artifact.content_path: artifact for artifact in artifacts}
+        main_order = [
+            ("00-岗位需求总览.md", "岗位需求总览"),
+            ("01-岗位画像与分层.md", "岗位画像与分层"),
+            ("02-技能需求矩阵.md", "技能需求矩阵"),
+            ("03-公司与行业分布.md", "公司与行业分布"),
+            ("04-薪资与经验要求.md", "薪资与经验要求"),
+            ("05-学习路径与能力模型.md", "学习路径与能力模型"),
+            ("06-作品集与项目要求.md", "作品集与项目要求"),
+            ("99-待验证问题.md", "待验证问题"),
+        ]
+        skill_cards = self._artifacts_under(artifacts, "skills/")
+        role_cards = self._artifacts_under(artifacts, "roles/")
+        company_cards = self._artifacts_under(artifacts, "companies/")
+        lines = [
+            "---",
+            f'project: "{project.title}"',
+            'type: "talent_vault_home"',
+            'project_mode: "talent_demand"',
+            'status: "draft"',
+            f"generated_at: \"{generated_date}\"",
+            'tags: ["sectorbreaker", "talent-demand", "vault-home"]',
+            "---\n",
+            f"# {project.title} 人才需求情报库\n",
+            f"**目标岗位**：{project.domain}  ",
+            f"**市场范围**：{project.market_scope.value}  ",
+            f"**研究深度**：{project.depth.value}\n",
+            "## 怎么使用这个 Vault\n",
+            "1. 先读 `[[00-岗位需求总览]]`，确认本轮样本量、信源结构和限制。",
+            "2. 再读 `[[02-技能需求矩阵]]`，把高频技能拆成课程、招聘筛选项或能力模型。",
+            "3. 最后看 `[[99-待验证问题]]`，决定下一轮要补哪些 JD、报告或企业来源。\n",
+            "## 主文档入口\n",
+        ]
+        for path, label in main_order:
+            if path in artifacts_by_path:
+                lines.append(f"- [[{Path(path).stem}]] — {label}")
+        lines.extend([
+            "",
+            "## 卡片入口\n",
+            f"- 技能卡片：{len(skill_cards)} 张",
+            *self._readme_card_links(skill_cards),
+            f"- 岗位层级卡片：{len(role_cards)} 张",
+            *self._readme_card_links(role_cards),
+            f"- 公司卡片：{len(company_cards)} 张",
+            *self._readme_card_links(company_cards),
+            "",
+            "## 证据与限制\n",
+            "- [[evidence-ledger]] — 本轮证据账本",
+            "- Source Coverage Matrix 已写入 `[[00-岗位需求总览]]`，用于判断样本是否足够。",
+            "- 搜索摘要、外部 AI 报告和用户上传材料的可信度不同，关键结论应继续补证。",
+            "",
+            "## 导出信息\n",
+            f"- 证据数量：{len(evidence)}",
+            f"- 主文档数量：{sum(1 for path, _ in main_order if path in artifacts_by_path)}",
+            f"- 卡片数量：{len(skill_cards) + len(role_cards) + len(company_cards)}",
+            "- Manifest：[[manifest]]",
+        ])
         readme_path = project_dir / "README.md"
         readme_path.write_text("\n".join(lines), encoding="utf-8")
         return "README.md"
@@ -225,6 +296,11 @@ class MarkdownExporter:
         return "00-领域总览.md" in paths or any(artifact.schema_version.endswith("card") for artifact in artifacts)
 
     @staticmethod
+    def _is_talent_vault(artifacts: list[Artifact]) -> bool:
+        paths = {artifact.content_path for artifact in artifacts}
+        return "00-岗位需求总览.md" in paths or any(artifact.schema_version.startswith("talent-v1") for artifact in artifacts)
+
+    @staticmethod
     def _artifacts_under(artifacts: list[Artifact], prefix: str) -> list[Artifact]:
         return sorted(
             [artifact for artifact in artifacts if artifact.content_path.startswith(prefix)],
@@ -306,6 +382,7 @@ class MarkdownExporter:
             f'project: "{project.title}"\n'
             f'aliases: ["{alias}"]\n'
             f'type: "{artifact_kind}"\n'
+            f'project_mode: "{getattr(project, "project_mode", "domain_knowledge").value}"\n'
             f'status: "{status}"\n'
             f'artifact_type: "{artifact.artifact_type.value}"\n'
             f'schema_version: "{artifact.schema_version}"\n'

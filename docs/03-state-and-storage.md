@@ -14,6 +14,7 @@ SQLite stores structured state and metadata. Files store human-readable research
 - `market_scope`
 - `depth`
 - `source_policy`
+- `project_mode`
 - `status`
 - `created_at`
 - `updated_at`
@@ -122,3 +123,16 @@ exports/<project-slug>/
 ## Versioning
 
 State, artifacts, and exports must carry schema versions. Breaking schema changes require migration notes and tests.
+
+## Project Mode
+
+`project_mode` is additive and defaults to `domain_knowledge` for old payloads
+and old database rows.
+
+Supported values:
+
+- `domain_knowledge`: the existing learning-oriented V1/V1.2 knowledge-base path.
+- `talent_demand`: the V1.3 talent-demand intelligence path.
+
+SQLite migration `009_project_mode.sql` adds the column with default
+`domain_knowledge`.

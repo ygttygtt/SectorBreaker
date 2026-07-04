@@ -14,6 +14,7 @@ const {
   mockUpdateSearchConfig,
   mockTestSearchConnection,
   mockResumeRun,
+  mockCreateDocument,
   mockUploadDocument,
   mockListArtifacts,
   mockListEvidence,
@@ -100,6 +101,19 @@ const {
     configured: true,
   }),
   mockResumeRun: vi.fn().mockResolvedValue({ status: "resumed", run_id: "run-1" }),
+  mockCreateDocument: vi.fn().mockResolvedValue({
+    id: "doc-text-1",
+    project_id: "project-1",
+    channel: "user_upload",
+    file_name: "pasted-jd.md",
+    mime_type: "text/markdown",
+    content: "# jd",
+    word_count: 1,
+    char_count: 4,
+    segment_count: 1,
+    citation_count: 0,
+    created_at: new Date().toISOString(),
+  }),
   mockUploadDocument: vi.fn().mockResolvedValue({
     id: "doc-1",
     project_id: "project-1",
@@ -115,7 +129,7 @@ const {
   }),
   mockCreateProject: vi.fn().mockResolvedValue({
     id: "project-1", title: "AI Agent 工具", domain: "AI Agent 工具",
-    market_scope: "mixed", depth: "quick", source_policy: "reliable_first", status: "draft",
+    market_scope: "mixed", depth: "quick", source_policy: "reliable_first", project_mode: "domain_knowledge", status: "draft",
   }),
   mockStartRun: vi.fn().mockResolvedValue({
     id: "run-1", project_id: "project-1", status: "running",
@@ -195,6 +209,7 @@ vi.mock("./api/client", () => ({
     updateSearchConfig: mockUpdateSearchConfig,
     testSearchConnection: mockTestSearchConnection,
     getSourceRegistryStatus: mockGetSourceRegistryStatus,
+    createDocument: mockCreateDocument,
     uploadDocument: mockUploadDocument,
     listArtifacts: mockListArtifacts,
     listEvidence: mockListEvidence,
@@ -266,8 +281,28 @@ test("startRun is called when button is clicked", async () => {
   await waitFor(() => expect(screen.getByRole("button", { name: /开始构建知识库/ })).not.toBeDisabled());
   fireEvent.click(screen.getByRole("button", { name: /开始构建知识库/ }));
   await waitFor(() => expect(mockStartRun).toHaveBeenCalled());
+  expect(mockCreateProject).toHaveBeenCalledWith(expect.objectContaining({ project_mode: "domain_knowledge" }));
   expect(mockStartRun).toHaveBeenCalledWith("project-1", true);
   expect(mockResumeRun).not.toHaveBeenCalled();
+});
+
+test("talent demand mode sends project mode and uploads pasted JD before run", async () => {
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: /人才需求情报/ }));
+  fireEvent.change(screen.getByPlaceholderText(/大模型应用开发工程师/), { target: { value: "大模型应用开发工程师" } });
+  fireEvent.change(screen.getByPlaceholderText(/可粘贴一段或多段 JD/), {
+    target: { value: "岗位：大模型应用开发工程师\n薪资：20-35K\n要求：熟悉 RAG、Agent、Python。" },
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: /开始生成人才需求情报/ }));
+
+  await waitFor(() => expect(mockCreateProject).toHaveBeenCalled());
+  expect(mockCreateProject).toHaveBeenCalledWith(expect.objectContaining({ project_mode: "talent_demand" }));
+  expect(mockCreateDocument).toHaveBeenCalledWith("project-1", expect.objectContaining({
+    channel: "user_upload",
+    content: expect.stringContaining("大模型应用开发工程师"),
+  }));
+  expect(mockStartRun).toHaveBeenCalledWith("project-1", true);
 });
 
 test("onComplete fetches artifacts and transitions to result when snapshot completed", async () => {
@@ -357,12 +392,12 @@ test("config panel can save search runtime config", async () => {
   fireEvent.click(screen.getByRole("button", { name: /LLM 设置/ }));
   expect(await screen.findByText(/搜索与抽取配置/)).toBeInTheDocument();
 
-  fireEvent.change(screen.getByLabelText("Tavily API Key"), { target: { value: "tvly-test-key" } });
+  fireEvent.change(screen.getByLabelText(/Tavily API Key/), { target: { value: "tvly-test-key" } });
   fireEvent.click(screen.getByRole("button", { name: /保存搜索配置/ }));
 
   await waitFor(() => expect(mockUpdateSearchConfig).toHaveBeenCalled());
   expect(mockUpdateSearchConfig).toHaveBeenCalledWith(expect.objectContaining({
-    search_provider_mode: "tavily",
+    search_provider_mode: "auto",
     tavily_api_key: "tvly-test-key",
     serper_api_key: undefined,
     brave_api_key: undefined,
@@ -411,7 +446,7 @@ test("saving Tavily config refreshes landing search status without manual reload
   fireEvent.click(screen.getByRole("button", { name: /搜索未配置/ }));
   expect(await screen.findByText(/搜索与抽取配置/)).toBeInTheDocument();
 
-  fireEvent.change(screen.getByLabelText("Tavily API Key"), { target: { value: "tvly-test-key" } });
+  fireEvent.change(screen.getByLabelText(/Tavily API Key/), { target: { value: "tvly-test-key" } });
   fireEvent.click(screen.getByRole("button", { name: /保存搜索配置/ }));
 
   await waitFor(() => expect(mockUpdateSearchConfig).toHaveBeenCalled());

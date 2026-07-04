@@ -47,6 +47,7 @@ from backend.app.schemas.planning import (
 )
 from backend.app.schemas.projects import (
     MarketScope,
+    ProjectMode,
     ProjectStatus,
     ResearchDepth,
     ResearchProject,
@@ -86,6 +87,7 @@ __all__ = [
     "EvidenceClaim",
     "EvidenceItem",
     "MarketScope",
+    "ProjectMode",
     "ProjectStatus",
     "QAReport",
     "ResearchDepth",
