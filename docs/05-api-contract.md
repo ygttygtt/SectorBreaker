@@ -52,6 +52,9 @@ Current v1 implementation supports project-scoped evidence and artifact lists. A
 - `GET /api/config/search`
 - `POST /api/config/search`
 - `POST /api/config/search/test`
+- `GET /api/config/job-source`
+- `POST /api/config/job-source`
+- `POST /api/config/job-source/test`
 
 Current baseline exposes LLM configuration status and search configuration
 status. Search config should expose which providers are currently enabled. The
@@ -96,6 +99,21 @@ development. The backend should:
 - make the updated providers immediately visible through `GET /api/config/search`
   and immediately usable by `POST /api/config/search/test`.
 
+`POST /api/config/job-source` is local-only runtime configuration for the
+enterprise talent-demand job-source path. It accepts:
+
+- `enabled`
+- `provider` (`disabled` or `boss_agent_cli`)
+- `boss_agent_cli_command`
+- `boss_agent_cli_args_template`
+- `boss_agent_cli_timeout_seconds`
+- `boss_keyword`
+- `boss_city`
+- `boss_limit`
+
+`POST /api/config/job-source/test` runs a small configured provider check and
+returns sample job postings when the local tool is available.
+
 ### Documents
 
 Contract target for the next search phase:
@@ -134,6 +152,13 @@ Current implementation target:
 ### Q&A
 
 - `POST /api/projects/{project_id}/chat`: ask a question using project-local retrieval.
+
+Response remains backward compatible:
+
+- `answer`
+- `citations`
+- `citation_details` with `source_id`, `source_type`, `title`, `snippet`,
+  `score`, and optional `url`.
 
 ### Export
 
@@ -187,6 +212,7 @@ Recommended input path:
 Talent-demand runs emit these additional gates:
 
 - `talent_source_intake`
+- `boss_job_intake` when enterprise Boss/job-source collection is enabled
 - `jd_signal_extraction`
 - `skill_normalization`
 - `source_coverage`

@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from backend.app.api.app import create_app
 from backend.app.providers.fakes import FakeContentExtractionProvider, FakeLLMProvider, FakeSearchProvider
+from backend.app.providers.interfaces import JobPostingSource, JobSourceQuery, JobSourceStatus
 
 
 def _wait_for_run(client: TestClient, run_id: str, timeout: float = 10.0) -> dict:
@@ -37,6 +38,25 @@ def _default_fake_llm():
             "content": "# 测试内容\n\n行业边界和市场现状分析。",
         }
     )
+
+
+class FakeJobSourceProvider:
+    def __init__(self, jobs: list[JobPostingSource], available: bool = True) -> None:
+        self.jobs = jobs
+        self.available = available
+        self.requests: list[JobSourceQuery] = []
+
+    async def status(self) -> JobSourceStatus:
+        return JobSourceStatus(
+            provider="fake_boss",
+            configured=True,
+            available=self.available,
+            message="fake boss ready" if self.available else "fake boss unavailable",
+        )
+
+    async def search_jobs(self, query: JobSourceQuery) -> list[JobPostingSource]:
+        self.requests.append(query)
+        return self.jobs[: query.limit]
 
 
 def test_api_runs_research_and_exports_markdown(tmp_path: Path) -> None:
@@ -195,6 +215,100 @@ def test_api_project_chat_uses_local_fts(tmp_path: Path) -> None:
 
     assert chat_response.status_code == 200
     assert chat_response.json()["citations"]
+    assert chat_response.json()["citation_details"]
+
+
+def test_api_chat_uses_project_retrieval(tmp_path: Path) -> None:
+    client = TestClient(
+        create_app(
+            database_path=tmp_path / "sectorbreaker.sqlite3",
+            export_root=tmp_path / "exports",
+            llm_provider=None,
+        )
+    )
+    project = client.post(
+        "/api/projects",
+        json={
+            "title": "人才需求",
+            "domain": "AI Agent 工程师",
+            "market_scope": "china",
+            "depth": "quick",
+            "project_mode": "talent_demand",
+        },
+    ).json()
+    document = client.post(
+        f"/api/projects/{project['id']}/documents",
+        json={
+            "channel": "user_upload",
+            "file_name": "jd.md",
+            "mime_type": "text/markdown",
+            "content": "岗位：AI Agent 工程师\n要求：熟悉 RAG、向量数据库、LangGraph 和 Python。",
+        },
+    )
+    assert document.status_code == 200
+    run_response = client.post(f"/api/projects/{project['id']}/runs", params={"auto_run": "true"})
+    _wait_for_run(client, run_response.json()["id"])
+
+    chat_response = client.post(f"/api/projects/{project['id']}/chat", json={"question": "RAG 有什么要求"})
+
+    body = chat_response.json()
+    assert chat_response.status_code == 200
+    assert "RAG" in body["answer"]
+    assert body["citations"]
+    assert body["citation_details"][0]["source_id"] in body["citations"]
+
+
+def test_api_talent_demand_run_uses_boss_job_source_when_enabled(tmp_path: Path) -> None:
+    job_provider = FakeJobSourceProvider([
+        JobPostingSource(
+            title="AI Agent 工程师",
+            company="示例科技",
+            location="北京",
+            salary_text="25-40K",
+            experience_text="3-5年",
+            description="负责 RAG、Agent、LangGraph 和 Python 后端开发。",
+            skills=["RAG", "Agent", "LangGraph", "Python"],
+            url="https://example.com/boss-job",
+        )
+    ])
+    client = TestClient(
+        create_app(
+            database_path=tmp_path / "sectorbreaker.sqlite3",
+            export_root=tmp_path / "exports",
+            job_source_provider=job_provider,
+            search_provider=FakeSearchProvider(results=[]),
+            llm_provider=None,
+        )
+    )
+    config_response = client.post(
+        "/api/config/job-source",
+        json={
+            "enabled": True,
+            "provider": "boss_agent_cli",
+            "boss_keyword": "AI Agent 工程师",
+            "boss_city": "北京",
+            "boss_limit": 3,
+        },
+    )
+    assert config_response.status_code == 200
+    project = client.post(
+        "/api/projects",
+        json={
+            "title": "AI Agent 工程师需求",
+            "domain": "AI Agent 工程师",
+            "market_scope": "china",
+            "depth": "quick",
+            "project_mode": "talent_demand",
+        },
+    ).json()
+
+    run_response = client.post(f"/api/projects/{project['id']}/runs", params={"auto_run": "true"})
+    run_result = _wait_for_run(client, run_response.json()["id"])
+    evidence = client.get(f"/api/projects/{project['id']}/evidence").json()
+
+    assert run_result["status"] == "completed"
+    assert job_provider.requests
+    assert any(item["source_channel"] == "boss_job" for item in evidence)
 
 
 def test_api_run_uses_injected_search_and_llm_providers(tmp_path: Path) -> None:

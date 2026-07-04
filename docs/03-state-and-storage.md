@@ -56,6 +56,9 @@ SQLite stores structured state and metadata. Files store human-readable research
 - `verification_status`
 - `collected_at`
 
+V1.4 adds `source_channel="boss_job"` for structured recruitment samples
+collected through the enterprise talent-demand job-source provider.
+
 ### EvidenceClaim
 
 - `claim_id`
@@ -136,3 +139,20 @@ Supported values:
 
 SQLite migration `009_project_mode.sql` adds the column with default
 `domain_knowledge`.
+
+## V1.4 Runtime Job Source Config
+
+Boss/job-source settings are local runtime configuration, not committed state.
+They are stored with the existing runtime config file and include:
+
+- `job_source_enabled`
+- `job_source_provider`
+- `boss_agent_cli_command`
+- `boss_agent_cli_args_template`
+- `boss_agent_cli_timeout_seconds`
+- `boss_keyword`
+- `boss_city`
+- `boss_limit`
+
+Project RAG currently reuses existing SQLite evidence/documents/artifacts tables
+and FTS evidence index. No vector database migration is required for V1.4.

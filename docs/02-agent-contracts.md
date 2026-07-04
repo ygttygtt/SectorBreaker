@@ -107,6 +107,13 @@ All Agent outputs that include factual claims must support:
 - Must not: scrape login-gated job boards or bypass anti-bot controls.
 - Failure mode: continue with uploaded/local evidence and mark source coverage gaps.
 
+### Boss Job Source Scout
+
+- Input: `JobSourceQuery`, configured `JobSourceProvider`, talent-demand project config.
+- Output: `boss_job` channel evidence items derived from structured job postings.
+- Must not: require Boss collection for the personal `domain_knowledge` path, bypass login/anti-bot mechanisms, or fabricate samples when the local provider is unavailable.
+- Failure mode: emit a degraded run event with provider diagnostics and continue through uploaded materials / external reports / generic search.
+
 ### JD Extractor
 
 - Input: evidence text and evidence ids.
@@ -134,3 +141,10 @@ All Agent outputs that include factual claims must support:
 - Output: `TalentDemandKnowledgeBase` including overview, role levels, company/industry patterns, salary/experience notes, learning path, portfolio requirements, unresolved questions, and source coverage.
 - Must not: turn unsupported salary/market claims into facts.
 - Failure mode: deterministic fallback builds a usable but clearly limited knowledge base.
+
+### Project RAG Answerer
+
+- Input: project question and retrieved evidence/document/artifact snippets.
+- Output: answer text plus citation ids and citation details.
+- Must not: answer beyond retrieved project context without saying the project lacks evidence.
+- Failure mode: when LLM is unavailable or fails, return a deterministic evidence summary with citations.

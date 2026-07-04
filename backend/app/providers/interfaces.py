@@ -29,6 +29,38 @@ class SearchResult:
 
 
 @dataclass(frozen=True)
+class JobSourceQuery:
+    keyword: str
+    city: str | None = None
+    limit: int = 10
+    filters: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class JobPostingSource:
+    title: str
+    company: str | None = None
+    location: str | None = None
+    salary_text: str | None = None
+    experience_text: str | None = None
+    education_text: str | None = None
+    description: str | None = None
+    skills: list[str] | None = None
+    url: str | None = None
+    source_provider: str = "unknown"
+    raw_payload: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class JobSourceStatus:
+    provider: str
+    configured: bool
+    available: bool
+    message: str
+    diagnostics: list[str] | None = None
+
+
+@dataclass(frozen=True)
 class ExtractedPage:
     url: str
     raw_text: str
@@ -118,6 +150,14 @@ class LLMProvider(Protocol):
 class SearchProvider(Protocol):
     async def search(self, query: SearchQuery) -> list[SearchResult]:
         """Search external sources."""
+
+
+class JobSourceProvider(Protocol):
+    async def status(self) -> JobSourceStatus:
+        """Return source availability diagnostics."""
+
+    async def search_jobs(self, query: JobSourceQuery) -> list[JobPostingSource]:
+        """Search role-specific job postings."""
 
 
 class ContentExtractionProvider(Protocol):

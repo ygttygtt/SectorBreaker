@@ -174,10 +174,17 @@ function isKnowledgeCard(artifact: Artifact) {
 
 type ProjectMode = "domain_knowledge" | "talent_demand";
 
+type BossCollectionSettings = {
+  enabled: boolean;
+  city: string;
+  limit: number;
+};
+
 type SourceCoverageMatrix = {
   total_evidence?: number;
   uploaded_jd_count?: number;
   uploaded_report_count?: number;
+  boss_job_count?: number;
   search_result_count?: number;
   extracted_page_count?: number;
   occupation_standard_count?: number;
@@ -308,6 +315,7 @@ function LandingView({
     projectMode?: ProjectMode,
     jdText?: string,
     jdFile?: File | null,
+    bossSettings?: BossCollectionSettings,
   ) => void;
   onOpenSettings: () => void;
   isLoading: boolean;
@@ -321,6 +329,9 @@ function LandingView({
   const [sourcePolicy, setSourcePolicy] = useState("reliable_first");
   const [jdText, setJdText] = useState("");
   const [jdFile, setJdFile] = useState<File | null>(null);
+  const [bossEnabled, setBossEnabled] = useState(false);
+  const [bossCity, setBossCity] = useState("北京");
+  const [bossLimit, setBossLimit] = useState(8);
   const [assistantBrief, setAssistantBrief] = useState("");
   const [assistantBriefFile, setAssistantBriefFile] = useState<File | null>(null);
   const [showBrief, setShowBrief] = useState(false);
@@ -336,7 +347,17 @@ function LandingView({
 
   function submit() {
     if (!domain.trim()) return;
-    onStart(domain.trim(), sourcePolicy, assistantBrief.trim(), true, assistantBriefFile, projectMode, jdText.trim(), jdFile);
+    onStart(
+      domain.trim(),
+      sourcePolicy,
+      assistantBrief.trim(),
+      true,
+      assistantBriefFile,
+      projectMode,
+      jdText.trim(),
+      jdFile,
+      { enabled: bossEnabled, city: bossCity.trim(), limit: bossLimit },
+    );
   }
 
   return (
@@ -432,6 +453,39 @@ function LandingView({
               />
               {jdFile && <em>{jdFile.name}</em>}
             </label>
+            <div className="boss-source-panel">
+              <label className="toggle-chip boss-source-toggle">
+                <input
+                  type="checkbox"
+                  checked={bossEnabled}
+                  onChange={(event) => setBossEnabled(event.target.checked)}
+                />
+                <span>启用 Boss 直聘职位样本采集</span>
+              </label>
+              <p>企业版专用。未安装本地 Boss CLI 时会在运行日志中降级提示，不影响上传 JD / 外部报告流程。</p>
+              <div className="boss-source-grid">
+                <label>
+                  <span>城市</span>
+                  <input
+                    value={bossCity}
+                    onChange={(event) => setBossCity(event.target.value)}
+                    placeholder="例如：北京、上海、深圳"
+                    disabled={!bossEnabled}
+                  />
+                </label>
+                <label>
+                  <span>样本数</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={30}
+                    value={bossLimit}
+                    onChange={(event) => setBossLimit(Number(event.target.value) || 8)}
+                    disabled={!bossEnabled}
+                  />
+                </label>
+              </div>
+            </div>
           </div>
         )}
         <div className="source-policy-grid">
@@ -936,6 +990,7 @@ function ResultView({
               <div><strong>{sourceCoverage.total_evidence ?? 0}</strong><span>总证据</span></div>
               <div><strong>{sourceCoverage.uploaded_jd_count ?? 0}</strong><span>上传 JD</span></div>
               <div><strong>{sourceCoverage.uploaded_report_count ?? 0}</strong><span>外部报告</span></div>
+              <div><strong>{sourceCoverage.boss_job_count ?? 0}</strong><span>Boss 样本</span></div>
               <div><strong>{sourceCoverage.search_result_count ?? 0}</strong><span>搜索来源</span></div>
               <div><strong>{sourceCoverage.skill_signal_count ?? 0}</strong><span>技能信号</span></div>
               <div><strong>{sourceCoverage.salary_signal_count ?? 0}</strong><span>薪资信号</span></div>
@@ -1030,7 +1085,23 @@ function ResultView({
               导出
             </button>
           </div>
-          {chat && <p className="chat-answer">{chat.answer} 引用：{chat.citations.join(", ")}</p>}
+          {chat && (
+            <div className="chat-answer">
+              <p>{chat.answer}</p>
+              <span>引用：{chat.citations.join(", ") || "无"}</span>
+              {chat.citation_details && chat.citation_details.length > 0 && (
+                <ul className="rag-citation-list">
+                  {chat.citation_details.map((item) => (
+                    <li key={item.source_id}>
+                      <strong>{item.title}</strong>
+                      <em>{item.source_type} · {item.source_id}</em>
+                      <p>{cleanDisplaySnippet(item.snippet)}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
           {exportManifest && <p className="chat-answer">已导出 {exportManifest.artifact_paths.length} 个文件。</p>}
         </section>
       </main>
@@ -1164,6 +1235,7 @@ export function App() {
     projectMode: ProjectMode = "domain_knowledge",
     jdText = "",
     jdFile: File | null = null,
+    bossSettings: BossCollectionSettings = { enabled: false, city: "", limit: 8 },
   ) {
     setIsLoading(true);
     try {
@@ -1187,6 +1259,17 @@ export function App() {
       }
       if (projectMode === "talent_demand" && jdFile) {
         await api.uploadDocument(proj.id, { channel: "user_upload", file: jdFile });
+      }
+      if (projectMode === "talent_demand") {
+        await api.updateJobSourceConfig({
+          enabled: bossSettings.enabled,
+          provider: bossSettings.enabled ? "boss_agent_cli" : "disabled",
+          boss_keyword: domain,
+          boss_city: bossSettings.city || null,
+          boss_limit: bossSettings.limit,
+          boss_agent_cli_command: "boss",
+          boss_agent_cli_timeout_seconds: 45,
+        });
       }
       if (assistantBrief) {
         await api.createDocument(proj.id, {

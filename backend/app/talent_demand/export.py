@@ -377,6 +377,7 @@ def _coverage_table(coverage: SourceCoverageMatrix) -> str:
         ("总证据", coverage.total_evidence),
         ("上传 JD/用户材料", coverage.uploaded_jd_count),
         ("上传外部报告", coverage.uploaded_report_count),
+        ("Boss 职位样本", coverage.boss_job_count),
         ("搜索结果", coverage.search_result_count),
         ("抽取/可靠 provider", coverage.extracted_page_count),
         ("标准/系统来源", coverage.occupation_standard_count),

@@ -22,6 +22,7 @@ def build_source_coverage_matrix(
         total_evidence=len(evidence),
         uploaded_jd_count=channel_counts.get(SourceChannel.USER_UPLOAD, 0),
         uploaded_report_count=channel_counts.get(SourceChannel.ASSISTANT_BRIEF, 0),
+        boss_job_count=channel_counts.get(SourceChannel.BOSS_JOB, 0),
         search_result_count=channel_counts.get(SourceChannel.SEARCH, 0),
         extracted_page_count=channel_counts.get(SourceChannel.RELIABLE_PROVIDER, 0),
         occupation_standard_count=channel_counts.get(SourceChannel.SYSTEM, 0),
@@ -63,6 +64,7 @@ def _build_gaps(
     if matrix.search_result_count > 0 and (
         matrix.uploaded_jd_count
         + matrix.uploaded_report_count
+        + matrix.boss_job_count
         + matrix.extracted_page_count
         + matrix.occupation_standard_count
         == 0

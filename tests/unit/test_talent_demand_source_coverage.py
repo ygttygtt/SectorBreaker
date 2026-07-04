@@ -29,6 +29,7 @@ def test_source_coverage_counts_evidence_channels_and_posting_signals() -> None:
     evidence = [
         _evidence("EV-JD-1", SourceChannel.USER_UPLOAD),
         _evidence("EV-REPORT-1", SourceChannel.ASSISTANT_BRIEF, VerificationStatus.UNVERIFIED),
+        _evidence("EV-BOSS-1", SourceChannel.BOSS_JOB),
         _evidence("EV-SEARCH-1", SourceChannel.SEARCH),
         _evidence("EV-STANDARD-1", SourceChannel.SYSTEM),
     ]
@@ -45,9 +46,10 @@ def test_source_coverage_counts_evidence_channels_and_posting_signals() -> None:
 
     coverage = build_source_coverage_matrix(evidence, postings, min_posting_sample=2)
 
-    assert coverage.total_evidence == 4
+    assert coverage.total_evidence == 5
     assert coverage.uploaded_jd_count == 1
     assert coverage.uploaded_report_count == 1
+    assert coverage.boss_job_count == 1
     assert coverage.search_result_count == 1
     assert coverage.occupation_standard_count == 1
     assert coverage.salary_signal_count == 1

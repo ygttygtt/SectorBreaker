@@ -6,7 +6,15 @@ import json
 from collections.abc import Awaitable, Callable
 from uuid import uuid4
 
-from backend.app.providers.interfaces import ChatMessage, LLMProvider, SearchProvider, SearchQuery
+from backend.app.providers.interfaces import (
+    ChatMessage,
+    JobPostingSource,
+    JobSourceProvider,
+    JobSourceQuery,
+    LLMProvider,
+    SearchProvider,
+    SearchQuery,
+)
 from backend.app.schemas import (
     Artifact,
     ClaimStrength,
@@ -36,6 +44,8 @@ async def run_talent_demand_pipeline(
     repository: SQLiteRepository,
     search_provider: SearchProvider | None,
     llm_provider: LLMProvider | None,
+    job_source_provider: JobSourceProvider | None = None,
+    job_source_query: JobSourceQuery | None = None,
     emit: Callable[[RunEvent], Awaitable[None]] | None = None,
 ) -> list[Artifact]:
     """Run the V1.3 talent-demand mode and persist evidence plus artifacts."""
@@ -55,6 +65,15 @@ async def run_talent_demand_pipeline(
 
     evidence = repository.list_evidence(project.id)
     await _persist_document_evidence(project, repository, evidence, emit_event)
+    if job_source_provider is not None and job_source_query is not None:
+        await _persist_job_source_evidence(
+            project,
+            repository,
+            evidence,
+            job_source_provider,
+            job_source_query,
+            emit_event,
+        )
     if len(evidence) < _MIN_TALENT_EVIDENCE and search_provider is not None:
         await _persist_search_evidence(project, repository, evidence, search_provider, emit_event)
 
@@ -245,6 +264,102 @@ async def _persist_document_evidence(
         ))
 
 
+async def _persist_job_source_evidence(
+    project: ResearchProject,
+    repository: SQLiteRepository,
+    evidence: list[EvidenceItem],
+    job_source_provider: JobSourceProvider,
+    query: JobSourceQuery,
+    emit_event: Callable[[RunEvent], Awaitable[None]],
+) -> None:
+    await emit_event(RunEvent(
+        event_type="node_started",
+        gate="boss_job_intake",
+        agent="Boss Job Source",
+        message=f"正在采集 Boss 职位样本：{query.keyword} / {query.city or '不限城市'}",
+        progress_current=1,
+        progress_total=7,
+    ))
+    status = await job_source_provider.status()
+    if not status.available:
+        await emit_event(RunEvent(
+            event_type="node_degraded",
+            gate="boss_job_intake",
+            agent="Boss Job Source",
+            message=status.message,
+            severity="warning",
+            data={
+                "provider": status.provider,
+                "configured": status.configured,
+                "available": status.available,
+                "diagnostics": status.diagnostics or [],
+            },
+        ))
+        return
+
+    jobs = await job_source_provider.search_jobs(query)
+    seen_keys = {
+        _job_dedupe_key_from_evidence(item)
+        for item in evidence
+        if item.source_channel == SourceChannel.BOSS_JOB
+    }
+    created = 0
+    for job in jobs:
+        key = _job_dedupe_key(job)
+        if key in seen_keys:
+            continue
+        evidence_id = f"EV-TALENT-BOSS-{project.id}-{len(evidence) + 1}"
+        text = _job_to_evidence_text(job)
+        item = EvidenceItem(
+            id=evidence_id,
+            project_id=project.id,
+            source_title=_job_title(job),
+            source_url=job.url,
+            source_type=SourceType.WEB.value,
+            source_channel=SourceChannel.BOSS_JOB,
+            source_policy=project.source_policy.value,
+            raw_excerpt=text,
+            snippet=_shorten(text, 520),
+            summary=_shorten(text, 520),
+            claims=[EvidenceClaim(
+                claim_id=f"{evidence_id}-CLAIM-1",
+                text=_shorten(text, 280),
+                claim_type=ClaimType.GENERAL_FACT,
+                support_level=0.62,
+                requires_verification=False,
+                verification_status=VerificationStatus.PARTIALLY_VERIFIED,
+                evidence_ids=[evidence_id],
+                notes="Boss 职位样本来自本地招聘信源适配器，作为人才需求分析样本。",
+            )],
+            source_quality=SourceQuality.MEDIUM,
+            claim_strength=ClaimStrength.FACT,
+            bias_risk="招聘平台样本可能受城市、关键词、排序和账号状态影响，不能直接代表全市场。",
+            needs_counterevidence=False,
+            collected_by="boss_job_source",
+            confidence=0.68,
+            verification_status=VerificationStatus.PARTIALLY_VERIFIED,
+        )
+        repository.add_evidence(item)
+        evidence.append(item)
+        seen_keys.add(key)
+        created += 1
+        await emit_event(RunEvent(
+            event_type="evidence_collected",
+            gate="boss_job_intake",
+            agent="Boss Job Source",
+            message=f"已采集 Boss 职位样本：{item.source_title}",
+            data={"evidence_id": item.id, "url": item.source_url, "source_channel": item.source_channel.value},
+        ))
+
+    await emit_event(RunEvent(
+        event_type="node_completed",
+        gate="boss_job_intake",
+        agent="Boss Job Source",
+        message=f"Boss 职位样本采集完成：新增 {created} 条",
+        data={"created_count": created, "requested_limit": query.limit, "provider": status.provider},
+    ))
+
+
 async def _persist_search_evidence(
     project: ResearchProject,
     repository: SQLiteRepository,
@@ -307,6 +422,49 @@ async def _persist_search_evidence(
             message=f"已记录招聘/岗位搜索来源：{result.title}",
             data={"evidence_id": item.id, "url": result.url},
         ))
+
+
+def _job_dedupe_key(job: JobPostingSource) -> str:
+    return "|".join([
+        (job.url or "").strip().lower(),
+        (job.title or "").strip().lower(),
+        (job.company or "").strip().lower(),
+        (job.location or "").strip().lower(),
+    ])
+
+
+def _job_dedupe_key_from_evidence(item: EvidenceItem) -> str:
+    return "|".join([
+        (item.source_url or "").strip().lower(),
+        item.source_title.strip().lower(),
+    ])
+
+
+def _job_title(job: JobPostingSource) -> str:
+    parts = [job.title]
+    if job.company:
+        parts.append(job.company)
+    if job.location:
+        parts.append(job.location)
+    return " / ".join(part for part in parts if part)
+
+
+def _job_to_evidence_text(job: JobPostingSource) -> str:
+    lines = [
+        f"岗位：{job.title}",
+        f"公司：{job.company or '未知'}",
+        f"地点：{job.location or '未知'}",
+        f"薪资：{job.salary_text or '未提供'}",
+        f"经验：{job.experience_text or '未提供'}",
+        f"学历：{job.education_text or '未提供'}",
+    ]
+    if job.skills:
+        lines.append(f"技能标签：{'、'.join(job.skills)}")
+    if job.description:
+        lines.append(f"职位描述：{job.description}")
+    if job.url:
+        lines.append(f"来源链接：{job.url}")
+    return "\n".join(lines)
 
 
 def _extract_postings(evidence: list[EvidenceItem], project: ResearchProject) -> list[JobPostingSignal]:

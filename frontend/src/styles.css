@@ -687,6 +687,43 @@ select:focus {
   font-size: 13px;
 }
 
+.boss-source-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(14, 107, 91, .18);
+  border-radius: 16px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, .68), rgba(232, 248, 242, .62)),
+    radial-gradient(circle at 8% 0, rgba(39, 93, 114, .12), transparent 32%);
+}
+
+.boss-source-toggle {
+  width: fit-content;
+}
+
+.boss-source-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px;
+  gap: 10px;
+}
+
+.boss-source-grid label {
+  display: grid;
+  gap: 6px;
+  color: #617069;
+  font-size: 12px;
+}
+
+.boss-source-grid input {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(23, 33, 43, .14);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, .72);
+  color: #17212b;
+}
+
 .assistant-brief-input,
 textarea,
 .form-group input,
@@ -875,6 +912,29 @@ textarea,
 .chat-answer {
   border-radius: 16px;
   background: rgba(232, 248, 242, .9);
+}
+
+.rag-citation-list {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rag-citation-list li {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid rgba(14, 107, 91, .14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .62);
+}
+
+.rag-citation-list em {
+  color: #617069;
+  font-size: 12px;
+  font-style: normal;
 }
 
 .modal-overlay {

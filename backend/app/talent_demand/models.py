@@ -73,6 +73,7 @@ class SourceCoverageMatrix(BaseModel):
     total_evidence: int = 0
     uploaded_jd_count: int = 0
     uploaded_report_count: int = 0
+    boss_job_count: int = 0
     search_result_count: int = 0
     extracted_page_count: int = 0
     occupation_standard_count: int = 0

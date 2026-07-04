@@ -12,6 +12,9 @@ const {
   mockGetActiveRun,
   mockGetSearchConfig,
   mockUpdateSearchConfig,
+  mockUpdateJobSourceConfig,
+  mockGetJobSourceConfig,
+  mockTestJobSource,
   mockTestSearchConnection,
   mockResumeRun,
   mockCreateDocument,
@@ -99,6 +102,27 @@ const {
     success: true,
     message: "搜索配置已更新",
     configured: true,
+  }),
+  mockGetJobSourceConfig: vi.fn().mockResolvedValue({
+    provider: "disabled",
+    configured: false,
+    available: false,
+    enabled: false,
+    message: "未启用招聘信源 Provider。",
+    diagnostics: [],
+    boss_limit: 8,
+  }),
+  mockUpdateJobSourceConfig: vi.fn().mockResolvedValue({
+    success: true,
+    message: "招聘信源配置已更新",
+    status: { provider: "disabled", configured: false, available: false, message: "disabled" },
+  }),
+  mockTestJobSource: vi.fn().mockResolvedValue({
+    success: false,
+    message: "未启用招聘信源 Provider。",
+    status: { provider: "disabled", configured: false, available: false, message: "disabled" },
+    result_count: 0,
+    results: [],
   }),
   mockResumeRun: vi.fn().mockResolvedValue({ status: "resumed", run_id: "run-1" }),
   mockCreateDocument: vi.fn().mockResolvedValue({
@@ -206,6 +230,9 @@ vi.mock("./api/client", () => ({
     getProjectWorkflowDefinition: mockGetWorkflow,
     getLLMConfig: mockGetLLMConfig,
     getSearchConfig: mockGetSearchConfig,
+    getJobSourceConfig: mockGetJobSourceConfig,
+    updateJobSourceConfig: mockUpdateJobSourceConfig,
+    testJobSource: mockTestJobSource,
     updateSearchConfig: mockUpdateSearchConfig,
     testSearchConnection: mockTestSearchConnection,
     getSourceRegistryStatus: mockGetSourceRegistryStatus,
@@ -301,6 +328,11 @@ test("talent demand mode sends project mode and uploads pasted JD before run", a
   expect(mockCreateDocument).toHaveBeenCalledWith("project-1", expect.objectContaining({
     channel: "user_upload",
     content: expect.stringContaining("大模型应用开发工程师"),
+  }));
+  expect(mockUpdateJobSourceConfig).toHaveBeenCalledWith(expect.objectContaining({
+    enabled: false,
+    provider: "disabled",
+    boss_keyword: "大模型应用开发工程师",
   }));
   expect(mockStartRun).toHaveBeenCalledWith("project-1", true);
 });

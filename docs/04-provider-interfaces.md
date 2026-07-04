@@ -100,6 +100,35 @@ Current workflow usage:
 - the extractor remains replaceable, so stronger page-processing providers can be
   swapped in without changing graph nodes.
 
+## JobSourceProvider
+
+V1.4 adds a recruitment-source provider boundary for the enterprise
+`talent_demand` path. It is intentionally separate from `SearchProvider` because
+job-board collection returns structured postings rather than generic web search
+results.
+
+Required methods:
+
+- `status() -> JobSourceStatus`
+- `search_jobs(JobSourceQuery) -> list[JobPostingSource]`
+
+Current adapter:
+
+- `BossAgentCliProvider`: invokes a local Boss-compatible CLI and parses JSON or
+  JSONL job output.
+- `DisabledJobSourceProvider`: explicit unavailable fallback.
+
+Configuration:
+
+- `JOB_SOURCE_PROVIDER=disabled|boss_agent_cli`
+- `BOSS_AGENT_CLI_COMMAND`
+- `BOSS_AGENT_CLI_ARGS_TEMPLATE`
+- `BOSS_AGENT_CLI_TIMEOUT_SECONDS`
+
+The provider must not store cookies or secrets in the repository. Missing CLI,
+login, or runtime failures are degraded source conditions, not fatal workflow
+errors.
+
 ## RetrievalProvider
 
 V1 default: SQLite FTS.
@@ -109,6 +138,10 @@ Required methods:
 - `search_project(project_id, query, limit)`
 
 V2 upgrade target: embeddings plus vector retrieval through the same interface.
+
+V1.4 project RAG uses a lightweight `ProjectRetriever` over evidence,
+documents, document segments, and generated artifacts. It keeps the public chat
+API compatible while adding citation details.
 
 ## Exporter
 

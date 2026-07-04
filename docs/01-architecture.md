@@ -105,3 +105,22 @@ Legal and operational guardrails:
   pages discovered through search, and documented APIs.
 - Search snippets are treated as partial evidence unless stronger extraction and
   source assessment succeeds.
+
+## V1.4 Enterprise Job Sources And Project RAG
+
+V1.4 adds an enterprise-only job-source extension for `talent_demand`. The
+default `domain_knowledge` path does not depend on Boss, recruitment crawlers,
+or job-source configuration.
+
+Talent-demand source intake now has an optional `boss_job_intake` step between
+uploaded materials and generic search. It depends on `JobSourceProvider`, not on
+direct crawler calls inside API handlers or graph nodes. The first adapter is a
+local Boss-compatible CLI adapter (`boss_agent_cli`) that expects JSON output
+from a user-installed tool. When the command is missing or fails, the run emits
+a degraded event and continues with uploaded JD, external reports, and search
+supplements.
+
+Project Q&A now uses a lightweight project RAG retriever. It searches evidence,
+uploaded documents, document segments, and generated artifacts, then asks the
+configured LLM to answer with citations. If no LLM is configured, it returns a
+deterministic citation summary rather than a fixed template.

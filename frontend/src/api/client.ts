@@ -154,6 +154,16 @@ export interface WorkflowDefinition {
 export interface ChatResponse {
   answer: string;
   citations: string[];
+  citation_details?: ChatCitationDetail[];
+}
+
+export interface ChatCitationDetail {
+  source_id: string;
+  source_type: string;
+  title: string;
+  snippet: string;
+  score: number;
+  url?: string | null;
 }
 
 export interface ExportManifest {
@@ -233,6 +243,44 @@ export interface SearchRuntimeConfig {
   firecrawl_api_key?: string;
   firecrawl_endpoint?: string;
   jina_reader_endpoint_prefix?: string;
+}
+
+export interface JobSourceStatus {
+  provider: string;
+  configured: boolean;
+  available: boolean;
+  enabled?: boolean;
+  message: string;
+  diagnostics?: string[];
+  boss_keyword?: string | null;
+  boss_city?: string | null;
+  boss_limit?: number;
+}
+
+export interface JobSourceRuntimeConfig {
+  enabled: boolean;
+  provider: string;
+  boss_agent_cli_command?: string;
+  boss_agent_cli_args_template?: string | null;
+  boss_agent_cli_timeout_seconds?: number;
+  boss_keyword?: string | null;
+  boss_city?: string | null;
+  boss_limit?: number;
+}
+
+export interface JobSourceTestResult {
+  success: boolean;
+  message: string;
+  status: JobSourceStatus;
+  result_count: number;
+  results: Array<{
+    title: string;
+    company?: string | null;
+    location?: string | null;
+    salary_text?: string | null;
+    experience_text?: string | null;
+    url?: string | null;
+  }>;
 }
 
 export interface ProjectDocument {
@@ -399,6 +447,29 @@ export const api = {
 
   getSearchConfig() {
     return requestJson<SearchConfigStatus>("/api/config/search");
+  },
+
+  getJobSourceConfig() {
+    return requestJson<JobSourceStatus>("/api/config/job-source");
+  },
+
+  updateJobSourceConfig(data: JobSourceRuntimeConfig) {
+    return requestJson<{ success: boolean; message: string; status: JobSourceStatus }>("/api/config/job-source", {
+      method: "POST",
+      body: JSON.stringify({
+        boss_agent_cli_command: "boss",
+        boss_agent_cli_timeout_seconds: 45,
+        boss_limit: 8,
+        ...data,
+      }),
+    });
+  },
+
+  testJobSource(data: { keyword: string; city?: string | null; limit?: number }) {
+    return requestJson<JobSourceTestResult>("/api/config/job-source/test", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
   },
 
   updateSearchConfig(data: SearchRuntimeConfig) {

@@ -101,6 +101,7 @@ machine-readable fenced JSON block:
   "total_evidence": 0,
   "uploaded_jd_count": 0,
   "uploaded_report_count": 0,
+  "boss_job_count": 0,
   "search_result_count": 0,
   "skill_signal_count": 0,
   "gaps": []

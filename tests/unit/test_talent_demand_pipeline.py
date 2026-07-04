@@ -2,9 +2,29 @@ import asyncio
 from pathlib import Path
 
 from backend.app.providers.fakes import FakeSearchProvider
+from backend.app.providers.interfaces import JobPostingSource, JobSourceQuery, JobSourceStatus
 from backend.app.schemas import MarketScope, ProjectMode, ProjectDocumentCreate, ResearchDepth, ResearchProjectCreate
 from backend.app.storage.sqlite import SQLiteRepository, init_database
 from backend.app.talent_demand.pipeline import run_talent_demand_pipeline
+
+
+class FakeJobSourceProvider:
+    def __init__(self, jobs: list[JobPostingSource], available: bool = True) -> None:
+        self.jobs = jobs
+        self.available = available
+        self.requests: list[JobSourceQuery] = []
+
+    async def status(self) -> JobSourceStatus:
+        return JobSourceStatus(
+            provider="fake_boss",
+            configured=True,
+            available=self.available,
+            message="fake ready" if self.available else "fake unavailable",
+        )
+
+    async def search_jobs(self, query: JobSourceQuery) -> list[JobPostingSource]:
+        self.requests.append(query)
+        return self.jobs[: query.limit]
 
 
 def test_talent_demand_pipeline_uses_uploaded_jd_and_persists_artifacts(tmp_path: Path) -> None:
@@ -103,3 +123,60 @@ def test_talent_demand_pipeline_supplements_thin_materials_with_search(tmp_path:
     assert search_provider.search_requests
     assert evidence[0].source_channel.value == "search"
     assert any(artifact.content_path == "skills/Agent.md" for artifact in artifacts)
+
+
+def test_talent_demand_pipeline_ingests_boss_job_source_before_search(tmp_path: Path) -> None:
+    database_path = tmp_path / "sectorbreaker.sqlite3"
+    init_database(database_path)
+    repository = SQLiteRepository(database_path)
+    project = repository.create_project(
+        ResearchProjectCreate(
+            title="AI Agent 工程师需求",
+            domain="AI Agent 工程师",
+            market_scope=MarketScope.CHINA,
+            depth=ResearchDepth.QUICK,
+            project_mode=ProjectMode.TALENT_DEMAND,
+        )
+    )
+    job_provider = FakeJobSourceProvider([
+        JobPostingSource(
+            title="AI Agent 工程师",
+            company="示例科技",
+            location="北京",
+            salary_text="25-40K",
+            experience_text="3-5年",
+            description="负责 RAG、Agent、LangGraph 和 Python 后端开发。",
+            skills=["RAG", "Agent", "LangGraph", "Python"],
+            url="https://example.com/boss-job",
+            source_provider="fake_boss",
+        )
+    ])
+    search_provider = FakeSearchProvider(results=[])
+    events = []
+
+    async def emit(event):
+        events.append(event)
+
+    asyncio.run(
+        run_talent_demand_pipeline(
+            project=project,
+            repository=repository,
+            search_provider=search_provider,
+            llm_provider=None,
+            job_source_provider=job_provider,
+            job_source_query=JobSourceQuery(keyword="AI Agent 工程师", city="北京", limit=3),
+            emit=emit,
+        )
+    )
+
+    evidence = repository.list_evidence(project.id)
+    coverage_event = next(
+        event for event in events
+        if event.gate == "source_coverage" and event.event_type == "node_completed"
+    )
+
+    assert job_provider.requests
+    assert evidence[0].source_channel.value == "boss_job"
+    assert "RAG" in evidence[0].snippet
+    assert coverage_event.data["boss_job_count"] == 1
+    assert any(event.gate == "boss_job_intake" for event in events)

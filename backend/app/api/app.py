@@ -30,16 +30,27 @@ from backend.app.graph.planner import build_workflow_definition
 from backend.app.providers.factory import (
     build_content_extraction_provider,
     build_content_extraction_provider_from_config,
+    build_job_source_provider,
+    build_job_source_provider_from_config,
     build_llm_provider,
     build_llm_provider_from_config,
     build_search_provider,
     build_search_provider_from_config,
     build_source_registry,
 )
-from backend.app.providers.interfaces import ContentExtractionProvider, LLMProvider, SearchProvider, SearchQuery
+from backend.app.providers.interfaces import (
+    ChatMessage,
+    ContentExtractionProvider,
+    JobSourceProvider,
+    JobSourceQuery,
+    LLMProvider,
+    SearchProvider,
+    SearchQuery,
+)
 from backend.app.providers.openai_compatible import OpenAICompatibleLLMProvider
 from backend.app.providers.source_packs import SourceConnector, SourceRegistry
 from backend.app.providers.source_verification import HeuristicSourceVerificationProvider
+from backend.app.rag import ProjectRetriever
 from backend.app.schemas import (
     Artifact,
     ProjectMode,
@@ -67,6 +78,12 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     citations: list[str]
+    citation_details: list[dict] = Field(default_factory=list)
+
+
+class RagAnswerPayload(BaseModel):
+    answer: str = ""
+    citations: list[str] = Field(default_factory=list)
 
 
 class LLMConfig(BaseModel):
@@ -108,6 +125,31 @@ class SearchConfig(BaseModel):
     firecrawl_api_key: str | None = None
     firecrawl_endpoint: str = "https://api.firecrawl.dev/v1/scrape"
     jina_reader_endpoint_prefix: str = "https://r.jina.ai/http://"
+
+
+class JobSourceConfig(BaseModel):
+    enabled: bool = False
+    provider: str = "disabled"
+    boss_agent_cli_command: str = "boss"
+    boss_agent_cli_args_template: str | None = None
+    boss_agent_cli_timeout_seconds: int = Field(default=45, ge=5, le=180)
+    boss_keyword: str | None = None
+    boss_city: str | None = None
+    boss_limit: int = Field(default=8, ge=1, le=30)
+
+
+class JobSourceTestRequest(BaseModel):
+    keyword: str
+    city: str | None = None
+    limit: int = Field(default=3, ge=1, le=10)
+
+
+class JobSourceTestResult(BaseModel):
+    success: bool
+    message: str
+    status: dict
+    result_count: int = 0
+    results: list[dict] = Field(default_factory=list)
 
 
 class SearchTestRequest(BaseModel):
@@ -400,11 +442,39 @@ def _connector_configured(connector: SourceConnector, active_search_config: Sear
     return all(runtime_key_presence.get(key, bool(os.getenv(key))) for key in connector.required_env_keys)
 
 
+def _job_source_query_for_project(domain: str, config: JobSourceConfig) -> JobSourceQuery:
+    return JobSourceQuery(
+        keyword=(config.boss_keyword or domain).strip(),
+        city=config.boss_city.strip() if config.boss_city else None,
+        limit=config.boss_limit,
+        filters={},
+    )
+
+
+def _job_source_status_dict(status) -> dict:
+    return {
+        "provider": status.provider,
+        "configured": status.configured,
+        "available": status.available,
+        "message": status.message,
+        "diagnostics": status.diagnostics or [],
+    }
+
+
+def _fallback_rag_answer(question: str, citation_details: list[dict]) -> str:
+    lines = [f"基于当前项目资料，针对“{question}”可以先看以下证据："]
+    for item in citation_details[:4]:
+        lines.append(f"- {item['title']}：{item['snippet']} [{item['source_id']}]")
+    lines.append("如果需要更严格的结论，建议继续补充高质量来源或重新运行研究。")
+    return "\n".join(lines)
+
+
 def create_app(
     database_path: Path,
     export_root: Path,
     search_provider: SearchProvider | None = None,
     content_extraction_provider: ContentExtractionProvider | None = None,
+    job_source_provider: JobSourceProvider | None = None,
     llm_provider: LLMProvider | None = None,
 ) -> FastAPI:
     init_database(database_path)
@@ -429,6 +499,19 @@ def create_app(
         firecrawl_api_key=runtime_config.get("firecrawl_api_key", os.getenv("FIRECRAWL_API_KEY")),
         firecrawl_endpoint=runtime_config.get("firecrawl_endpoint", os.getenv("FIRECRAWL_ENDPOINT", "https://api.firecrawl.dev/v1/scrape")),
         jina_reader_endpoint_prefix=runtime_config.get("jina_reader_endpoint_prefix", os.getenv("JINA_READER_ENDPOINT_PREFIX", "https://r.jina.ai/http://")),
+    )
+    active_job_source_config = JobSourceConfig(
+        enabled=bool(runtime_config.get("job_source_enabled", False)),
+        provider=runtime_config.get("job_source_provider", os.getenv("JOB_SOURCE_PROVIDER", "disabled")),
+        boss_agent_cli_command=runtime_config.get("boss_agent_cli_command", os.getenv("BOSS_AGENT_CLI_COMMAND", "boss")),
+        boss_agent_cli_args_template=runtime_config.get("boss_agent_cli_args_template", os.getenv("BOSS_AGENT_CLI_ARGS_TEMPLATE")),
+        boss_agent_cli_timeout_seconds=int(runtime_config.get(
+            "boss_agent_cli_timeout_seconds",
+            os.getenv("BOSS_AGENT_CLI_TIMEOUT_SECONDS", "45"),
+        )),
+        boss_keyword=runtime_config.get("boss_keyword"),
+        boss_city=runtime_config.get("boss_city"),
+        boss_limit=int(runtime_config.get("boss_limit", 8)),
     )
     active_search_provider = (
         search_provider
@@ -455,6 +538,16 @@ def create_app(
             jina_reader_endpoint_prefix=active_search_config.jina_reader_endpoint_prefix,
         )
     )
+    active_job_source_provider = (
+        job_source_provider
+        if job_source_provider is not None
+        else build_job_source_provider_from_config(
+            provider_name=active_job_source_config.provider,
+            boss_agent_cli_command=active_job_source_config.boss_agent_cli_command,
+            boss_agent_cli_args_template=active_job_source_config.boss_agent_cli_args_template,
+            boss_agent_cli_timeout_seconds=active_job_source_config.boss_agent_cli_timeout_seconds,
+        )
+    )
     if llm_provider is not None:
         active_llm_provider = llm_provider
     elif runtime_config.get("llm_base_url") and runtime_config.get("llm_api_key") and runtime_config.get("llm_model"):
@@ -467,6 +560,8 @@ def create_app(
         active_llm_provider = build_llm_provider()
     source_registry = build_source_registry()
     source_verifier = HeuristicSourceVerificationProvider(source_registry=source_registry)
+    project_retriever = ProjectRetriever(repository)
+    injected_job_source_provider = job_source_provider is not None
     app = FastAPI(title="SectorBreaker")
 
     # ── Projects ──────────────────────────────────────────────────
@@ -539,11 +634,14 @@ def create_app(
             try:
                 if auto_run:
                     if project.project_mode == ProjectMode.TALENT_DEMAND:
+                        job_query = _job_source_query_for_project(project.domain, active_job_source_config)
                         await run_talent_demand_pipeline(
                             project=project,
                             repository=repository,
                             search_provider=active_search_provider,
                             llm_provider=active_llm_provider,
+                            job_source_provider=active_job_source_provider if active_job_source_config.enabled else None,
+                            job_source_query=job_query if active_job_source_config.enabled else None,
                             emit=emit_event,
                         )
                     else:
@@ -1037,15 +1135,67 @@ def create_app(
     # ── Chat ──────────────────────────────────────────────────────
 
     @app.post("/api/projects/{project_id}/chat")
-    def chat(project_id: str, payload: ChatRequest):
-        results = repository.search_project(project_id, payload.question, limit=5)
-        citations = [item.document_id for item in results]
+    async def chat(project_id: str, payload: ChatRequest):
+        try:
+            repository.get_project(project_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="project not found") from exc
+
+        citations = project_retriever.retrieve(project_id, payload.question, limit=6)
+        citation_ids = [item.source_id for item in citations]
+        citation_details = [
+            {
+                "source_id": item.source_id,
+                "source_type": item.source_type,
+                "title": item.title,
+                "snippet": item.snippet,
+                "score": item.score,
+                "url": item.url,
+            }
+            for item in citations
+        ]
         if not citations:
-            citations = [item.id for item in repository.list_evidence(project_id)[:1]]
-        return ChatResponse(
-            answer="基于当前项目资料，建议先从研究框架、行业地图和机会假设开始。",
-            citations=citations,
-        ).model_dump(mode="json")
+            return ChatResponse(
+                answer="当前项目资料中没有检索到足够相关的内容。建议先补充 JD、外部报告或重新运行研究。",
+                citations=[],
+                citation_details=[],
+            ).model_dump(mode="json")
+
+        fallback_answer = _fallback_rag_answer(payload.question, citation_details)
+        if active_llm_provider is None:
+            return ChatResponse(
+                answer=fallback_answer,
+                citations=citation_ids,
+                citation_details=citation_details,
+            ).model_dump(mode="json")
+
+        context = "\n\n".join(
+            f"[{item['source_id']}] {item['title']} ({item['source_type']})\n{item['snippet']}"
+            for item in citation_details
+        )
+        prompt = (
+            "你是 SectorBreaker 的项目 RAG 问答 Agent。只能基于给定项目资料回答；"
+            "如果资料不足，要明确说不足。回答要结构化、具体，并在关键句后标注引用 ID。\n\n"
+            f"问题：{payload.question}\n\n项目资料：\n{context}"
+        )
+        try:
+            generated = await active_llm_provider.complete_structured(
+                [ChatMessage(role="user", content=prompt)],
+                RagAnswerPayload,
+            )
+            answer = generated.answer or fallback_answer
+            generated_citations = [item for item in generated.citations if item in citation_ids]
+            return ChatResponse(
+                answer=answer,
+                citations=generated_citations or citation_ids,
+                citation_details=citation_details,
+            ).model_dump(mode="json")
+        except Exception:
+            return ChatResponse(
+                answer=fallback_answer,
+                citations=citation_ids,
+                citation_details=citation_details,
+            ).model_dump(mode="json")
 
     # ── LLM Config ────────────────────────────────────────────────
 
@@ -1102,6 +1252,82 @@ def create_app(
             "message": "搜索配置已更新",
             "configured": active_search_provider is not None,
         }
+
+    @app.get("/api/config/job-source")
+    async def get_job_source_config():
+        status = await active_job_source_provider.status()
+        return {
+            **_job_source_status_dict(status),
+            "enabled": active_job_source_config.enabled,
+            "boss_keyword": active_job_source_config.boss_keyword,
+            "boss_city": active_job_source_config.boss_city,
+            "boss_limit": active_job_source_config.boss_limit,
+        }
+
+    @app.post("/api/config/job-source")
+    async def update_job_source_config(payload: JobSourceConfig):
+        nonlocal active_job_source_config, active_job_source_provider
+        active_job_source_config = payload
+        persisted_config = load_runtime_config(runtime_config_path)
+        save_runtime_config(
+            runtime_config_path,
+            {
+                **persisted_config,
+                "job_source_enabled": payload.enabled,
+                "job_source_provider": payload.provider,
+                "boss_agent_cli_command": payload.boss_agent_cli_command,
+                "boss_agent_cli_args_template": payload.boss_agent_cli_args_template,
+                "boss_agent_cli_timeout_seconds": payload.boss_agent_cli_timeout_seconds,
+                "boss_keyword": payload.boss_keyword,
+                "boss_city": payload.boss_city,
+                "boss_limit": payload.boss_limit,
+            },
+        )
+        if not injected_job_source_provider:
+            active_job_source_provider = build_job_source_provider_from_config(
+                provider_name=payload.provider,
+                boss_agent_cli_command=payload.boss_agent_cli_command,
+                boss_agent_cli_args_template=payload.boss_agent_cli_args_template,
+                boss_agent_cli_timeout_seconds=payload.boss_agent_cli_timeout_seconds,
+            )
+        status = await active_job_source_provider.status()
+        return {
+            "success": True,
+            "message": status.message,
+            "status": _job_source_status_dict(status),
+        }
+
+    @app.post("/api/config/job-source/test")
+    async def test_job_source(payload: JobSourceTestRequest):
+        status = await active_job_source_provider.status()
+        if not status.available:
+            return JobSourceTestResult(
+                success=False,
+                message=status.message,
+                status=_job_source_status_dict(status),
+            ).model_dump(mode="json")
+        jobs = await active_job_source_provider.search_jobs(JobSourceQuery(
+            keyword=payload.keyword,
+            city=payload.city,
+            limit=payload.limit,
+        ))
+        return JobSourceTestResult(
+            success=bool(jobs),
+            message=f"采集到 {len(jobs)} 条职位样本" if jobs else "未采集到职位样本",
+            status=_job_source_status_dict(status),
+            result_count=len(jobs),
+            results=[
+                {
+                    "title": item.title,
+                    "company": item.company,
+                    "location": item.location,
+                    "salary_text": item.salary_text,
+                    "experience_text": item.experience_text,
+                    "url": item.url,
+                }
+                for item in jobs[: payload.limit]
+            ],
+        ).model_dump(mode="json")
 
     @app.post("/api/config/search/test")
     async def test_search_connection(payload: SearchTestRequest):
