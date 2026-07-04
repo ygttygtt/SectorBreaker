@@ -23,6 +23,7 @@ metadata:
 - V1.2 已新增富 Obsidian 输出：每篇主文档后有 bounded `Artifact Reviewer`，目标是发现“不够详实”的部分并最多补写一次；同时从 `DomainKnowledgeBase` 生成 `concepts/`、`architectures/`、`tools/`、`questions/` 知识卡片，主文档 fallback 使用可落地的 `[[双向链接]]`。
 - V1.2 展示冲刺计划已写入 `docs/superpowers/plans/2026-07-03-v1-2-demo-readiness.md`，作为 2026-07-04 录制前的执行指南：收口当前富 Obsidian 基线、补前端进度可视化、结果质量面板、Obsidian README 首页和失败兜底，不扩展到完整 RAG / 多搜索 UI / 内容生态。
 - V1.2 展示冲刺的前端/导出收口已完成：`artifact_review` 可映射到可见流程节点，结果页有质量摘要，失败运行有查看部分结果/重新运行兜底，V1 导出 README 已升级为 Obsidian Vault 首页。
+- V1.3 下一阶段计划已定为 `Talent Demand Intelligence Agent`，计划文件是 `docs/superpowers/plans/2026-07-04-v1-3-talent-demand-intelligence.md`。必须作为新模式增量接入，不能破坏 V1.2 领域建库；重点是 JD/报告上传、搜索补充、技能归一化、Source Coverage Matrix 和人才需求 Obsidian 导出。
 - 重要排障记忆：旧 `uvicorn` 进程和 Vite 代理端口不一致会造成“后端配置好了但 UI 仍显示未配置/像没修”的假象。验收前先确认只有一个目标后端，当前默认是 `uvicorn backend.app.api.app:app --port 8030`，并在 `vite.config.ts` 或 `VITE_API_PROXY_TARGET` 变更后重启 Vite。
 - 文档与协作规范已建立。
 - 核心 schema、provider interfaces、provider factory、SQLite migration/repository 已建立。
