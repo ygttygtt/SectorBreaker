@@ -15,6 +15,7 @@ from backend.app.v1_pipeline import (
     DomainKnowledgeBase,
     DomainTool,
     V1KnowledgeContent,
+    _build_v1_search_query,
     _build_knowledge_content,
     _build_knowledge_database,
     _render_domain_overview,
@@ -24,6 +25,7 @@ from backend.app.v1_pipeline import (
     _fallback_database,
     _is_v1_result_topic_relevant,
     _search_result_to_evidence,
+    _topic_tokens,
     run_v1_knowledge_pipeline,
 )
 
@@ -252,6 +254,33 @@ def test_v1_pipeline_filters_developer_repository_and_attachment_noise() -> None
     )
 
     assert [item.source_title for item in repository.evidence] == ["AI Agent enterprise adoption trends 2026"]
+
+
+def test_v1_filter_accepts_chinese_compound_education_topic() -> None:
+    domain = "高考教育线上培训"
+
+    assert _is_v1_result_topic_relevant(
+        domain,
+        "2026 年在线教育行业趋势与高考培训需求观察",
+        "在线教育平台围绕高考升学、课程服务、教学质量和用户转化持续调整，教培行业也受到政策和需求变化影响。",
+    )
+    assert "高考" in _topic_tokens(domain)
+    assert "线上培训" in _topic_tokens(domain)
+    assert "行业趋势" in _build_v1_search_query(domain)
+    assert "production adoption" not in _build_v1_search_query(domain)
+
+
+def test_generic_fallback_database_is_domain_neutral() -> None:
+    project = _project().model_copy(update={"title": "高考教育线上培训", "domain": "高考教育线上培训"})
+
+    database = _fallback_database(project, [])
+    serialized = database.model_dump_json()
+
+    assert "待补证草稿" in database.overview
+    assert "高考教育线上培训" in serialized
+    assert "AI Agent" not in serialized
+    assert "LangGraph" not in serialized
+    assert "CrewAI" not in serialized
 
 
 def test_v1_knowledge_content_accepts_object_sections_from_llm() -> None:

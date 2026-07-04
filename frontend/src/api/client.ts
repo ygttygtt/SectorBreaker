@@ -167,8 +167,12 @@ export interface ChatCitationDetail {
 }
 
 export interface ExportManifest {
+  export_version?: string;
+  project_id?: string;
+  generated_at?: string;
   artifact_paths: string[];
   evidence_ids: string[];
+  export_dir?: string | null;
 }
 
 export interface LLMConfigStatus {
@@ -438,6 +442,13 @@ export const api = {
   // Export
   exportProject(projectId: string) {
     return requestJson<ExportManifest>(`/api/projects/${projectId}/exports`, { method: "POST" });
+  },
+
+  openExportFolder(exportDir: string) {
+    return requestJson<{ success: boolean; export_dir: string }>("/api/exports/open-folder", {
+      method: "POST",
+      body: JSON.stringify({ export_dir: exportDir }),
+    });
   },
 
   // LLM Config

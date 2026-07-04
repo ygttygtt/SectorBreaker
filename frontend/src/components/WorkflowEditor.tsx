@@ -55,29 +55,60 @@ const STATUS_STYLE: Record<NodeStatus, { color: string; bg: string; label: strin
   completed: { color: "#106b5d", bg: "#e9f3ef", label: "完成" },
 };
 
-const DEFAULT_DEFINITION: WorkflowDefinition = {
+const PERSONAL_DEFINITION: WorkflowDefinition = {
   schema_version: "1",
   nodes: [
-    { id: "scope", label: "范围确认", node_type: "gate", group: "scope", status: "pending", details: {} },
-    { id: "supervisor_plan", label: "主管计划", node_type: "gate", group: "plan", status: "pending", details: {} },
-    { id: "human_confirm_plan", label: "人工确认计划", node_type: "human", group: "plan", status: "pending", details: {} },
-    { id: "source_strategy", label: "信源策略", node_type: "gate", group: "source", status: "pending", details: {} },
-    { id: "source_intake", label: "信源接入", node_type: "group", group: "source", status: "pending", details: {} },
-    { id: "evidence_ledger", label: "证据账本", node_type: "store", group: "evidence", status: "pending", details: {} },
-    { id: "business_database", label: "商业数据库", node_type: "group", group: "analysis", status: "pending", details: {} },
-    { id: "qa_critic", label: "质量门", node_type: "gate", group: "qa", status: "pending", details: {} },
-    { id: "export", label: "导出", node_type: "agent", group: "export", status: "pending", details: {} },
+    { id: "scope", label: "定义领域边界", node_type: "gate", group: "scope", status: "pending", reason: "明确研究对象、市场范围和学习目标。", details: {} },
+    { id: "assistant_brief", label: "外部 AI 报告", node_type: "agent", group: "source", status: "pending", reason: "接收 Kimi / Gemini / Qwen 等 DeepSearch 报告，作为低可信线索。", details: {} },
+    { id: "source_collection", label: "Tavily 开放搜索", node_type: "agent", group: "source", status: "pending", reason: "围绕主题补充近期网页、报告、案例和权威来源。", details: {} },
+    { id: "evidence_ledger", label: "证据账本", node_type: "store", group: "evidence", status: "pending", reason: "去重、清洗摘要、保留来源链接和证据 ID。", details: {} },
+    { id: "knowledge_structuring", label: "LLM 知识建库", node_type: "group", group: "analysis", status: "pending", reason: "抽取概念、趋势、架构/方法、学习路径和待验证问题。", details: {} },
+    { id: "document_writing", label: "逐文档写作", node_type: "agent", group: "synthesis", status: "pending", reason: "让 LLM 分别写主文档，而不是把搜索结果直接粘进去。", details: {} },
+    { id: "artifact_review", label: "详实度审查", node_type: "gate", group: "qa", status: "pending", reason: "检查是否太薄、是否有例子、证据和 Obsidian 链接。", details: {} },
+    { id: "export", label: "Obsidian 导出 / RAG", node_type: "agent", group: "export", status: "pending", reason: "写入主文档、知识卡片、证据账本，并支持项目问答。", details: {} },
   ],
   edges: [
-    { id: "e1", source: "scope", target: "supervisor_plan" },
-    { id: "e2", source: "supervisor_plan", target: "human_confirm_plan" },
-    { id: "e3", source: "human_confirm_plan", target: "source_strategy" },
-    { id: "e4", source: "source_strategy", target: "source_intake" },
-    { id: "e5", source: "source_intake", target: "evidence_ledger" },
-    { id: "e6", source: "evidence_ledger", target: "business_database" },
-    { id: "e7", source: "business_database", target: "qa_critic" },
-    { id: "e8", source: "qa_critic", target: "export" },
+    { id: "e1", source: "scope", target: "assistant_brief", label: "可选上传" },
+    { id: "e2", source: "scope", target: "source_collection", label: "主动搜索" },
+    { id: "e3", source: "assistant_brief", target: "evidence_ledger" },
+    { id: "e4", source: "source_collection", target: "evidence_ledger" },
+    { id: "e5", source: "evidence_ledger", target: "knowledge_structuring" },
+    { id: "e6", source: "knowledge_structuring", target: "document_writing" },
+    { id: "e7", source: "document_writing", target: "artifact_review" },
+    { id: "e8", source: "artifact_review", target: "export" },
   ],
+};
+
+const TALENT_DEFINITION: WorkflowDefinition = {
+  schema_version: "1",
+  nodes: [
+    { id: "scope", label: "定义岗位方向", node_type: "gate", group: "scope", status: "pending", reason: "明确目标岗位、城市/市场范围和样本策略。", details: {} },
+    { id: "talent_source_intake", label: "JD / 报告上传", node_type: "agent", group: "source", status: "pending", reason: "优先读取用户上传的 JD、岗位说明和外部 AI 报告。", details: {} },
+    { id: "boss_job_intake", label: "Boss 职位样本", node_type: "agent", group: "source", status: "pending", reason: "可选接入本地 Boss CLI，采集结构化职位样本。", details: {} },
+    { id: "source_collection", label: "搜索补充", node_type: "agent", group: "source", status: "pending", reason: "材料不足时补充公开网页和岗位/技能相关资料。", details: {} },
+    { id: "source_coverage", label: "信源覆盖矩阵", node_type: "store", group: "evidence", status: "pending", reason: "统计 JD、Boss、外部报告、搜索证据和缺口。", details: {} },
+    { id: "jd_signal_extraction", label: "岗位信号抽取", node_type: "agent", group: "analysis", status: "pending", reason: "抽取公司、地点、薪资、经验、职责、技能和工具。", details: {} },
+    { id: "skill_normalization", label: "技能矩阵归一", node_type: "group", group: "synthesis", status: "pending", reason: "合并同义技能，生成频次、层级和代表证据。", details: {} },
+    { id: "talent_synthesis", label: "人才情报综合", node_type: "agent", group: "synthesis", status: "pending", reason: "生成岗位画像、学习路径、作品集要求和待验证问题。", details: {} },
+    { id: "export", label: "企业 Vault / RAG", node_type: "agent", group: "export", status: "pending", reason: "导出人才需求 Obsidian Vault，并支持基于项目资料问答。", details: {} },
+  ],
+  edges: [
+    { id: "e1", source: "scope", target: "talent_source_intake" },
+    { id: "e2", source: "scope", target: "boss_job_intake" },
+    { id: "e3", source: "scope", target: "source_collection" },
+    { id: "e4", source: "talent_source_intake", target: "source_coverage" },
+    { id: "e5", source: "boss_job_intake", target: "source_coverage" },
+    { id: "e6", source: "source_collection", target: "source_coverage" },
+    { id: "e7", source: "source_coverage", target: "jd_signal_extraction" },
+    { id: "e8", source: "jd_signal_extraction", target: "skill_normalization" },
+    { id: "e9", source: "skill_normalization", target: "talent_synthesis" },
+    { id: "e10", source: "talent_synthesis", target: "export" },
+  ],
+};
+
+const DEFAULT_DEFINITION_BY_VARIANT = {
+  domain_knowledge: PERSONAL_DEFINITION,
+  talent_demand: TALENT_DEFINITION,
 };
 
 const GROUP_ORDER = [
@@ -174,6 +205,7 @@ interface WorkflowEditorProps {
   definition?: WorkflowDefinition | null;
   activeNodeId?: string;
   nodeStatuses?: Record<string, NodeStatus>;
+  variant?: "domain_knowledge" | "talent_demand";
   isCompact?: boolean;
   showMinimap?: boolean;
   showControls?: boolean;
@@ -185,6 +217,7 @@ function WorkflowEditorInner({
   definition,
   activeNodeId,
   nodeStatuses,
+  variant = "domain_knowledge",
   isCompact = false,
   showMinimap = false,
   showControls = true,
@@ -193,7 +226,7 @@ function WorkflowEditorInner({
 }: WorkflowEditorProps) {
   const reactFlow = useReactFlow();
   const firstFitRef = useRef(false);
-  const flowDefinition = definition ?? DEFAULT_DEFINITION;
+  const flowDefinition = definition ?? DEFAULT_DEFINITION_BY_VARIANT[variant];
   const sortedNodes = useMemo(
     () =>
       [...flowDefinition.nodes].sort((a, b) => {
@@ -227,6 +260,10 @@ function WorkflowEditorInner({
 
   const nodeTypes: NodeTypes = useMemo(() => ({ flowNode: FlowNode }), []);
   const height = fillHeight ? "100%" : isCompact ? 320 : 640;
+
+  useEffect(() => {
+    firstFitRef.current = false;
+  }, [definition, variant]);
 
   useEffect(() => {
     if (!nodes.length) return;

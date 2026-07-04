@@ -122,6 +122,42 @@ _V1_LOW_SIGNAL_TITLE_MARKERS = (
     "議程表",
     "agenda",
 )
+_CHINESE_TOPIC_MARKERS = (
+    "大模型",
+    "智能体",
+    "agent",
+    "开发",
+    "就业",
+    "岗位",
+    "职业",
+    "架构",
+    "工具",
+    "框架",
+    "应用",
+    "高考",
+    "教育",
+    "培训",
+    "在线教育",
+    "线上培训",
+    "教培",
+    "升学",
+    "课程",
+    "学习",
+    "市场",
+    "行业",
+)
+_GENERIC_SHORT_TOPIC_TOKENS = {
+    "线上",
+    "在线",
+    "行业",
+    "市场",
+    "服务",
+    "平台",
+    "工具",
+    "应用",
+    "发展",
+    "趋势",
+}
 
 _SEARCH_SNIPPET_NOISE_MARKERS = (
     "skip to content",
@@ -439,16 +475,16 @@ def _build_v1_search_query(domain: str) -> str:
             "模型API Python LangChain LangGraph 就业方向 2026"
         )
     return (
-        f"{domain_text} 最新趋势 核心框架 主要工具 玩家格局 "
-        "production adoption evaluation challenges 2026"
+        f"{domain_text} 行业趋势 市场规模 政策监管 主要玩家 "
+        "用户需求 商业模式 研究报告 案例 2026"
     )
 
 
 def _build_v1_supplemental_search_query(domain: str) -> str:
     domain_text = domain.strip()
     return (
-        f"{domain_text} 权威资料 官方文档 研究报告 实践案例 "
-        "architecture tools evaluation tutorial best practices 2026"
+        f"{domain_text} 权威资料 官方信息 研究报告 数据报告 "
+        "实践案例 关键概念 入门指南 风险问题 2026"
     )
 
 
@@ -490,21 +526,31 @@ def _is_v1_result_topic_relevant(domain: str, title: str, cleaned_snippet: str) 
     tokens = _topic_tokens(domain_text)
     if not tokens:
         return True
-    return any(token in text for token in tokens[:4])
+    if any(token in text for token in tokens if len(token) >= 3):
+        return True
+    short_hits = [token for token in tokens if len(token) == 2 and token in text]
+    return len(short_hits) >= 2
 
 
 def _topic_tokens(domain_text: str) -> list[str]:
+    normalized = domain_text.strip().lower()
     split_tokens = [
         token
-        for token in re.split(r"[\s,，;；/|]+", domain_text)
+        for token in re.split(r"[\s,，;；/|]+", normalized)
         if len(token) >= 2
     ]
-    if split_tokens:
-        tokens = split_tokens
-    else:
-        tokens = [domain_text]
-    chinese_markers = ("大模型", "开发", "就业", "岗位", "职业", "架构", "工具", "框架", "智能体", "应用")
-    tokens.extend(marker for marker in chinese_markers if marker in domain_text)
+    tokens = split_tokens or ([normalized] if normalized else [])
+    tokens.extend(marker for marker in _CHINESE_TOPIC_MARKERS if marker in normalized)
+
+    chinese_sequences = re.findall(r"[\u4e00-\u9fff]{4,}", normalized)
+    for sequence in chinese_sequences:
+        max_len = min(6, len(sequence))
+        for size in range(max_len, 1, -1):
+            for index in range(0, len(sequence) - size + 1):
+                token = sequence[index:index + size]
+                if len(token) == 2 and token in _GENERIC_SHORT_TOPIC_TOKENS:
+                    continue
+                tokens.append(token)
     return list(dict.fromkeys(tokens))
 
 
@@ -617,9 +663,29 @@ async def _build_knowledge_database(
                 progress_current=1,
                 progress_total=2,
             )
-    except Exception:
+    except Exception as exc:
+        if emit_event is not None:
+            await emit_event(RunEvent(
+                event_type="node_degraded",
+                gate="knowledge_structuring",
+                agent="Knowledge Builder",
+                message=f"LLM 结构化领域库生成失败，已使用保底知识库骨架：{type(exc).__name__}",
+                progress_current=1,
+                progress_total=2,
+                severity="warning",
+            ))
         return fallback
     if not isinstance(generated, DomainKnowledgeBase):
+        if emit_event is not None:
+            await emit_event(RunEvent(
+                event_type="node_degraded",
+                gate="knowledge_structuring",
+                agent="Knowledge Builder",
+                message="LLM 未返回有效领域库结构，已使用保底知识库骨架",
+                progress_current=1,
+                progress_total=2,
+                severity="warning",
+            ))
         return fallback
     return _merge_database_with_fallback(generated, fallback)
 
@@ -630,11 +696,129 @@ def _fallback_database(project: ResearchProject, evidence: list[EvidenceItem]) -
     evidence_themes = _evidence_theme_lines(evidence)
     if "大模型" in topic or "llm" in topic.lower():
         return _large_model_career_database(project, evidence, evidence_ids, evidence_themes)
+    if "agent" in topic.lower() or "智能体" in topic:
+        return _agent_development_database(project, evidence, evidence_ids, evidence_themes)
+    draft_label = "待补证草稿：" if not evidence else ""
     return DomainKnowledgeBase(
         overview=(
-            f"{topic} 知识库用于先抹平信息差：建立术语、主流架构、工具框架、趋势和待验证问题。"
-            f"当前版本基于 {len(evidence)} 条搜索证据生成，适合作为继续补资料的 Obsidian 起点。"
-            f"{' 证据主题包括：' + evidence_themes if evidence_themes else ''}"
+            f"{draft_label}{topic} 知识库用于先抹平信息差：建立领域边界、关键术语、"
+            "参与者结构、用户需求、交付流程、工具/方法和待验证问题。"
+            f"当前版本基于 {len(evidence)} 条证据生成。"
+            f"{' 证据主题包括：' + evidence_themes if evidence_themes else ' 由于证据不足，以下内容仅能作为继续补资料的结构化框架。'}"
+        ),
+        concepts=[
+            DomainConcept(
+                name=f"{topic} 领域边界",
+                definition=f"说明 {topic} 主要覆盖哪些对象、问题、用户场景和服务形态，并排除容易混淆的相邻领域。",
+                why_it_matters="先划清边界，后续搜索、学习和判断才不会被无关信息带偏。",
+                related=["目标用户", "核心场景", "相邻领域"],
+                evidence_ids=evidence_ids[:2],
+            ),
+            DomainConcept(
+                name="核心术语",
+                definition=f"进入 {topic} 前需要先掌握的基础概念、常见缩写、评价口径和行业黑话。",
+                why_it_matters="术语是阅读报告、比较方案和继续提问的索引，缺少术语表会导致信息越看越散。",
+                related=["概念卡片", "评价指标", "常见问题"],
+                evidence_ids=evidence_ids[:2],
+            ),
+            DomainConcept(
+                name="需求与用户",
+                definition=f"识别谁会使用或购买 {topic} 相关产品/服务，他们要解决什么问题，决策链条如何发生。",
+                why_it_matters="理解需求侧，才能判断哪些信息是关键事实，哪些只是泛泛介绍。",
+                related=["用户画像", "使用场景", "痛点"],
+                evidence_ids=evidence_ids[:3],
+            ),
+            DomainConcept(
+                name="供给与参与者",
+                definition=f"梳理 {topic} 中提供产品、服务、内容、渠道或基础设施的主要角色。",
+                why_it_matters="供给结构决定学习时应该看哪些公司、机构、平台、社区或政策来源。",
+                related=["主要玩家", "服务链条", "信源地图"],
+                evidence_ids=evidence_ids[:3],
+            ),
+        ],
+        architectures=[
+            DomainArchitecture(
+                name="供给链 / 服务链路",
+                summary=f"把 {topic} 从上游资源、核心服务、渠道触达、用户交付到反馈复购拆成一条链路。",
+                use_cases=["理解行业地图", "定位关键参与者", "判断资料缺口"],
+                strengths=["适合快速建立全局结构", "便于把零散来源放回正确位置"],
+                limitations=["证据不足时只能形成假设，需要继续补充真实案例和数据"],
+                evidence_ids=evidence_ids[:3],
+            ),
+            DomainArchitecture(
+                name="用户旅程",
+                summary=f"从用户第一次接触 {topic}、比较选择、实际使用、评价结果到继续购买/退出的全过程。",
+                use_cases=["发现关键痛点", "设计学习路线", "判断哪些结论需要用户侧证据"],
+                strengths=["能把抽象领域转成具体行为", "适合发现真实问题"],
+                limitations=["需要访谈、评论、案例或数据支撑，否则容易停留在推测"],
+                evidence_ids=evidence_ids[:3],
+            ),
+            DomainArchitecture(
+                name="能力栈 / 工具栈",
+                summary=f"完成 {topic} 相关任务所需的知识、工具、方法、平台和评价指标组合。",
+                use_cases=["制定入门路线", "比较工具方案", "生成 Obsidian 知识卡片"],
+                strengths=["把学习任务拆得更可执行", "便于后续补充教程和案例"],
+                limitations=["不同细分场景差异较大，需要按目标继续细化"],
+                evidence_ids=evidence_ids[:3],
+            ),
+        ],
+        tools=[
+            DomainTool(
+                name="官方/机构信息源",
+                category="source",
+                use_case=f"查找 {topic} 的政策、标准、统计、机构说明、公司公告或公开报告。",
+                tradeoffs="可信度较高，但覆盖不一定完整，可能不够贴近一线体验。",
+                evidence_ids=evidence_ids[:3],
+            ),
+            DomainTool(
+                name="案例与用户反馈",
+                category="source",
+                use_case=f"通过案例、评论、问答、社区讨论理解 {topic} 的真实使用方式和痛点。",
+                tradeoffs="贴近实际，但偏主观，需要和可靠来源交叉验证。",
+                evidence_ids=evidence_ids[:3],
+            ),
+            DomainTool(
+                name="研究报告与数据文章",
+                category="source",
+                use_case=f"获得 {topic} 的规模、趋势、参与者、增长驱动和风险判断。",
+                tradeoffs="信息密度高，但要注意发布时间、样本口径、商业立场和引用来源。",
+                evidence_ids=evidence_ids[:3],
+            ),
+        ],
+        trends=[
+            f"{topic} 的趋势判断应优先来自近期政策、行业报告、用户行为变化和真实案例。",
+            "如果来源不足，趋势只能作为待验证假设，不应写成确定结论。",
+            "后续补库应优先寻找能说明规模、需求变化、参与者变化和监管/技术约束的来源。",
+        ],
+        learning_path=[
+            f"先建立 {topic} 的领域边界和术语表；完成标志：能解释这个领域解决什么问题、服务谁、和哪些相邻领域不同。",
+            "再梳理供给链和用户旅程；完成标志：能画出主要参与者、用户决策过程和关键交付节点。",
+            "继续补主流案例和信息源；完成标志：每个重要判断至少能回链到一条来源。",
+            "形成自己的 Obsidian 知识卡片；完成标志：概念、问题、来源、趋势之间能通过双向链接串起来。",
+            "最后列出待验证问题并滚动补库；完成标志：知道下一轮应该搜索什么、问什么、验证什么。",
+        ],
+        open_questions=[
+            f"{topic} 的权威信源有哪些？哪些来源只是营销或二手总结？",
+            "这个领域的核心概念、评价指标和常见误区分别是什么？",
+            "近两年有哪些政策、技术、用户需求或商业模式变化？",
+            "主要参与者、典型案例和用户痛点是否有足够证据支撑？",
+            "如果要继续学习或入局，第一批可执行的小项目/调研任务是什么？",
+        ],
+    )
+
+
+def _agent_development_database(
+    project: ResearchProject,
+    evidence: list[EvidenceItem],
+    evidence_ids: list[str],
+    evidence_themes: str,
+) -> DomainKnowledgeBase:
+    topic = project.domain
+    return DomainKnowledgeBase(
+        overview=(
+            f"{topic} 知识库用于理解 Agent 开发的核心术语、主流架构、工具框架、工程化趋势和学习路径。"
+            f"当前版本基于 {len(evidence)} 条搜索证据生成。"
+            f"{' 证据主题包括：' + evidence_themes if evidence_themes else ' 由于证据不足，以下内容均应作为待验证学习框架。'}"
         ),
         concepts=[
             DomainConcept(
@@ -646,7 +830,7 @@ def _fallback_database(project: ResearchProject, evidence: list[EvidenceItem]) -
             ),
             DomainConcept(
                 name="工具调用",
-                definition="模型通过函数、API、MCP Server 或浏览器等外部能力完成实际动作。",
+                definition="模型通过函数、API、MCP Server、浏览器或业务系统接口完成实际动作。",
                 why_it_matters="没有工具调用，Agent 往往只能停留在问答；有工具调用才可能进入真实工作流。",
                 related=["MCP", "函数调用", "权限控制"],
                 evidence_ids=evidence_ids[:2],
@@ -1078,7 +1262,16 @@ async def _write_artifact_markdown(
             progress_current=progress_current,
             progress_total=progress_total,
         )
-    except Exception:
+    except Exception as exc:
+        await emit_event(RunEvent(
+            event_type="node_degraded",
+            gate="document_writing",
+            agent="Document Writer",
+            message=f"LLM 写作失败，已使用保底 Markdown：{artifact_title}（{type(exc).__name__}）",
+            progress_current=progress_current,
+            progress_total=progress_total,
+            severity="warning",
+        ))
         return fallback_markdown
     cleaned = _clean_generated_markdown(str(generated))
     if _is_generated_markdown_usable(cleaned):
@@ -1094,6 +1287,16 @@ async def _write_artifact_markdown(
             progress_current=progress_current,
             progress_total=progress_total,
         )
+    await emit_event(RunEvent(
+        event_type="node_degraded",
+        gate="document_writing",
+        agent="Document Writer",
+        message=f"LLM 写作内容过短或结构不足，已使用保底 Markdown：{artifact_title}",
+        progress_current=progress_current,
+        progress_total=progress_total,
+        severity="warning",
+        data={"generated_chars": len(cleaned), "heading_count": cleaned.count("\n## ") + cleaned.count("\n### ")},
+    ))
     return fallback_markdown
 
 

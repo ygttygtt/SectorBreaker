@@ -174,6 +174,44 @@ function isKnowledgeCard(artifact: Artifact) {
 
 type ProjectMode = "domain_knowledge" | "talent_demand";
 
+const MODE_CONFIG: Record<ProjectMode, {
+  eyebrow: string;
+  title: string;
+  subtitle: string;
+  modeTitle: string;
+  modeDescription: string;
+  fieldLabel: string;
+  placeholder: string;
+  cta: string;
+  reportToggle: string;
+  reportHelp: string;
+}> = {
+  domain_knowledge: {
+    eyebrow: "SectorBreaker 个人版",
+    title: "把陌生领域，整理成可继续生长的知识库。",
+    subtitle: "粘贴外部 AI 报告、接入开放搜索，系统会先建证据账本，再生成 Obsidian-ready 的领域认知系统。",
+    modeTitle: "领域建库",
+    modeDescription: "个人学习与入局陌生领域：术语、趋势、工具、学习路线、待验证问题。",
+    fieldLabel: "研究领域",
+    placeholder: "例如：高考教育线上培训、编程教育、AI Agent 工具",
+    cta: "开始构建知识库",
+    reportToggle: "可选：粘贴 Gemini / Kimi / Qwen / DeepSeek 报告",
+    reportHelp: "支持 Markdown / TXT / Word / PDF。系统会把它拆成低可信线索，再结合搜索证据生成知识库。",
+  },
+  talent_demand: {
+    eyebrow: "TalentScope 企业版延伸",
+    title: "把岗位样本和招聘材料，沉淀成人才需求情报。",
+    subtitle: "面向 HR、课程团队、招聘研究和就业分析：从 JD、Boss 样本、外部报告和搜索补充中抽取岗位画像与技能矩阵。",
+    modeTitle: "人才需求情报台",
+    modeDescription: "企业侧垂直场景：岗位画像、技能频次、经验薪资信号、能力模型、作品集要求。",
+    fieldLabel: "目标岗位 / 能力方向",
+    placeholder: "例如：大模型应用开发工程师、AI Agent 工程师",
+    cta: "开始生成人才需求情报",
+    reportToggle: "可选：上传外部招聘/行业调研报告",
+    reportHelp: "支持 Markdown / TXT / Word / PDF。外部 AI DeepSearch 报告会作为已有研究材料进入证据账本。",
+  },
+};
+
 type BossCollectionSettings = {
   enabled: boolean;
   city: string;
@@ -359,20 +397,21 @@ function LandingView({
       { enabled: bossEnabled, city: bossCity.trim(), limit: bossLimit },
     );
   }
+  const mode = MODE_CONFIG[projectMode];
 
   return (
-    <div ref={containerRef} className="landing-pro">
+    <div ref={containerRef} className={`landing-pro landing-pro--${projectMode === "talent_demand" ? "enterprise" : "personal"}`}>
       <section className="landing-panel landing-panel--main">
         <div className="landing-brand">
           <Logo size={44} />
           <div>
-            <h1>SectorBreaker</h1>
-            <p>可解释多 Agent 商业情报系统</p>
+            <h1>{projectMode === "talent_demand" ? "TalentScope" : "SectorBreaker"}</h1>
+            <p>{mode.eyebrow}</p>
           </div>
         </div>
         <div className="landing-copy">
-          <h2>先建立证据账本，再生成行业认知。</h2>
-          <p>直接收集材料、建立证据账本，并生成可导入 Obsidian 的知识系统。</p>
+          <h2>{mode.title}</h2>
+          <p>{mode.subtitle}</p>
         </div>
         {!llmConfigured && (
           <button className="landing-warning" onClick={onOpenSettings} type="button">
@@ -404,19 +443,19 @@ function LandingView({
             type="button"
             onClick={() => setProjectMode("domain_knowledge")}
           >
-            <strong>领域建库</strong>
-            <span>快速抹平陌生领域信息差，导出 Obsidian 知识库。</span>
+            <strong>个人版 · 领域建库</strong>
+            <span>{MODE_CONFIG.domain_knowledge.modeDescription}</span>
           </button>
           <button
             className={projectMode === "talent_demand" ? "mode-card mode-card--active" : "mode-card"}
             type="button"
             onClick={() => setProjectMode("talent_demand")}
           >
-            <strong>人才需求情报</strong>
-            <span>从 JD / 报告 / 搜索中抽取岗位画像、技能矩阵和能力模型。</span>
+            <strong>企业版 · {MODE_CONFIG.talent_demand.modeTitle}</strong>
+            <span>{MODE_CONFIG.talent_demand.modeDescription}</span>
           </button>
         </div>
-        <label className="field-label" htmlFor="domain">{projectMode === "talent_demand" ? "目标岗位 / 能力方向" : "研究领域"}</label>
+        <label className="field-label" htmlFor="domain">{mode.fieldLabel}</label>
         <div className="landing-input-wrap">
           <Search size={18} className="landing-input-icon" />
           <input
@@ -424,7 +463,7 @@ function LandingView({
             className="landing-input"
             value={domain}
             onChange={(event) => setDomain(event.target.value)}
-            placeholder={projectMode === "talent_demand" ? "例如：大模型应用开发工程师、AI Agent 工程师" : "例如：编程教育、本地生活服务、AI Agent 工具"}
+            placeholder={mode.placeholder}
             autoFocus
           />
         </div>
@@ -444,11 +483,11 @@ function LandingView({
             />
             <label className="file-upload-card">
               <strong>上传 JD / 岗位材料</strong>
-              <span>支持 `.md` / `.txt`，会作为 user_upload 信源进入 Evidence Ledger。</span>
+              <span>支持 `.md` / `.txt` / `.docx` / `.pdf`，会作为 user_upload 信源进入 Evidence Ledger。</span>
               <input
                 type="file"
                 aria-label="上传 JD 或岗位材料文件"
-                accept=".md,.markdown,.txt,text/markdown,text/plain"
+                accept=".md,.markdown,.txt,.docx,.pdf,text/markdown,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 onChange={(event) => setJdFile(event.target.files?.[0] ?? null)}
               />
               {jdFile && <em>{jdFile.name}</em>}
@@ -503,7 +542,7 @@ function LandingView({
         </div>
         <button className="brief-toggle" type="button" onClick={() => setShowBrief((value) => !value)}>
           <Sparkles size={15} />
-          {showBrief ? "收起外部 AI 报告" : "可选：粘贴 Gemini / Kimi / Qwen / DeepSeek 报告"}
+          {showBrief ? "收起外部 AI 报告" : mode.reportToggle}
         </button>
         {showBrief && (
           <div className="upload-stack">
@@ -511,16 +550,16 @@ function LandingView({
               className="assistant-brief-input"
               value={assistantBrief}
               onChange={(event) => setAssistantBrief(event.target.value)}
-              placeholder="支持 Markdown / txt。系统会把它拆成低可信线索，不会直接当事实。"
+              placeholder={mode.reportHelp}
               rows={7}
             />
             <label className="file-upload-card">
               <strong>上传外部 AI 报告</strong>
-              <span>支持 `.md` / `.txt`。会先入库，再参与研究与验证流程。</span>
+              <span>支持 `.md` / `.txt` / `.docx` / `.pdf`。会先入库，再参与研究与验证流程。</span>
               <input
                 type="file"
                 aria-label="上传外部 AI 报告文件"
-                accept=".md,.markdown,.txt,text/markdown,text/plain"
+                accept=".md,.markdown,.txt,.docx,.pdf,text/markdown,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 onChange={(event) => setAssistantBriefFile(event.target.files?.[0] ?? null)}
               />
               {assistantBriefFile && <em>{assistantBriefFile.name}</em>}
@@ -530,7 +569,7 @@ function LandingView({
         <div className="landing-actions">
           <button className="primary" disabled={!domain.trim() || isLoading || !llmConfigured} onClick={() => submit()} type="button">
             {isLoading ? <Loader2 size={16} className="spinner" /> : <Play size={16} />}
-            {projectMode === "talent_demand" ? "开始生成人才需求情报" : "开始构建知识库"}
+            {mode.cta}
           </button>
           <button className="secondary" onClick={onOpenSettings} type="button">
             <Settings size={16} />
@@ -541,9 +580,9 @@ function LandingView({
       <aside className="landing-panel landing-panel--flow">
         <div className="panel-title">
           <Network size={16} />
-          <span>真实运行图</span>
+          <span>{projectMode === "talent_demand" ? "企业情报运行图" : "领域建库运行图"}</span>
         </div>
-        <WorkflowEditor isCompact showControls={false} fillHeight />
+        <WorkflowEditor isCompact showControls={false} fillHeight variant={projectMode} />
       </aside>
     </div>
   );
@@ -819,11 +858,11 @@ function ReviewView({
           <textarea value={evidenceData} onChange={(e) => setEvidenceData(e.target.value)} rows={5} placeholder="可粘贴你已有的笔记、链接、报告摘要。" />
           <label className="file-upload-card">
             <strong>上传用户材料</strong>
-            <span>支持 `.md` / `.txt`。恢复运行前会先上传到项目 documents。</span>
+            <span>支持 `.md` / `.txt` / `.docx` / `.pdf`。恢复运行前会先上传到项目 documents。</span>
             <input
               type="file"
               aria-label="上传用户材料文件"
-              accept=".md,.markdown,.txt,text/markdown,text/plain"
+              accept=".md,.markdown,.txt,.docx,.pdf,text/markdown,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
               onChange={(event) => setUserMaterialFile(event.target.files?.[0] ?? null)}
             />
             {userMaterialFile && <em>{userMaterialFile.name}</em>}
@@ -834,11 +873,11 @@ function ReviewView({
               <textarea value={assistantBrief} onChange={(e) => setAssistantBrief(e.target.value)} rows={7} placeholder="Markdown / txt。仅作为线索，不能单独支撑事实。" />
               <label className="file-upload-card">
                 <strong>上传外部 AI 报告</strong>
-                <span>支持 `.md` / `.txt`。会作为低可信线索进入后续验证。</span>
+                <span>支持 `.md` / `.txt` / `.docx` / `.pdf`。会作为低可信线索进入后续验证。</span>
                 <input
                   type="file"
                   aria-label="上传阶段外部 AI 报告文件"
-                  accept=".md,.markdown,.txt,text/markdown,text/plain"
+                  accept=".md,.markdown,.txt,.docx,.pdf,text/markdown,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                   onChange={(event) => setAssistantBriefFile(event.target.files?.[0] ?? null)}
                 />
                 {assistantBriefFile && <em>{assistantBriefFile.name}</em>}
@@ -941,6 +980,19 @@ function ResultView({
       toastError(err instanceof Error ? err.message : "导出失败");
     } finally {
       setIsExporting(false);
+    }
+  }
+
+  async function openExportFolder() {
+    if (!exportManifest?.export_dir) {
+      toastError("导出目录不存在，请先导出一次");
+      return;
+    }
+    try {
+      await api.openExportFolder(exportManifest.export_dir);
+      toastSuccess("已打开导出文件夹");
+    } catch (err) {
+      toastError(err instanceof Error ? err.message : "打开文件夹失败");
     }
   }
 
@@ -1084,6 +1136,12 @@ function ResultView({
               {isExporting ? <Loader2 size={14} className="spinner" /> : <Download size={14} />}
               导出
             </button>
+            {exportManifest?.export_dir && (
+              <button className="secondary btn-sm" onClick={openExportFolder} type="button">
+                <ExternalLink size={14} />
+                打开文件夹
+              </button>
+            )}
           </div>
           {chat && (
             <div className="chat-answer">
@@ -1102,7 +1160,12 @@ function ResultView({
               )}
             </div>
           )}
-          {exportManifest && <p className="chat-answer">已导出 {exportManifest.artifact_paths.length} 个文件。</p>}
+          {exportManifest && (
+            <div className="chat-answer export-path-card">
+              <p>已导出 {exportManifest.artifact_paths.length} 个文件。</p>
+              {exportManifest.export_dir && <span>目录：{exportManifest.export_dir}</span>}
+            </div>
+          )}
         </section>
       </main>
     </div>

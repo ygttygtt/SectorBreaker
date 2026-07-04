@@ -3,6 +3,8 @@
 import asyncio
 import json
 import os
+import subprocess
+import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -15,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from backend.app.env import load_local_env
 from backend.app.config_store import get_runtime_config_path, load_runtime_config, save_runtime_config
+from backend.app.documents import extract_uploaded_document_text
 from backend.app.exporters.markdown import MarkdownExporter
 from backend.app.evidence_builder import citation_to_evidence
 from backend.app.graph.workflow import (
@@ -73,6 +76,10 @@ from backend.app.v1_pipeline import run_v1_knowledge_pipeline
 
 class ChatRequest(BaseModel):
     question: str
+
+
+class OpenExportFolderRequest(BaseModel):
+    export_dir: str
 
 
 class ChatResponse(BaseModel):
@@ -220,11 +227,16 @@ class UserInputPayload(BaseModel):
 ALLOWED_DOCUMENT_MIME_TYPES = {
     "text/plain",
     "text/markdown",
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
 ALLOWED_DOCUMENT_EXTENSIONS = {
     ".txt",
     ".md",
     ".markdown",
+    ".docx",
+    ".pdf",
 }
 
 
@@ -467,6 +479,16 @@ def _fallback_rag_answer(question: str, citation_details: list[dict]) -> str:
         lines.append(f"- {item['title']}：{item['snippet']} [{item['source_id']}]")
     lines.append("如果需要更严格的结论，建议继续补充高质量来源或重新运行研究。")
     return "\n".join(lines)
+
+
+def _open_local_folder(path: Path) -> None:
+    if sys.platform.startswith("win"):
+        os.startfile(str(path))  # type: ignore[attr-defined]
+        return
+    if sys.platform == "darwin":
+        subprocess.Popen(["open", str(path)])
+        return
+    subprocess.Popen(["xdg-open", str(path)])
 
 
 def create_app(
@@ -987,9 +1009,9 @@ def create_app(
         _validate_document_upload(file.filename, file.content_type)
         raw_bytes = await file.read()
         try:
-            content = raw_bytes.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise HTTPException(status_code=400, detail="document must be utf-8 text") from exc
+            content = extract_uploaded_document_text(file.filename, file.content_type, raw_bytes)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         payload = ProjectDocumentCreate(
             channel=channel,
@@ -1131,6 +1153,20 @@ def create_app(
         evidence = repository.list_evidence(project_id)
         artifacts = repository.list_artifacts(project_id)
         return exporter.export_project(project, artifacts, evidence).model_dump(mode="json")
+
+    @app.post("/api/exports/open-folder")
+    def open_export_folder(payload: OpenExportFolderRequest):
+        export_root_resolved = export_root.resolve()
+        target = Path(payload.export_dir).resolve()
+        if target != export_root_resolved and export_root_resolved not in target.parents:
+            raise HTTPException(status_code=400, detail="export folder must be inside configured export root")
+        if not target.exists() or not target.is_dir():
+            raise HTTPException(status_code=404, detail="export folder not found")
+        try:
+            _open_local_folder(target)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"failed to open export folder: {type(exc).__name__}") from exc
+        return {"success": True, "export_dir": str(target)}
 
     # ── Chat ──────────────────────────────────────────────────────
 

@@ -8,6 +8,7 @@ dependencies = [
     "httpx>=0.28.0",
     "langgraph>=1.2.5",
     "pydantic>=2.7.4",
+    "pypdf>=4.0.0",
     "uvicorn>=0.30.0",
 ]
 

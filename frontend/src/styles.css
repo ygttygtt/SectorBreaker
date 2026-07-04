@@ -546,6 +546,49 @@ body {
   animation: scanPanel 9s ease-in-out infinite alternate;
 }
 
+.landing-pro--personal {
+  --mode-accent: #0e6b5b;
+  --mode-accent-dark: #084c44;
+  --mode-secondary: #275d72;
+  --mode-wash: rgba(232, 248, 242, .88);
+  --mode-glow: rgba(14, 107, 91, .18);
+}
+
+.landing-pro--enterprise {
+  --mode-accent: #1f4e79;
+  --mode-accent-dark: #163653;
+  --mode-secondary: #4d6178;
+  --mode-wash: rgba(232, 239, 248, .9);
+  --mode-glow: rgba(31, 78, 121, .18);
+}
+
+.landing-pro--enterprise .landing-panel--main::before {
+  background:
+    linear-gradient(90deg, transparent, rgba(31, 78, 121, .10), transparent) 0 0 / 240px 100% no-repeat,
+    radial-gradient(circle at 88% 12%, rgba(73, 96, 124, .18), transparent 22%);
+}
+
+.landing-pro--enterprise .landing-panel--flow,
+.landing-pro--enterprise .talent-input-panel,
+.landing-pro--enterprise .provider-status-card {
+  background:
+    linear-gradient(135deg, rgba(248, 251, 255, .86), rgba(232, 239, 248, .76)),
+    radial-gradient(circle at 100% 0, rgba(31, 78, 121, .12), transparent 30%);
+}
+
+.landing-pro--enterprise .primary {
+  background: var(--mode-accent);
+}
+
+.landing-pro--enterprise .primary:hover {
+  background: var(--mode-accent-dark);
+}
+
+.landing-pro--enterprise .brief-toggle,
+.landing-pro--enterprise .log-agent {
+  color: var(--mode-accent);
+}
+
 @keyframes scanPanel {
   from { background-position: -240px 0, center; }
   to { background-position: calc(100% + 240px) 0, center; }
@@ -610,8 +653,8 @@ body {
 textarea:focus,
 input:focus,
 select:focus {
-  outline: 3px solid rgba(14, 107, 91, .15);
-  border-color: #0e6b5b;
+  outline: 3px solid var(--mode-glow, rgba(14, 107, 91, .15));
+  border-color: var(--mode-accent, #0e6b5b);
 }
 
 .mode-switch {
@@ -640,7 +683,7 @@ select:focus {
 .mode-card:hover,
 .source-policy-card:hover {
   transform: translateY(-2px);
-  border-color: rgba(14, 107, 91, .36);
+  border-color: color-mix(in srgb, var(--mode-accent, #0e6b5b) 42%, transparent);
   box-shadow: 0 16px 36px rgba(23, 33, 43, .09);
 }
 
@@ -663,9 +706,9 @@ select:focus {
 
 .mode-card--active,
 .source-policy-card--active {
-  border-color: rgba(14, 107, 91, .85);
-  background: linear-gradient(150deg, rgba(232, 248, 242, .92), rgba(255, 249, 236, .88));
-  box-shadow: inset 0 0 0 1px rgba(14, 107, 91, .28), 0 16px 34px rgba(14, 107, 91, .12);
+  border-color: color-mix(in srgb, var(--mode-accent, #0e6b5b) 80%, white);
+  background: linear-gradient(150deg, var(--mode-wash, rgba(232, 248, 242, .92)), rgba(255, 255, 255, .72));
+  box-shadow: inset 0 0 0 1px var(--mode-glow, rgba(14, 107, 91, .28)), 0 16px 34px var(--mode-glow, rgba(14, 107, 91, .12));
 }
 
 .talent-input-panel,
@@ -740,6 +783,10 @@ textarea,
   border-radius: 16px;
   border-color: rgba(39, 93, 114, .26);
   background: rgba(255, 255, 255, .58);
+}
+
+.file-upload-card em {
+  color: var(--mode-accent, #0e6b5b);
 }
 
 .brief-toggle {
@@ -868,6 +915,19 @@ textarea,
   background:
     linear-gradient(135deg, rgba(239, 250, 244, .88), rgba(255, 252, 245, .90)),
     radial-gradient(circle at 96% 10%, rgba(196, 122, 53, .14), transparent 26%);
+}
+
+.export-path-card {
+  display: grid;
+  gap: 6px;
+  border: 1px solid color-mix(in srgb, var(--mode-accent, #0e6b5b) 22%, transparent);
+  background: linear-gradient(135deg, rgba(255,255,255,.68), var(--mode-wash, rgba(232,248,242,.52)));
+}
+
+.export-path-card span {
+  overflow-wrap: anywhere;
+  color: #52635e;
+  font-size: 12px;
 }
 
 .source-coverage-grid {

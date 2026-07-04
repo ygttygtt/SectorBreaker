@@ -41,6 +41,9 @@ The latest completed implementation milestone is:
 - V1.3 talent-demand mode currently supports uploaded JD/user materials, pasted/uploaded external AI reports, supplemental search-provider evidence, conservative JD signal extraction, skill alias normalization, Source Coverage Matrix, talent-specific Obsidian artifacts/cards, and a frontend Source Coverage panel.
 - V1.4 enterprise job-source support is implemented. A local Boss-compatible CLI can be connected through `JobSourceProvider` / `BossAgentCliProvider`; collected postings are stored as `boss_job` evidence and counted as `boss_job_count`. This is off by default and only used by `talent_demand`.
 - V1.4 project RAG is implemented. Chat retrieves project evidence, documents, document segments, and artifacts, then returns `citations` plus `citation_details`.
+- V1.5 fixes the latest personal-mode 0-evidence/template-contamination class: generic Chinese topics use Chinese research search terms, Chinese compound-topic filtering accepts meaningful partial markers, non-Agent fallback is domain-neutral `待补证草稿`, and LLM fallback emits degraded run events instead of silently substituting templates.
+- V1.5 upload/export UX is expanded: external reports and JD/user materials accept Markdown, TXT, DOCX, and PDF; export manifests include `export_dir`; `/api/exports/open-folder` can open local export folders after validating they are inside the configured export root.
+- V1.5 frontend makes product modes clearer: `SectorBreaker 领域建库` for personal knowledge-base building and `TalentScope 人才需求情报台` for enterprise talent-demand intelligence now have distinct copy, themes, inputs, and branched workflow preview graphs.
 - The frontend now exposes a mode selector and multi-provider search settings (Tavily recommended, Serper/Brave/Exa visible). It also carries explicit guardrails: do not scrape login-gated job boards by default; use uploads and configured search providers first.
 - Backend: FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + explainable agent selection traces.
 - Frontend: Vite + React + TypeScript explainable research workbench with real workflow graph, vertical layout, and active-node centering.
@@ -62,6 +65,19 @@ Expected result after the explainable multi-Agent upgrade:
 - Frontend: 3 tests pass.
 - Build passes.
 - npm audit reports 0 high vulnerabilities.
+
+Latest V1.5 focused verification:
+
+```bash
+python -m pytest tests/unit/test_v1_pipeline.py -q
+python -m pytest tests/api/test_app.py::test_api_runs_research_and_exports_markdown tests/api/test_app.py::test_api_opens_export_folder_inside_export_root tests/api/test_app.py::test_api_rejects_opening_folder_outside_export_root tests/api/test_app.py::test_api_uploads_text_document_file tests/api/test_app.py::test_api_rejects_unsupported_document_file_type tests/api/test_app.py::test_api_uploads_docx_document_file -q
+cd frontend && npm test -- --run App.test.tsx
+cd frontend && npm run build
+```
+
+Expected result: 14 V1 pipeline tests pass, 6 focused API tests pass with the
+known TestClient warning, 17 frontend App tests pass, and frontend build passes
+with only the existing Vite chunk-size warning.
 
 ## Local Run
 

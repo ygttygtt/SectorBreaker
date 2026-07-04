@@ -23,6 +23,7 @@ const {
   mockListEvidence,
   mockAskQuestion,
   mockExportProject,
+  mockOpenExportFolder,
   mockGetWorkflow,
   mockGetSourceRegistryStatus,
 } = vi.hoisted(() => ({
@@ -206,7 +207,9 @@ const {
   mockExportProject: vi.fn().mockResolvedValue({
     export_version: "1", project_id: "project-1",
     artifact_paths: ["00-研究框架/research-frame.md"], evidence_ids: ["EV-USER-SCOPE"],
+    export_dir: "E:\\QianFengStudy\\PythonProject\\SectorBreaker\\exports\\demo",
   }),
+  mockOpenExportFolder: vi.fn().mockResolvedValue({ success: true, export_dir: "E:\\QianFengStudy\\PythonProject\\SectorBreaker\\exports\\demo" }),
   mockGetWorkflow: vi.fn().mockResolvedValue({ schema_version: "1", nodes: [], edges: [] }),
 }));
 
@@ -242,6 +245,7 @@ vi.mock("./api/client", () => ({
     listEvidence: mockListEvidence,
     askQuestion: mockAskQuestion,
     exportProject: mockExportProject,
+    openExportFolder: mockOpenExportFolder,
     updateLLMConfig: vi.fn().mockResolvedValue({ success: true }),
     testLLMConnection: vi.fn().mockResolvedValue({ success: true, message: "OK" }),
     addUserInput: vi.fn().mockResolvedValue({ status: "ok", input_id: "ui-1" }),

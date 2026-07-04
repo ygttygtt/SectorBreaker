@@ -138,7 +138,10 @@ Recommended purpose:
 Current implementation target:
 
 - text payload upload for assistant briefs and user materials;
-- multipart file upload for `.md` / `.txt` documents;
+- multipart file upload for `.md` / `.txt` / `.docx` / `.pdf` documents;
+- `.docx` is parsed through WordprocessingML text extraction; `.pdf` uses
+  `pypdf` when installed and otherwise attempts a basic text fallback, returning
+  a clear parse error when no text can be extracted;
 - document persistence with file name, mime type, word count, char count, and
   segment/citation counts;
 - basic paragraph segmentation and URL citation extraction;
@@ -166,6 +169,11 @@ Response remains backward compatible:
 - `GET /api/exports/{export_id}/download`: download export package.
 
 Current v1 implementation returns the export manifest. Download packaging remains an upgrade target.
+
+The export manifest now includes `export_dir`, the absolute local folder path.
+Local workbench clients may call `POST /api/exports/open-folder` with that path.
+The backend must validate that the target folder is inside the configured export
+root before opening it with the operating system.
 
 ## Error Shape
 

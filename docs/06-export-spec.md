@@ -47,6 +47,7 @@ Every export must include `manifest.json` with:
 - generated timestamp;
 - artifact paths;
 - evidence ids;
+- absolute `export_dir` for the local workbench open-folder action;
 - app version when available.
 ## V1 Rich Obsidian Knowledge Export
 

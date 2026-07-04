@@ -124,3 +124,26 @@ Project Q&A now uses a lightweight project RAG retriever. It searches evidence,
 uploaded documents, document segments, and generated artifacts, then asks the
 configured LLM to answer with citations. If no LLM is configured, it returns a
 deterministic citation summary rather than a fixed template.
+
+## V1.5 Real Output And Mode UX Closeout
+
+V1.5 tightens the runnable V1 spine after the `高考教育线上培训` 0-evidence
+feedback run:
+
+- The domain-knowledge search query builder no longer injects AI/software-only
+  English terms into generic Chinese topics. It uses Chinese research terms such
+  as industry trend, market size, regulation, players, user demand, reports, and
+  cases unless the topic is explicitly AI/Agent/LLM.
+- Chinese compound-topic filtering now extracts meaningful markers and n-grams,
+  so results mentioning `高考`, `在线教育`, or `培训` are not discarded merely
+  because they do not contain the exact full phrase.
+- Fallback knowledge databases are topic-routed. Agent topics keep the Agent
+  fallback; large-model career topics keep their dedicated fallback; all other
+  topics use a domain-neutral `待补证草稿` scaffold instead of Agent-specific
+  concepts.
+- LLM failures or too-short document writing now emit degraded run events rather
+  than silently substituting fallback Markdown.
+- The landing workbench now presents `SectorBreaker 领域建库` and `TalentScope
+  人才需求情报台` as distinct personal/enterprise modes with different copy,
+  theme, inputs, and branched workflow preview graphs. Running pages still use
+  backend run events and workflow definitions as the source of truth.

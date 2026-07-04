@@ -49,7 +49,10 @@ All Agent outputs that include factual claims must support:
 - Input: search tasks, market scope, language preference, source constraints.
 - Output: source candidates with title, url, snippet, provider metadata.
 - Must not: scrape restricted sources or summarize as final evidence.
-- Failure mode: return empty result with query diagnostics.
+- Failure mode: return empty result with query diagnostics. In the V1
+  domain-knowledge path, topic filtering must not require an exact Chinese full
+  phrase match; generic Chinese topics should use domain-neutral relevance
+  markers and emit a degraded event when evidence remains thin.
 
 ### Assistant Brief Agent
 
@@ -77,7 +80,10 @@ All Agent outputs that include factual claims must support:
 - Input: verified and partial evidence, research frame.
 - Output: industry map, knowledge cards, node relationships, unresolved questions.
 - Must not: hide unknowns.
-- Failure mode: return missing coverage list.
+- Failure mode: return missing coverage list. If LLM generation fails or source
+  coverage is zero, return a clearly labeled `待补证草稿` scaffold for the
+  requested topic and emit a degraded event rather than reusing an unrelated
+  domain template.
 
 ### Opportunity Analyst
 

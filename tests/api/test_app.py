@@ -1,5 +1,7 @@
 import os
 import time
+import zipfile
+from io import BytesIO
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -7,6 +9,23 @@ from fastapi.testclient import TestClient
 from backend.app.api.app import create_app
 from backend.app.providers.fakes import FakeContentExtractionProvider, FakeLLMProvider, FakeSearchProvider
 from backend.app.providers.interfaces import JobPostingSource, JobSourceQuery, JobSourceStatus
+
+
+def _docx_bytes(paragraphs: list[str]) -> bytes:
+    body = "".join(
+        f"<w:p><w:r><w:t>{paragraph}</w:t></w:r></w:p>"
+        for paragraph in paragraphs
+    )
+    document_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        f"<w:body>{body}</w:body>"
+        "</w:document>"
+    )
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("word/document.xml", document_xml)
+    return buffer.getvalue()
 
 
 def _wait_for_run(client: TestClient, run_id: str, timeout: float = 10.0) -> dict:
@@ -96,6 +115,7 @@ def test_api_runs_research_and_exports_markdown(tmp_path: Path) -> None:
     export_response = client.post(f"/api/projects/{project_id}/exports")
     assert export_response.status_code == 200
     assert export_response.json()["project_id"] == project_id
+    assert Path(export_response.json()["export_dir"]).exists()
 
     list_response = client.get("/api/projects")
     assert list_response.status_code == 200
@@ -105,6 +125,48 @@ def test_api_runs_research_and_exports_markdown(tmp_path: Path) -> None:
     assert detail_response.status_code == 200
     assert detail_response.json()["domain"] == "AI Agent 工具"
     assert detail_response.json()["project_mode"] == "domain_knowledge"
+
+
+def test_api_opens_export_folder_inside_export_root(tmp_path: Path, monkeypatch) -> None:
+    opened: list[Path] = []
+
+    def fake_open(path: Path) -> None:
+        opened.append(path)
+
+    monkeypatch.setattr("backend.app.api.app._open_local_folder", fake_open)
+    export_root = tmp_path / "exports"
+    export_dir = export_root / "demo"
+    export_dir.mkdir(parents=True)
+    client = TestClient(
+        create_app(
+            database_path=tmp_path / "sectorbreaker.sqlite3",
+            export_root=export_root,
+            llm_provider=_default_fake_llm(),
+        )
+    )
+
+    response = client.post("/api/exports/open-folder", json={"export_dir": str(export_dir)})
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert opened == [export_dir.resolve()]
+
+
+def test_api_rejects_opening_folder_outside_export_root(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("backend.app.api.app._open_local_folder", lambda path: None)
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+    client = TestClient(
+        create_app(
+            database_path=tmp_path / "sectorbreaker.sqlite3",
+            export_root=tmp_path / "exports",
+            llm_provider=_default_fake_llm(),
+        )
+    )
+
+    response = client.post("/api/exports/open-folder", json={"export_dir": str(outside_dir)})
+
+    assert response.status_code == 400
 
 
 def test_api_accepts_talent_demand_project_mode(tmp_path: Path) -> None:
@@ -1158,10 +1220,47 @@ def test_api_rejects_unsupported_document_file_type(tmp_path: Path) -> None:
     response = client.post(
         f"/api/projects/{project_id}/documents/upload",
         data={"channel": "assistant_brief"},
-        files={"file": ("brief.pdf", b"%PDF-1.4", "application/pdf")},
+        files={"file": ("brief.pptx", b"not supported", "application/vnd.openxmlformats-officedocument.presentationml.presentation")},
     )
 
     assert response.status_code == 400
+
+
+def test_api_uploads_docx_document_file(tmp_path: Path) -> None:
+    client = TestClient(
+        create_app(
+            database_path=tmp_path / "sectorbreaker.sqlite3",
+            export_root=tmp_path / "exports",
+            llm_provider=_default_fake_llm(),
+        )
+    )
+    project_id = client.post(
+        "/api/projects",
+        json={
+            "title": "Upload Word Docs",
+            "domain": "上传 Word",
+            "market_scope": "mixed",
+            "depth": "quick",
+        },
+    ).json()["id"]
+
+    response = client.post(
+        f"/api/projects/{project_id}/documents/upload",
+        data={"channel": "assistant_brief"},
+        files={
+            "file": (
+                "brief.docx",
+                _docx_bytes(["通义千问 DeepSearch 报告", "来源：https://example.com/qwen-report"]),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["file_name"] == "brief.docx"
+    assert "通义千问 DeepSearch 报告" in payload["content"]
+    assert payload["citation_count"] == 1
 
 
 def test_api_pauses_for_supervisor_plan_confirmation(tmp_path: Path) -> None:

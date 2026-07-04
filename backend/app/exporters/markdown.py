@@ -20,6 +20,7 @@ class ExportManifest(BaseModel):
     generated_at: datetime
     artifact_paths: list[str]
     evidence_ids: list[str]
+    export_dir: str | None = None
 
 
 class MarkdownExporter:
@@ -73,6 +74,7 @@ class MarkdownExporter:
             generated_at=datetime.now(UTC),
             artifact_paths=artifact_paths,
             evidence_ids=[item.id for item in evidence],
+            export_dir=str(project_dir.resolve()),
         )
         (project_dir / "manifest.json").write_text(
             json.dumps(manifest.model_dump(mode="json"), ensure_ascii=False, indent=2),

@@ -28,6 +28,11 @@ metadata:
 - V1.3 前端已接入模式选择、JD 文本/文件上传、外部报告上传、多 provider 搜索设置可见性（Tavily/Serper/Brave/Exa）、Source Coverage 结果面板，并做了一轮整体工作台视觉重做。旧 `领域建库` 仍是默认入口。
 - V1.4 已新增企业版 Boss/job-source 增强：`JobSourceProvider`、`BossAgentCliProvider`、`/api/config/job-source`、`boss_job_intake`、`boss_job` evidence channel、Source Coverage 的 `boss_job_count`、前端企业版 Boss 采集面板。默认关闭，只影响 `talent_demand`。
 - V1.4 已新增项目级 RAG 问答：`/api/projects/{project_id}/chat` 检索 evidence、上传文档、document segments、artifacts，并返回 `citation_details`；有 LLM 时基于引用回答，无 LLM 时返回确定性引用摘要。
+- V1.5 已修复个人版 `高考教育线上培训` 这类中文复合主题 0 证据和模板污染问题：通用中文主题使用中文调研搜索词，过滤器接受 `高考` / `在线教育` / `培训` 等有意义局部命中；非 Agent fallback 改为领域中性 `待补证草稿`，Agent 和大模型就业主题保留专属 fallback。
+- V1.5 已让 LLM 降级可见：结构化建库或逐文档写作失败/过短时会发 `node_degraded` 事件，不再静默回落模板。
+- V1.5 已支持外部报告 / JD / 用户材料上传 `.docx` 和 `.pdf`：DOCX 用 WordprocessingML 解析，PDF 优先 `pypdf`，无法提取文本时明确报错。
+- V1.5 已增强导出体验：manifest 带绝对 `export_dir`，新增受限的 `/api/exports/open-folder` 打开本地导出目录。
+- V1.5 前端已区分个人版 `SectorBreaker 领域建库` 与企业版 `TalentScope 人才需求情报台`，包含不同文案、主题、输入引导、Word/PDF 上传提示和分支式流程图预览。
 - 重要排障记忆：旧 `uvicorn` 进程和 Vite 代理端口不一致会造成“后端配置好了但 UI 仍显示未配置/像没修”的假象。验收前先确认只有一个目标后端，当前默认是 `uvicorn backend.app.api.app:app --port 8030`，并在 `vite.config.ts` 或 `VITE_API_PROXY_TARGET` 变更后重启 Vite。
 - 文档与协作规范已建立。
 - 核心 schema、provider interfaces、provider factory、SQLite migration/repository 已建立。
@@ -107,6 +112,7 @@ metadata:
 - 当前本轮已新增验证：`python -m pytest tests/unit/test_v1_pipeline.py -q` => 11 passed；`cd frontend && npm test -- --run App.test.tsx` => 16 passed。
 - 当前本轮已新增验证：`python -m pytest tests/unit/test_talent_demand_pipeline.py tests/unit/test_talent_demand_models.py tests/unit/test_talent_demand_extraction.py tests/unit/test_talent_demand_skills.py tests/unit/test_talent_demand_source_coverage.py tests/unit/test_talent_demand_export.py tests/api/test_app.py::test_api_talent_demand_run_uses_uploaded_jd_and_creates_talent_artifacts tests/api/test_app.py::test_api_runs_research_and_exports_markdown tests/api/test_app.py::test_api_accepts_talent_demand_project_mode -q` => 16 passed，1 warning；`cd frontend && npm test -- --run App.test.tsx` => 17 passed；`cd frontend && npm run build` => 通过，仅 Vite chunk-size warning。
 - 当前本轮已新增验证：`python -m pytest tests/unit/test_job_source_provider.py tests/unit/test_project_retriever.py tests/unit/test_talent_demand_pipeline.py tests/unit/test_talent_demand_source_coverage.py tests/api/test_app.py::test_api_talent_demand_run_uses_uploaded_jd_and_creates_talent_artifacts tests/api/test_app.py::test_api_chat_uses_project_retrieval tests/api/test_app.py::test_api_talent_demand_run_uses_boss_job_source_when_enabled -q` => 13 passed，1 warning；`cd frontend && npm test -- --run App.test.tsx` => 17 passed；`cd frontend && npm run build` => 通过，仅 Vite chunk-size warning。
+- 当前本轮已新增验证：`python -m pytest tests/unit/test_v1_pipeline.py -q` => 14 passed；上传/导出 API 子集 => 6 passed，1 warning；`cd frontend && npm test -- --run App.test.tsx` => 17 passed；`cd frontend && npm run build` => 通过，仅 Vite chunk-size warning。
 - `cd frontend && npm test -- --run`：3 passed。
 - `cd frontend && npm run build`：通过。
 
