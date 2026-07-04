@@ -566,18 +566,18 @@ body {
   --mode-glow: rgba(214, 168, 79, .26);
   color: #f7f1df;
   background:
-    radial-gradient(circle at 14% 12%, rgba(214, 168, 79, .18), transparent 28%),
-    radial-gradient(circle at 92% 18%, rgba(40, 68, 110, .34), transparent 30%),
-    linear-gradient(135deg, #07090f 0%, #0f1726 45%, #18243a 100%);
+    radial-gradient(circle at 14% 12%, rgba(214, 168, 79, .24), transparent 30%),
+    radial-gradient(circle at 92% 18%, rgba(55, 92, 145, .40), transparent 32%),
+    linear-gradient(135deg, #111a2b 0%, #182945 48%, #243a5a 100%);
 }
 
 .landing-pro--enterprise .landing-panel--main {
   color: #f7f1df;
   border-color: rgba(214, 168, 79, .28);
   background:
-    linear-gradient(145deg, rgba(7, 9, 15, .96), rgba(18, 27, 43, .92)),
-    radial-gradient(circle at 88% 8%, rgba(214, 168, 79, .18), transparent 28%);
-  box-shadow: 0 28px 90px rgba(0, 0, 0, .38), inset 0 1px 0 rgba(255,255,255,.08);
+    linear-gradient(145deg, rgba(22, 35, 56, .94), rgba(31, 49, 77, .88)),
+    radial-gradient(circle at 88% 8%, rgba(214, 168, 79, .24), transparent 30%);
+  box-shadow: 0 28px 76px rgba(7, 13, 24, .30), inset 0 1px 0 rgba(255,255,255,.10);
 }
 
 .landing-pro--enterprise .landing-brand h1,
@@ -598,15 +598,33 @@ body {
   color: rgba(247, 241, 223, .70);
 }
 
+.landing-pro--enterprise .talent-input-panel,
+.landing-pro--enterprise .provider-status-card {
+  color: #1f2633;
+}
+
+.landing-pro--enterprise .talent-input-panel .panel-title,
+.landing-pro--enterprise .talent-input-panel .panel-title span,
+.landing-pro--enterprise .provider-status-card strong {
+  color: #1b1d22;
+}
+
+.landing-pro--enterprise .talent-input-panel p,
+.landing-pro--enterprise .talent-input-panel .file-upload-card span,
+.landing-pro--enterprise .provider-status-card span,
+.landing-pro--enterprise .boss-source-panel p,
+.landing-pro--enterprise .boss-source-grid label {
+  color: #5c4e36;
+}
+
 .landing-pro--enterprise .mode-card,
 .landing-pro--enterprise .source-policy-card,
-.landing-pro--enterprise .talent-input-panel,
 .landing-pro--enterprise .boss-source-panel,
 .landing-pro--enterprise .file-upload-card,
 .landing-pro--enterprise .provider-status-card {
   border-color: rgba(214, 168, 79, .18);
   background:
-    linear-gradient(145deg, rgba(255,255,255,.09), rgba(255,255,255,.035)),
+    linear-gradient(145deg, rgba(255,255,255,.13), rgba(255,255,255,.06)),
     radial-gradient(circle at 100% 0, rgba(214, 168, 79, .13), transparent 26%);
   box-shadow: inset 0 1px 0 rgba(255,255,255,.10);
 }
@@ -615,9 +633,9 @@ body {
 .landing-pro--enterprise .source-policy-card--active {
   border-color: rgba(230, 190, 106, .76);
   background:
-    linear-gradient(145deg, rgba(93, 70, 31, .78), rgba(21, 29, 45, .76)),
-    radial-gradient(circle at 86% 0, rgba(230, 190, 106, .24), transparent 30%);
-  box-shadow: 0 18px 50px rgba(0, 0, 0, .30), inset 0 0 0 1px rgba(230, 190, 106, .26);
+    linear-gradient(145deg, rgba(205, 157, 70, .26), rgba(37, 53, 80, .72)),
+    radial-gradient(circle at 86% 0, rgba(247, 215, 143, .32), transparent 30%);
+  box-shadow: 0 18px 44px rgba(7, 13, 24, .24), inset 0 0 0 1px rgba(230, 190, 106, .28);
 }
 
 .landing-pro--enterprise .landing-input,
@@ -661,8 +679,8 @@ body {
 .landing-pro--enterprise .talent-input-panel,
 .landing-pro--enterprise .provider-status-card {
   background:
-    linear-gradient(145deg, rgba(255, 248, 231, .94), rgba(226, 213, 185, .84)),
-    radial-gradient(circle at 100% 0, rgba(214, 168, 79, .20), transparent 30%);
+    linear-gradient(145deg, rgba(255, 250, 238, .96), rgba(235, 220, 185, .88)),
+    radial-gradient(circle at 100% 0, rgba(214, 168, 79, .24), transparent 32%);
 }
 
 .landing-pro--enterprise .landing-panel--flow {
