@@ -70,6 +70,19 @@ External AI reports are optional. When provided, they are stored as `assistant_b
 - Export format is versioned for future Obsidian and web publishing targets.
 - Team collaboration can be added around project ownership and run permissions without changing Agent contracts.
 
+## Master Agent Principle
+
+The next architecture direction is documented in
+`docs/16-master-agent-research-core.md`. SectorBreaker must evolve from a fixed
+pipeline with LLM-assisted writing into a Master-Agent-controlled research loop.
+The Master Agent is responsible for understanding the task, inspecting uploaded
+materials and evidence, calling approved tools through provider interfaces,
+maintaining run-local working memory, judging coverage, and deciding whether to
+continue, search again, ask the user, degrade, or block.
+
+Hard-coded evidence counts may remain only as guardrails. They must not replace
+the Master Agent's coverage judgment.
+
 ## V1.3 Talent Demand Branch
 
 `ResearchProject.project_mode` now selects the product-facing auto-run branch:

@@ -37,6 +37,27 @@ All Agent outputs that include factual claims must support:
 - Must not: invent new agent IDs outside the registry or bypass QA.
 - Failure mode: pause for intent clarification when the user goal is too ambiguous.
 
+### Master Agent
+
+- Input: `ResearchContext` containing project config, user intent, uploaded
+  reports/materials, evidence ledger summary, rejected/filtered search results,
+  run-local memory, and product mode.
+- Output: `MasterAgentDecision`, `CoverageReport`, and bounded
+  `ToolCallRequest` records. Decisions include `continue`, `search_again`,
+  `ask_user`, `degrade`, and `block`.
+- Allowed tools: provider/service interfaces only, including search, document
+  ingestion/citation extraction, project retrieval/RAG, source verification,
+  content extraction, and enterprise job-source provider when explicitly enabled
+  in `talent_demand`.
+- Must have state: it must know what has already been searched, which evidence
+  was accepted or rejected, which uploaded reports exist, what new information
+  was added, and which coverage gaps remain.
+- Must not: use hard-coded evidence count as the primary sufficiency rule, call
+  vendors directly, bypass source policy, hide zero-evidence states, or write
+  final claims without evidence metadata.
+- Failure mode: emit a readable decision and stop or ask for user input when the
+  workflow lacks enough material to generate a credible knowledge base.
+
 ### Source Strategy Agent
 
 - Input: `SupervisorPlan`, project source policy.

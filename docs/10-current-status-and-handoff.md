@@ -63,6 +63,7 @@ For Cursor, Windsurf, Gemini, Codex, Claude Code, or other tools, also read `doc
 - V1.5 document upload now accepts `.docx` and `.pdf` in addition to Markdown/TXT. DOCX text is extracted through WordprocessingML; PDF uses `pypdf` when available and otherwise returns a clear parse error if text cannot be extracted.
 - V1.5 export manifests include an absolute `export_dir`, and the API exposes a guarded local `POST /api/exports/open-folder` endpoint for opening folders inside the configured export root.
 - V1.5 frontend separates the two product modes more clearly: personal `SectorBreaker 领域建库` and enterprise `TalentScope 人才需求情报台` now use different copy, themes, input guidance, Word/PDF upload affordances, and branched workflow preview graphs. Runtime pages remain driven by backend workflow definitions and run events.
+- Architecture requirement captured: `docs/16-master-agent-research-core.md` now records the required Master Agent direction. The Master Agent must be intelligent, tool-capable, stateful during a run, memory-backed by structured context, and able to decide continue/search-again/ask-user/degrade/block. Uploaded external AI reports must be first-class external sources in its context. Hard-coded evidence counts must not be the primary sufficiency rule.
 - Important local debugging note: stale `uvicorn` processes on another port can make the frontend hit old code. The default Vite proxy now targets `127.0.0.1:8030`; before UI acceptance, ensure only one intended `uvicorn backend.app.api.app:app --port 8030` process is running and restart Vite after config changes.
 - LangGraph workflow now includes Scope, Supervisor Plan, Source Strategy, Source Intake, Claim Extractor, Counterevidence, Evidence Ledger, Market, Player, Transaction, Synthesis, Knowledge Map, QA Critic, Export, and RAG Indexer gates.
 - Runs pause at `supervisor_plan` for user confirmation unless `auto_run=true`.
@@ -177,6 +178,15 @@ Why: these parts control hallucination risk, evidence integrity, workflow stabil
 Before broader architecture work, complete the V1.2 demo-readiness plan at `docs/superpowers/plans/2026-07-03-v1-2-demo-readiness.md`. The plan intentionally avoids multi-search UI, full RAG, content scraping, and competitor/revenue analysis until the demo loop is stable.
 
 Replace remaining raw `dict` LLM outputs in business agents with dedicated Pydantic output schemas.
+
+### Step 1A: Master Agent Research Core
+
+The next major iteration should follow `docs/16-master-agent-research-core.md`.
+Do not continue adding fixed search heuristics as the main intelligence layer.
+Implement structured run memory, external-report intake into V1 context,
+Master-Agent-generated tool/search plans, LLM coverage judgment, bounded
+search/evaluation loops, and graph/UI alignment around the actual executing
+nodes.
 
 ### Step 2: Search Scout And Evidence Curator
 

@@ -34,6 +34,7 @@ metadata:
 - V1.5 已支持外部报告 / JD / 用户材料上传 `.docx` 和 `.pdf`：DOCX 用 WordprocessingML 解析，PDF 优先 `pypdf`，无法提取文本时明确报错。
 - V1.5 已增强导出体验：manifest 带绝对 `export_dir`，新增受限的 `/api/exports/open-folder` 打开本地导出目录。
 - V1.5 前端已区分个人版 `SectorBreaker 领域建库` 与企业版 `TalentScope 人才需求情报台`，包含不同文案、主题、输入引导、Word/PDF 上传提示和分支式流程图预览。
+- 已新增 `docs/16-master-agent-research-core.md`，正式记录主管节点 / Master Agent 的架构要求：必须智能、有判断能力、可通过 provider/service 调用工具、具备运行期状态和结构化记忆，并能决定流程继续、补搜、询问用户、降级或中断。上传的外部 AI 调研报告必须作为一等外部信源进入其上下文；硬编码证据条数不能作为主要充分性判断。
 - 重要排障记忆：旧 `uvicorn` 进程和 Vite 代理端口不一致会造成“后端配置好了但 UI 仍显示未配置/像没修”的假象。验收前先确认只有一个目标后端，当前默认是 `uvicorn backend.app.api.app:app --port 8030`，并在 `vite.config.ts` 或 `VITE_API_PROXY_TARGET` 变更后重启 Vite。
 - 文档与协作规范已建立。
 - 核心 schema、provider interfaces、provider factory、SQLite migration/repository 已建立。
@@ -79,6 +80,7 @@ metadata:
 - 下一优先级建议放在：增强 extractor 失败控制与域名路由、优化 verification task query planning、把验证结果和原 claim/evidence 建立更明确的双向链接。
 - 下一优先级建议放在：把 search test 接到前端配置面板、增强 extractor 失败控制与域名路由、优化 verification task query planning、把验证结果和原 claim/evidence 建立更明确的双向链接。
 - 下一优先级建议放在：增强 extractor 失败控制与域名路由、优化 verification task query planning、把验证结果和原 claim/evidence 建立更明确的双向链接。
+- 下一大版本优先级应转向 `docs/16-master-agent-research-core.md`：结构化 run memory、外部报告进入 V1 主上下文、Master Agent 生成工具/搜索计划、LLM CoverageReport 取代硬编码证据条数、bounded ReAct/search loop、运行图与真实节点对齐。
 - QA Critic artifact prose unsupported-claim 检测与 retry 建议。
 - LangGraph interrupt/resume 与 checkpoint 策略。
 - Agent contract/schema 变更。

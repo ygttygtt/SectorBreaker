@@ -45,6 +45,7 @@ The latest completed implementation milestone is:
 - V1.5 also makes zero usable evidence a blocking gate: after initial and supplemental collection, a V1 run with 0 evidence emits `node_blocked` at `source_collection`, fails the run, and does not create artifacts.
 - V1.5 upload/export UX is expanded: external reports and JD/user materials accept Markdown, TXT, DOCX, and PDF; export manifests include `export_dir`; `/api/exports/open-folder` can open local export folders after validating they are inside the configured export root.
 - V1.5 frontend makes product modes clearer: `SectorBreaker 领域建库` for personal knowledge-base building and `TalentScope 人才需求情报台` for enterprise talent-demand intelligence now have distinct copy, themes, inputs, and branched workflow preview graphs.
+- Master Agent architecture requirement is now captured in `docs/16-master-agent-research-core.md`: the next major iteration must move core research decisions into a stateful, tool-capable Master Agent that can judge coverage, call approved tools, use uploaded external reports as first-class sources, and decide continue/search-again/ask-user/degrade/block. Do not treat fixed evidence counts as the primary sufficiency rule.
 - The frontend now exposes a mode selector and multi-provider search settings (Tavily recommended, Serper/Brave/Exa visible). It also carries explicit guardrails: do not scrape login-gated job boards by default; use uploads and configured search providers first.
 - Backend: FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + explainable agent selection traces.
 - Frontend: Vite + React + TypeScript explainable research workbench with real workflow graph, vertical layout, and active-node centering.
@@ -152,6 +153,7 @@ Architecture review is required before implementing:
 - Multi-provider search routing and crawler expansion, because search quality directly affects evidence integrity.
 - Better counterevidence query planning, extractor failure/domain controls, and stronger uploaded report citation verification beyond first-pass heuristics.
 - Full API test runtime profiling: `tests/api/test_app.py` may exceed 3 minutes locally even though focused API workflow tests pass.
+- Master Agent Research Core from `docs/16-master-agent-research-core.md`: structured run memory, external-report intake in V1 context, LLM coverage judgment, bounded tool/search loop, and graph/UI alignment.
 
 ## Safe Delegation Candidates
 

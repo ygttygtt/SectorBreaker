@@ -36,6 +36,7 @@ metadata:
 - V1.5 已支持 `.docx` / `.pdf` 上传外部报告、JD 和用户材料；DOCX 用 WordprocessingML 解析，PDF 优先 `pypdf`，提取失败会明确报错。
 - V1.5 已增强导出体验：manifest 带 `export_dir`，并新增受限 `/api/exports/open-folder` 打开本地导出目录。
 - V1.5 前端已区分个人版 `SectorBreaker 领域建库` 和企业版 `TalentScope 人才需求情报台`，包括不同文案、主题、输入引导和分支式流程图预览。
+- 已新增 `docs/16-master-agent-research-core.md`，正式记录主管节点 / Master Agent 要求：必须智能、有判断能力、可通过 provider/service 调用工具、具备运行期状态和结构化记忆，并能决定继续、补搜、询问用户、降级或中断。上传的外部 AI 调研报告必须作为一等外部信源进入其上下文；硬编码证据条数不能作为主要充分性判断。
 - 前端设置页已展示 Tavily / Serper / Brave / Exa provider mode；Tavily 仍是推荐默认。人才需求模式明确不默认抓取登录型招聘网站。
 - 后端：FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + 可解释选择轨迹
 - 前端：Vite + React + TypeScript，可解释研究工作台，真实 workflow graph，纵向布局与活动节点居中
@@ -72,6 +73,7 @@ metadata:
 - 剩余业务 Agent Pydantic 输出 schema 和 prompt
 - 可靠信源包、真实 Counterevidence 搜索、Evidence Curator 可信度/冲突规则
 - 多搜索 provider 编排、爬虫/抓取层扩展与 provider routing
+- Master Agent Research Core：结构化 run memory、外部报告进入 V1 主上下文、Master Agent 生成工具/搜索计划、LLM CoverageReport 取代硬编码证据条数、bounded ReAct/search loop、运行图与真实节点对齐
 - 报告文件上传、引用来源提取、营销来源识别与验证链路
 - `needs_counterevidence` 到 verification task / 搜索回路 还未自动打通，是下一核心缺口
 - 下一核心缺口已从“是否自动打通”变成“如何把 verification task 做得更准、并补正文抽取与证据链接”
