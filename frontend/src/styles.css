@@ -552,14 +552,103 @@ body {
   --mode-secondary: #275d72;
   --mode-wash: rgba(232, 248, 242, .88);
   --mode-glow: rgba(14, 107, 91, .18);
+  background:
+    radial-gradient(circle at 10% 12%, rgba(14, 107, 91, .16), transparent 30%),
+    radial-gradient(circle at 90% 18%, rgba(196, 122, 53, .16), transparent 28%),
+    linear-gradient(135deg, rgba(255, 252, 245, .54), rgba(232, 248, 242, .30));
 }
 
 .landing-pro--enterprise {
   --mode-accent: #1f4e79;
   --mode-accent-dark: #163653;
   --mode-secondary: #4d6178;
-  --mode-wash: rgba(232, 239, 248, .9);
-  --mode-glow: rgba(31, 78, 121, .18);
+  --mode-wash: rgba(226, 236, 249, .92);
+  --mode-glow: rgba(82, 143, 206, .24);
+  color: #eaf2fb;
+  background:
+    radial-gradient(circle at 14% 12%, rgba(82, 143, 206, .26), transparent 28%),
+    radial-gradient(circle at 92% 18%, rgba(125, 151, 182, .24), transparent 30%),
+    linear-gradient(135deg, #0e1724 0%, #15243a 46%, #223348 100%);
+}
+
+.landing-pro--enterprise .landing-panel--main {
+  color: #edf5ff;
+  border-color: rgba(173, 197, 224, .24);
+  background:
+    linear-gradient(145deg, rgba(13, 24, 38, .94), rgba(28, 47, 71, .88)),
+    radial-gradient(circle at 88% 8%, rgba(82, 143, 206, .24), transparent 28%);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, .28), inset 0 1px 0 rgba(255,255,255,.10);
+}
+
+.landing-pro--enterprise .landing-brand h1,
+.landing-pro--enterprise .landing-copy h2,
+.landing-pro--enterprise .field-label,
+.landing-pro--enterprise .panel-title,
+.landing-pro--enterprise .mode-card strong,
+.landing-pro--enterprise .source-policy-card strong {
+  color: #f5f9ff;
+}
+
+.landing-pro--enterprise .landing-brand p,
+.landing-pro--enterprise .landing-copy p,
+.landing-pro--enterprise .mode-card span,
+.landing-pro--enterprise .source-policy-card span,
+.landing-pro--enterprise .talent-input-panel p,
+.landing-pro--enterprise .file-upload-card span {
+  color: rgba(223, 234, 247, .72);
+}
+
+.landing-pro--enterprise .mode-card,
+.landing-pro--enterprise .source-policy-card,
+.landing-pro--enterprise .talent-input-panel,
+.landing-pro--enterprise .boss-source-panel,
+.landing-pro--enterprise .file-upload-card,
+.landing-pro--enterprise .provider-status-card {
+  border-color: rgba(173, 197, 224, .18);
+  background:
+    linear-gradient(145deg, rgba(255,255,255,.10), rgba(255,255,255,.045)),
+    radial-gradient(circle at 100% 0, rgba(82, 143, 206, .14), transparent 26%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.10);
+}
+
+.landing-pro--enterprise .mode-card--active,
+.landing-pro--enterprise .source-policy-card--active {
+  border-color: rgba(119, 184, 255, .72);
+  background:
+    linear-gradient(145deg, rgba(37, 87, 132, .74), rgba(20, 38, 60, .72)),
+    radial-gradient(circle at 86% 0, rgba(119, 184, 255, .26), transparent 30%);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, .24), inset 0 0 0 1px rgba(119, 184, 255, .24);
+}
+
+.landing-pro--enterprise .landing-input,
+.landing-pro--enterprise .assistant-brief-input,
+.landing-pro--enterprise textarea,
+.landing-pro--enterprise .boss-source-grid input {
+  color: #102033;
+  border-color: rgba(173, 197, 224, .34);
+  background: rgba(246, 250, 255, .92);
+  box-shadow: 0 10px 28px rgba(0,0,0,.12);
+}
+
+.landing-pro--enterprise .landing-input-icon {
+  color: #53708e;
+}
+
+.landing-pro--enterprise .secondary {
+  color: #edf5ff;
+  border-color: rgba(173, 197, 224, .25);
+  background: rgba(255, 255, 255, .08);
+}
+
+.landing-pro--enterprise .secondary:hover {
+  background: rgba(255, 255, 255, .14);
+  border-color: rgba(173, 197, 224, .38);
+}
+
+.landing-pro--enterprise .landing-warning {
+  color: #ffe8bd;
+  border-color: rgba(255, 210, 129, .34);
+  background: rgba(110, 74, 28, .28);
 }
 
 .landing-pro--enterprise .landing-panel--main::before {
@@ -572,8 +661,30 @@ body {
 .landing-pro--enterprise .talent-input-panel,
 .landing-pro--enterprise .provider-status-card {
   background:
-    linear-gradient(135deg, rgba(248, 251, 255, .86), rgba(232, 239, 248, .76)),
-    radial-gradient(circle at 100% 0, rgba(31, 78, 121, .12), transparent 30%);
+    linear-gradient(145deg, rgba(236, 243, 252, .94), rgba(214, 226, 241, .84)),
+    radial-gradient(circle at 100% 0, rgba(31, 78, 121, .16), transparent 30%);
+}
+
+.landing-pro--enterprise .landing-panel--flow {
+  border-color: rgba(173, 197, 224, .36);
+  box-shadow: 0 28px 72px rgba(0, 0, 0, .24), inset 0 1px 0 rgba(255,255,255,.55);
+}
+
+.landing-pro--enterprise .landing-panel--flow .panel-title {
+  color: #18324e;
+}
+
+.landing-pro--enterprise .workflow-node {
+  background: rgba(246, 250, 255, .96);
+  border-color: rgba(31, 78, 121, .30);
+}
+
+.landing-pro--enterprise .workflow-node-title strong {
+  color: #15304b;
+}
+
+.landing-pro--enterprise .workflow-node-reason {
+  color: #5b6f86;
 }
 
 .landing-pro--enterprise .primary {
