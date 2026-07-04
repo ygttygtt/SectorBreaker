@@ -559,25 +559,25 @@ body {
 }
 
 .landing-pro--enterprise {
-  --mode-accent: #1f4e79;
-  --mode-accent-dark: #163653;
-  --mode-secondary: #4d6178;
-  --mode-wash: rgba(226, 236, 249, .92);
-  --mode-glow: rgba(82, 143, 206, .24);
-  color: #eaf2fb;
+  --mode-accent: #d6a84f;
+  --mode-accent-dark: #b88a35;
+  --mode-secondary: #23395a;
+  --mode-wash: rgba(247, 229, 176, .18);
+  --mode-glow: rgba(214, 168, 79, .26);
+  color: #f7f1df;
   background:
-    radial-gradient(circle at 14% 12%, rgba(82, 143, 206, .26), transparent 28%),
-    radial-gradient(circle at 92% 18%, rgba(125, 151, 182, .24), transparent 30%),
-    linear-gradient(135deg, #0e1724 0%, #15243a 46%, #223348 100%);
+    radial-gradient(circle at 14% 12%, rgba(214, 168, 79, .18), transparent 28%),
+    radial-gradient(circle at 92% 18%, rgba(40, 68, 110, .34), transparent 30%),
+    linear-gradient(135deg, #07090f 0%, #0f1726 45%, #18243a 100%);
 }
 
 .landing-pro--enterprise .landing-panel--main {
-  color: #edf5ff;
-  border-color: rgba(173, 197, 224, .24);
+  color: #f7f1df;
+  border-color: rgba(214, 168, 79, .28);
   background:
-    linear-gradient(145deg, rgba(13, 24, 38, .94), rgba(28, 47, 71, .88)),
-    radial-gradient(circle at 88% 8%, rgba(82, 143, 206, .24), transparent 28%);
-  box-shadow: 0 28px 80px rgba(0, 0, 0, .28), inset 0 1px 0 rgba(255,255,255,.10);
+    linear-gradient(145deg, rgba(7, 9, 15, .96), rgba(18, 27, 43, .92)),
+    radial-gradient(circle at 88% 8%, rgba(214, 168, 79, .18), transparent 28%);
+  box-shadow: 0 28px 90px rgba(0, 0, 0, .38), inset 0 1px 0 rgba(255,255,255,.08);
 }
 
 .landing-pro--enterprise .landing-brand h1,
@@ -586,7 +586,7 @@ body {
 .landing-pro--enterprise .panel-title,
 .landing-pro--enterprise .mode-card strong,
 .landing-pro--enterprise .source-policy-card strong {
-  color: #f5f9ff;
+  color: #fff8e8;
 }
 
 .landing-pro--enterprise .landing-brand p,
@@ -595,7 +595,7 @@ body {
 .landing-pro--enterprise .source-policy-card span,
 .landing-pro--enterprise .talent-input-panel p,
 .landing-pro--enterprise .file-upload-card span {
-  color: rgba(223, 234, 247, .72);
+  color: rgba(247, 241, 223, .70);
 }
 
 .landing-pro--enterprise .mode-card,
@@ -604,91 +604,93 @@ body {
 .landing-pro--enterprise .boss-source-panel,
 .landing-pro--enterprise .file-upload-card,
 .landing-pro--enterprise .provider-status-card {
-  border-color: rgba(173, 197, 224, .18);
+  border-color: rgba(214, 168, 79, .18);
   background:
-    linear-gradient(145deg, rgba(255,255,255,.10), rgba(255,255,255,.045)),
-    radial-gradient(circle at 100% 0, rgba(82, 143, 206, .14), transparent 26%);
+    linear-gradient(145deg, rgba(255,255,255,.09), rgba(255,255,255,.035)),
+    radial-gradient(circle at 100% 0, rgba(214, 168, 79, .13), transparent 26%);
   box-shadow: inset 0 1px 0 rgba(255,255,255,.10);
 }
 
 .landing-pro--enterprise .mode-card--active,
 .landing-pro--enterprise .source-policy-card--active {
-  border-color: rgba(119, 184, 255, .72);
+  border-color: rgba(230, 190, 106, .76);
   background:
-    linear-gradient(145deg, rgba(37, 87, 132, .74), rgba(20, 38, 60, .72)),
-    radial-gradient(circle at 86% 0, rgba(119, 184, 255, .26), transparent 30%);
-  box-shadow: 0 18px 46px rgba(0, 0, 0, .24), inset 0 0 0 1px rgba(119, 184, 255, .24);
+    linear-gradient(145deg, rgba(93, 70, 31, .78), rgba(21, 29, 45, .76)),
+    radial-gradient(circle at 86% 0, rgba(230, 190, 106, .24), transparent 30%);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .30), inset 0 0 0 1px rgba(230, 190, 106, .26);
 }
 
 .landing-pro--enterprise .landing-input,
 .landing-pro--enterprise .assistant-brief-input,
 .landing-pro--enterprise textarea,
 .landing-pro--enterprise .boss-source-grid input {
-  color: #102033;
-  border-color: rgba(173, 197, 224, .34);
-  background: rgba(246, 250, 255, .92);
+  color: #111827;
+  border-color: rgba(214, 168, 79, .38);
+  background: rgba(255, 250, 238, .94);
   box-shadow: 0 10px 28px rgba(0,0,0,.12);
 }
 
 .landing-pro--enterprise .landing-input-icon {
-  color: #53708e;
+  color: #8a6a2e;
 }
 
 .landing-pro--enterprise .secondary {
-  color: #edf5ff;
-  border-color: rgba(173, 197, 224, .25);
+  color: #f7f1df;
+  border-color: rgba(214, 168, 79, .30);
   background: rgba(255, 255, 255, .08);
 }
 
 .landing-pro--enterprise .secondary:hover {
   background: rgba(255, 255, 255, .14);
-  border-color: rgba(173, 197, 224, .38);
+  border-color: rgba(214, 168, 79, .46);
 }
 
 .landing-pro--enterprise .landing-warning {
-  color: #ffe8bd;
-  border-color: rgba(255, 210, 129, .34);
-  background: rgba(110, 74, 28, .28);
+  color: #ffe7aa;
+  border-color: rgba(230, 190, 106, .40);
+  background: rgba(93, 70, 31, .30);
 }
 
 .landing-pro--enterprise .landing-panel--main::before {
   background:
-    linear-gradient(90deg, transparent, rgba(31, 78, 121, .10), transparent) 0 0 / 240px 100% no-repeat,
-    radial-gradient(circle at 88% 12%, rgba(73, 96, 124, .18), transparent 22%);
+    linear-gradient(90deg, transparent, rgba(214, 168, 79, .10), transparent) 0 0 / 240px 100% no-repeat,
+    radial-gradient(circle at 88% 12%, rgba(230, 190, 106, .14), transparent 22%);
 }
 
 .landing-pro--enterprise .landing-panel--flow,
 .landing-pro--enterprise .talent-input-panel,
 .landing-pro--enterprise .provider-status-card {
   background:
-    linear-gradient(145deg, rgba(236, 243, 252, .94), rgba(214, 226, 241, .84)),
-    radial-gradient(circle at 100% 0, rgba(31, 78, 121, .16), transparent 30%);
+    linear-gradient(145deg, rgba(255, 248, 231, .94), rgba(226, 213, 185, .84)),
+    radial-gradient(circle at 100% 0, rgba(214, 168, 79, .20), transparent 30%);
 }
 
 .landing-pro--enterprise .landing-panel--flow {
-  border-color: rgba(173, 197, 224, .36);
-  box-shadow: 0 28px 72px rgba(0, 0, 0, .24), inset 0 1px 0 rgba(255,255,255,.55);
+  border-color: rgba(214, 168, 79, .42);
+  box-shadow: 0 28px 78px rgba(0, 0, 0, .34), inset 0 1px 0 rgba(255,255,255,.48);
 }
 
 .landing-pro--enterprise .landing-panel--flow .panel-title {
-  color: #18324e;
+  color: #1b1d22;
 }
 
 .landing-pro--enterprise .workflow-node {
-  background: rgba(246, 250, 255, .96);
-  border-color: rgba(31, 78, 121, .30);
+  background: rgba(255, 250, 238, .96);
+  border-color: rgba(132, 95, 36, .34);
 }
 
 .landing-pro--enterprise .workflow-node-title strong {
-  color: #15304b;
+  color: #1b1d22;
 }
 
 .landing-pro--enterprise .workflow-node-reason {
-  color: #5b6f86;
+  color: #6e6250;
 }
 
 .landing-pro--enterprise .primary {
+  color: #14110a;
   background: var(--mode-accent);
+  box-shadow: 0 14px 34px rgba(214, 168, 79, .22);
 }
 
 .landing-pro--enterprise .primary:hover {
