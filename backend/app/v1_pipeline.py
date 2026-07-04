@@ -102,6 +102,10 @@ _WHITESPACE_RE = re.compile(r"\s+")
 _V1_SNIPPET_MAX_CHARS = 420
 _V1_TARGET_EVIDENCE_COUNT = 10
 _V1_MIN_ACCEPTABLE_EVIDENCE_COUNT = 8
+_V1_ZERO_EVIDENCE_BLOCK_MESSAGE = (
+    "资料收集后仍没有可用证据，已停止生成知识库。请检查搜索配置、换一个更明确的主题、"
+    "切换信源策略，或上传外部报告/用户材料后重新运行。"
+)
 _V1_BLOCKED_DOMAINS = (
     "github.com",
     "youtube.com",
@@ -299,6 +303,24 @@ async def run_v1_knowledge_pipeline(
             progress_total=_V1_TARGET_EVIDENCE_COUNT,
             data=sufficiency,
         ))
+
+    if len(evidence) == 0:
+        await emit_event(RunEvent(
+            event_type="node_blocked",
+            gate="source_collection",
+            agent="Search Scout",
+            message=_V1_ZERO_EVIDENCE_BLOCK_MESSAGE,
+            progress_current=0,
+            progress_total=_V1_TARGET_EVIDENCE_COUNT,
+            severity="error",
+            data={
+                "status": "blocked",
+                "reason": "zero_evidence",
+                "source_policy": project.source_policy.value,
+                "search_configured": search_provider is not None,
+            },
+        ))
+        raise RuntimeError(_V1_ZERO_EVIDENCE_BLOCK_MESSAGE)
 
     await emit_event(RunEvent(
         event_type="node_completed",

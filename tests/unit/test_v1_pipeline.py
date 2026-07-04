@@ -256,6 +256,50 @@ def test_v1_pipeline_filters_developer_repository_and_attachment_noise() -> None
     assert [item.source_title for item in repository.evidence] == ["AI Agent enterprise adoption trends 2026"]
 
 
+def test_v1_pipeline_blocks_when_search_yields_zero_evidence() -> None:
+    class FakeRepository:
+        def __init__(self) -> None:
+            self.evidence = []
+            self.artifacts = []
+
+        def list_evidence(self, project_id: str):
+            return []
+
+        def add_evidence(self, item):
+            self.evidence.append(item)
+
+        def add_artifact(self, artifact):
+            self.artifacts.append(artifact)
+
+    class EmptySearch:
+        async def search(self, query: SearchQuery) -> list[SearchResult]:
+            return []
+
+    repository = FakeRepository()
+    events = []
+
+    async def emit(event):
+        events.append(event)
+
+    try:
+        asyncio.run(
+            run_v1_knowledge_pipeline(
+                project=_project().model_copy(update={"source_policy": SourcePolicy.OPEN_WEB}),
+                repository=repository,  # type: ignore[arg-type]
+                search_provider=EmptySearch(),
+                llm_provider=None,
+                emit=emit,
+            )
+        )
+    except RuntimeError as exc:
+        assert "没有可用证据" in str(exc)
+    else:
+        raise AssertionError("zero-evidence run should block before knowledge generation")
+
+    assert repository.artifacts == []
+    assert any(event.event_type == "node_blocked" and event.gate == "source_collection" for event in events)
+
+
 def test_v1_filter_accepts_chinese_compound_education_topic() -> None:
     domain = "高考教育线上培训"
 

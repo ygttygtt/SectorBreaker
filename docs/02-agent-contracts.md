@@ -52,7 +52,9 @@ All Agent outputs that include factual claims must support:
 - Failure mode: return empty result with query diagnostics. In the V1
   domain-knowledge path, topic filtering must not require an exact Chinese full
   phrase match; generic Chinese topics should use domain-neutral relevance
-  markers and emit a degraded event when evidence remains thin.
+  markers and emit a degraded event when evidence remains thin. After all
+  allowed collection attempts, zero usable evidence is blocking: emit
+  `node_blocked` and stop before downstream knowledge generation.
 
 ### Assistant Brief Agent
 

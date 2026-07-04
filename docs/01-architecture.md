@@ -143,6 +143,10 @@ feedback run:
   concepts.
 - LLM failures or too-short document writing now emit degraded run events rather
   than silently substituting fallback Markdown.
+- After primary and supplemental source collection, zero usable evidence is now
+  a hard gate: the V1 run emits `node_blocked` at `source_collection` and stops
+  before knowledge structuring. A knowledge base must not be generated from no
+  source material.
 - The landing workbench now presents `SectorBreaker 领域建库` and `TalentScope
   人才需求情报台` as distinct personal/enterprise modes with different copy,
   theme, inputs, and branched workflow preview graphs. Running pages still use

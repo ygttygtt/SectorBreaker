@@ -32,6 +32,7 @@ metadata:
 - V1.4 已实现企业版 Boss/job-source 增强：本地 Boss-compatible CLI 通过 `JobSourceProvider` 接入，采集结果写入 `boss_job` evidence channel。该能力默认关闭，只在 `talent_demand` 启用，不影响个人版。
 - V1.4 已实现项目级 RAG 问答：chat 检索项目 evidence、documents、segments、artifacts，并返回 `citation_details`。
 - V1.5 已修复个人版中文复合主题 0 证据和模板污染问题：通用中文主题使用中文调研搜索词，过滤器接受有意义局部命中，非 Agent fallback 是领域中性 `待补证草稿`，LLM fallback 会发 degraded 事件。
+- V1.5 已新增 0 证据硬中断：初搜和补搜后仍没有可用 evidence 时，V1 run 会在 `source_collection` 发 `node_blocked`，run 进入 failed，不再生成 artifacts。
 - V1.5 已支持 `.docx` / `.pdf` 上传外部报告、JD 和用户材料；DOCX 用 WordprocessingML 解析，PDF 优先 `pypdf`，提取失败会明确报错。
 - V1.5 已增强导出体验：manifest 带 `export_dir`，并新增受限 `/api/exports/open-folder` 打开本地导出目录。
 - V1.5 前端已区分个人版 `SectorBreaker 领域建库` 和企业版 `TalentScope 人才需求情报台`，包括不同文案、主题、输入引导和分支式流程图预览。
@@ -64,7 +65,7 @@ metadata:
 - 最新自动化验收：V1 pipeline 单测 10 passed；`大模型开发就业` 搜索诊断确认 Tavily 有结果，需避免过滤误杀。
 - 最新自动化验收：V1 pipeline 单测 11 passed；`frontend App.test.tsx` 16 passed。
 - 最新自动化验收：V1.4 focused backend 13 passed，1 warning；`frontend App.test.tsx` 17 passed；`frontend npm run build` passed，仅 Vite chunk-size warning。
-- 最新自动化验收：V1.5 pipeline 单测 14 passed；上传/导出 API 子集 6 passed，1 warning；`frontend App.test.tsx` 17 passed；`frontend npm run build` passed，仅 Vite chunk-size warning。
+- 最新自动化验收：V1.5 pipeline 单测 15 passed；上传/导出 API 子集 6 passed，1 warning；`frontend App.test.tsx` 17 passed；`frontend npm run build` passed，仅 Vite chunk-size warning。
 
 最高风险任务：
 
