@@ -48,6 +48,7 @@ The latest completed implementation milestone is:
 - Master Agent architecture requirement is now captured in `docs/16-master-agent-research-core.md`: the next major iteration must move core research decisions into a stateful, tool-capable Master Agent that can judge coverage, call approved tools, use uploaded external reports as first-class sources, and decide continue/search-again/ask-user/degrade/block. Do not treat fixed evidence counts as the primary sufficiency rule.
 - V1.6 implements the first bounded Master Agent loop in the personal `domain_knowledge` path. It records run-local memory, ingests uploaded reports/user materials/citations as evidence before search, creates multi-intent search plans, calls the configured `SearchProvider`, records tool diagnostics, evaluates coverage with `CoverageReport`, and decides continue/search-again/degrade/block. Zero evidence blocks before writing; thin evidence is shown as degraded instead of sufficient.
 - V1.6 workflow graphs now match actual personal run events: `master_agent`, `external_report_intake`, `source_collection`, `evidence_ledger`, `coverage_evaluation`, `knowledge_structuring`, `document_writing`, `artifact_review`, and `export`.
+- State/memory architecture direction is now documented in `docs/17-agent-state-memory-architecture.md`. The next rebuild plan is `docs/superpowers/plans/2026-07-06-agent-state-memory-react-rebuild.md`: explicit `SectorBreakerState`, dynamic practical cognition schema, context-pack filtering, report internalization, specialist ReAct loops, safe iceberg/risk investigation, and human-feedback reopen.
 - The frontend now exposes a mode selector and multi-provider search settings (Tavily recommended, Serper/Brave/Exa visible). It also carries explicit guardrails: do not scrape login-gated job boards by default; use uploads and configured search providers first.
 - Backend: FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + explainable agent selection traces.
 - Frontend: Vite + React + TypeScript explainable research workbench with real workflow graph, vertical layout, and active-node centering.
@@ -167,7 +168,7 @@ Architecture review is required before implementing:
 - Multi-provider search routing and crawler expansion, because search quality directly affects evidence integrity.
 - Better counterevidence query planning, extractor failure/domain controls, and stronger uploaded report citation verification beyond first-pass heuristics.
 - Full API test runtime profiling: `tests/api/test_app.py` may exceed 3 minutes locally even though focused API workflow tests pass.
-- Master Agent Research Core follow-up from `docs/16-master-agent-research-core.md`: V1.6 has the bounded loop; remaining high-risk work is full `ask_user` interruption, stronger source verification, richer tool routing, and vector/hybrid RAG inside the Master Agent context.
+- Master Agent Research Core follow-up from `docs/16-master-agent-research-core.md` and `docs/17-agent-state-memory-architecture.md`: V1.6 has the bounded source loop; remaining high-risk work is durable state/memory models, context-pack selection, full `ask_user` interruption, stronger source verification, richer tool routing, specialist ReAct loops, and vector/hybrid RAG inside the Master Agent context.
 
 ## Safe Delegation Candidates
 

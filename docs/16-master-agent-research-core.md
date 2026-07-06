@@ -10,6 +10,12 @@ knowledge base.
 
 The `Master Agent` is the core node that owns this judgment.
 
+For the next state/memory/knowledge architecture layer, read
+`docs/17-agent-state-memory-architecture.md`. V1.6 gave the Master Agent a
+bounded source loop; the next step is explicit state design, context-pack
+selection, external-report internalization, specialist ReAct loops, and
+human-feedback reopening.
+
 ## Non-Negotiable Requirements
 
 The Master Agent must be:

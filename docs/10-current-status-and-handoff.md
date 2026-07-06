@@ -66,6 +66,7 @@ For Cursor, Windsurf, Gemini, Codex, Claude Code, or other tools, also read `doc
 - Architecture requirement captured: `docs/16-master-agent-research-core.md` now records the required Master Agent direction. The Master Agent must be intelligent, tool-capable, stateful during a run, memory-backed by structured context, and able to decide continue/search-again/ask-user/degrade/block. Uploaded external AI reports must be first-class external sources in its context. Hard-coded evidence counts must not be the primary sufficiency rule.
 - V1.6 now implements the first bounded Master Agent research loop for the personal `domain_knowledge` path. The V1 run creates `RunWorkingMemory`, ingests uploaded external reports/user materials/citations before search planning, generates multi-intent `SearchPlan` records, calls the configured `SearchProvider` through structured `SearchIntent`s, records `ToolCallResult` diagnostics, evaluates coverage with `CoverageReport`, and maps the result to `continue` / `search_again` / `degrade` / `block`. Zero evidence blocks before writing; thin evidence is visible as degraded rather than mislabeled sufficient.
 - V1.6 workflow visualization is aligned with actual run gates. Personal project/run workflow definitions now expose `master_agent`, `external_report_intake`, `source_collection`, `evidence_ledger`, `coverage_evaluation`, `knowledge_structuring`, `document_writing`, `artifact_review`, and `export`; frontend event mapping points to these real node IDs.
+- Next architecture requirement captured: `docs/17-agent-state-memory-architecture.md` defines the state/memory/knowledge direction. The next rebuild must introduce explicit `SectorBreakerState`, dynamic practical cognition schema, curated `ContextPack` selection, external report internalization, specialist ReAct loops, optional safe iceberg/risk investigation, and human-feedback reopening. The implementation plan is `docs/superpowers/plans/2026-07-06-agent-state-memory-react-rebuild.md`.
 - Important local debugging note: stale `uvicorn` processes on another port can make the frontend hit old code. The default Vite proxy now targets `127.0.0.1:8030`; before UI acceptance, ensure only one intended `uvicorn backend.app.api.app:app --port 8030` process is running and restart Vite after config changes.
 - LangGraph workflow now includes Scope, Supervisor Plan, Source Strategy, Source Intake, Claim Extractor, Counterevidence, Evidence Ledger, Market, Player, Transaction, Synthesis, Knowledge Map, QA Critic, Export, and RAG Indexer gates.
 - Runs pause at `supervisor_plan` for user confirmation unless `auto_run=true`.
@@ -191,6 +192,16 @@ plans, coverage judgment, bounded search/evaluation loops, and graph/UI
 alignment around the actual executing nodes. Next upgrades should add full
 `ask_user` human interruption, stronger source verification, and RAG/vector
 retrieval inside the Master Agent context.
+
+### Step 1B: State, Memory, And Knowledge Architecture
+
+Follow `docs/17-agent-state-memory-architecture.md` and
+`docs/superpowers/plans/2026-07-06-agent-state-memory-react-rebuild.md`.
+The next implementation should define durable state models, context-pack
+selection, external-report internalization, dynamic L0-L5 knowledge schema,
+specialist ReAct loops, safe iceberg/risk investigation, and human-feedback
+reopen flow. This is now the main architecture path; avoid adding more isolated
+heuristics that do not write into structured state.
 
 ### Step 2: Search Scout And Evidence Curator
 

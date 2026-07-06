@@ -37,6 +37,7 @@ metadata:
 - 已新增 `docs/16-master-agent-research-core.md`，正式记录主管节点 / Master Agent 的架构要求：必须智能、有判断能力、可通过 provider/service 调用工具、具备运行期状态和结构化记忆，并能决定流程继续、补搜、询问用户、降级或中断。上传的外部 AI 调研报告必须作为一等外部信源进入其上下文；硬编码证据条数不能作为主要充分性判断。
 - V1.6 已实现个人版 `domain_knowledge` 的第一版 bounded Master Agent 调研循环：运行期 `RunWorkingMemory` 记录目标、上传材料、搜索尝试、工具结果、覆盖报告和决策；外部 AI 报告/用户材料/引用会先转为 V1 evidence；`SearchPlan` / `SearchIntent` 驱动多意图搜索；`CoverageReport` 按概念、现状、趋势、政策/风险、案例/玩家、用户需求、信源质量判断；`MasterAgentDecision` 决定继续、补搜、降级或中断。0 证据硬中断，薄证据只能以 degraded 继续，不再显示“充分”。
 - V1.6 前后端运行图已对齐真实 gate：个人版 workflow-definition 和前端 event mapping 使用 `master_agent`、`external_report_intake`、`source_collection`、`evidence_ledger`、`coverage_evaluation`、`knowledge_structuring`、`document_writing`、`artifact_review`、`export`。
+- 已新增 `docs/17-agent-state-memory-architecture.md` 和 `docs/superpowers/plans/2026-07-06-agent-state-memory-react-rebuild.md`，正式记录下一阶段核心：知识库设计、状态设计、Agent 记忆设计、上下文筛选、外部 DeepSearch 报告内化、动态 L0-L5 实战认知 Schema、子 Agent ReAct、可选安全冰山/风险探测、人类反馈后重新打开图。
 - 重要排障记忆：旧 `uvicorn` 进程和 Vite 代理端口不一致会造成“后端配置好了但 UI 仍显示未配置/像没修”的假象。验收前先确认只有一个目标后端，当前默认是 `uvicorn backend.app.api.app:app --port 8030`，并在 `vite.config.ts` 或 `VITE_API_PROXY_TARGET` 变更后重启 Vite。
 - 文档与协作规范已建立。
 - 核心 schema、provider interfaces、provider factory、SQLite migration/repository 已建立。
@@ -84,6 +85,7 @@ metadata:
 - 下一优先级建议放在：增强 extractor 失败控制与域名路由、优化 verification task query planning、把验证结果和原 claim/evidence 建立更明确的双向链接。
 - 下一大版本优先级应转向 `docs/16-master-agent-research-core.md`：结构化 run memory、外部报告进入 V1 主上下文、Master Agent 生成工具/搜索计划、LLM CoverageReport 取代硬编码证据条数、bounded ReAct/search loop、运行图与真实节点对齐。
 - Master Agent 后续优先级：V1.6 bounded loop 已落地，下一步应补 full `ask_user` 人在回路中断、更强来源验证、RAG/vector 检索进入主管上下文、更多工具路由，而不是继续写死搜索 heuristic。
+- 状态/记忆后续优先级：先定义 `SectorBreakerState`、`KnowledgeSchema`、`ContextPack`、`TaskMemory`、`AgentDecision` 等 Pydantic 契约，再做 ContextPackBuilder 和外部报告 internalizer，最后迁移到 LangGraph StateGraph 与 specialist ReAct loops。
 - QA Critic artifact prose unsupported-claim 检测与 retry 建议。
 - LangGraph interrupt/resume 与 checkpoint 策略。
 - Agent contract/schema 变更。
