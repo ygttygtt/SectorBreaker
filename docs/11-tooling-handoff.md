@@ -50,6 +50,8 @@ The latest completed implementation milestone is:
 - V1.6 workflow graphs now match actual personal run events: `master_agent`, `external_report_intake`, `source_collection`, `evidence_ledger`, `coverage_evaluation`, `knowledge_structuring`, `document_writing`, `artifact_review`, and `export`.
 - State/memory architecture direction is now documented in `docs/17-agent-state-memory-architecture.md`. The next rebuild plan is `docs/superpowers/plans/2026-07-06-agent-state-memory-react-rebuild.md`: explicit `SectorBreakerState`, dynamic practical cognition schema, context-pack filtering, report internalization, specialist ReAct loops, safe iceberg/risk investigation, and human-feedback reopen.
 - V2 Agent Kernel is now the production personal `domain_knowledge` auto-run path. `backend/app/agent_kernel/pipeline.py` initializes state, internalizes uploaded reports/materials, lets the LLM policy choose approved tools, applies observations into state, and persists only completed artifacts. The older `backend/app/v2_pipeline.py` is a legacy tested path and should not be reconnected as production V2. Writer failure is strict: `write_layer_document` retries three times, then fails the run with `artifact_writing_failed` instead of exporting fake template Markdown.
+- V2 Agent Kernel failure handling is strict across the whole run: if one document write succeeds and a later write fails, the failed run must not persist that earlier partial artifact. Do not weaken this into "save whatever succeeded" unless the product explicitly adds a partial-results review mode.
+- Markdown/Obsidian export copies the repository-root `.obsidian/` folder into each generated project vault. Treat `.obsidian/` as the default vault configuration template for preferred Obsidian plugins/settings/workspace, not as generated research output.
 - The frontend now exposes a mode selector and multi-provider search settings (Tavily recommended, Serper/Brave/Exa visible). It also carries explicit guardrails: do not scrape login-gated job boards by default; use uploads and configured search providers first.
 - Backend: FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + explainable agent selection traces.
 - Frontend: Vite + React + TypeScript explainable research workbench with real workflow graph, vertical layout, and active-node centering.
@@ -116,6 +118,14 @@ cd frontend && npm test -- --run App.test.tsx
 ```
 
 Expected result: 7 Agent Kernel/API tests pass with the known TestClient warning, and 17 frontend App tests pass. A minimal real LLM probe also passed against local runtime config for structured JSON and plain-text calls using `mimo-v2.5-pro`.
+
+Latest export/failure regression verification:
+
+```bash
+python -m pytest tests/api/test_app.py::test_api_agent_kernel_failed_run_does_not_persist_partial_artifacts tests/unit/test_markdown_exporter.py::test_markdown_exporter_copies_default_obsidian_config -q
+```
+
+Expected result: 2 tests pass with the known TestClient warning.
 
 ## Local Run
 

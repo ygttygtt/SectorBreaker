@@ -49,6 +49,19 @@ Every export must include `manifest.json` with:
 - evidence ids;
 - absolute `export_dir` for the local workbench open-folder action;
 - app version when available.
+
+## Default Obsidian Vault Configuration
+
+The repository-root `.obsidian/` directory is the default Obsidian vault
+configuration template. Each generated knowledge-base export must copy this
+folder into the project export directory so the user's preferred Obsidian
+plugins, core settings, and workspace defaults are available immediately after
+opening the vault.
+
+The `.obsidian/` template is export packaging metadata, not research evidence or
+an Agent artifact. It should not be added to `artifact_paths`, evidence ledgers,
+or generated claim metadata.
+
 ## V1 Rich Obsidian Knowledge Export
 
 The runnable V1 path exports seven primary learning-oriented Markdown documents and a bounded set of Obsidian knowledge cards.

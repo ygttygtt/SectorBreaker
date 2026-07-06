@@ -41,6 +41,8 @@ metadata:
 - V1.6 个人版 workflow-definition 和前端流程图已对齐真实事件节点：`master_agent`、`external_report_intake`、`source_collection`、`evidence_ledger`、`coverage_evaluation`、`knowledge_structuring`、`document_writing`、`artifact_review`、`export`。
 - 已新增 `docs/17-agent-state-memory-architecture.md` 和 `docs/superpowers/plans/2026-07-06-agent-state-memory-react-rebuild.md`。下一阶段主线是状态/记忆/知识架构：`SectorBreakerState`、动态 L0-L5 Schema、ContextPack 过滤、外部报告内化、specialist ReAct loops、安全冰山/风险探测、人类反馈 reopening。
 - V2 Agent Kernel 已接入个人版生产 auto-run：`backend/app/agent_kernel/pipeline.py` 初始化 `SectorBreakerState`、内化上传报告/用户材料、让 LLM policy 从 State 和 Tools 中选择下一步、执行工具、应用 StateDelta，并只持久化 completed artifacts。旧 `backend/app/v2_pipeline.py` 是 legacy 测试路径，不能作为生产 V2 主流程继续扩展。`write_layer_document` 失败会重试 3 次；仍失败或输出过薄时 run failed / `artifact_writing_failed`，不会导出模板假产物。
+- V2 Agent Kernel 的失败语义包含 partial-write 场景：如果前一篇文档已生成、后一篇写作失败，失败 run 不能持久化任何半成品 artifact。
+- 根目录 `.obsidian/` 是默认 Obsidian Vault 配置模板，导出器会复制到每个生成的知识库目录；它不是 generated artifact 或 evidence。
 - 前端设置页已展示 Tavily / Serper / Brave / Exa provider mode；Tavily 仍是推荐默认。人才需求模式明确不默认抓取登录型招聘网站。
 - 后端：FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + 可解释选择轨迹
 - 前端：Vite + React + TypeScript，可解释研究工作台，真实 workflow graph，纵向布局与活动节点居中
@@ -73,6 +75,7 @@ metadata:
 - 最新自动化验收：V1.5 pipeline 单测 15 passed；上传/导出 API 子集 6 passed，1 warning；`frontend App.test.tsx` 17 passed；`frontend npm run build` passed，仅 Vite chunk-size warning。
 - 最新自动化验收：V1.6 pipeline 单测 16 passed；workflow-definition API 单测 1 passed，1 warning；`frontend App.test.tsx` 17 passed；`frontend npm run build` passed，仅 Vite chunk-size warning。
 - 最新自动化验收：V2 Agent Kernel 7 passed，1 warning；frontend App 17 passed；真实 LLM 最小探针使用 `mimo-v2.5-pro`，结构化 JSON 与 plain text 均通过。
+- 最新自动化验收：export/failure regression 2 passed，1 warning，覆盖 partial artifact 不落库和导出复制 `.obsidian/`。
 
 最高风险任务：
 

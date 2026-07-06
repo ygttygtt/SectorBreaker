@@ -175,3 +175,29 @@ def test_markdown_exporter_writes_runnable_v1_vault_layout(tmp_path: Path) -> No
     assert "[[LangGraph]]" in readme
     assert "[[待验证问题 1 - 评测方式]]" in readme
     assert "如何继续补库" in readme
+
+
+def test_markdown_exporter_copies_default_obsidian_config(tmp_path: Path) -> None:
+    project = ResearchProject(
+        id="project-vault-config",
+        title="Vault Config Demo",
+        domain="Vault Config Demo",
+        market_scope=MarketScope.MIXED,
+        depth=ResearchDepth.QUICK,
+    )
+    artifact = Artifact(
+        id="ART-DEMO",
+        project_id=project.id,
+        artifact_type=ArtifactType.DOMAIN_OVERVIEW,
+        title="领域总览",
+        content_path="00-领域总览.md",
+        content="# 领域总览\n\nDemo.",
+        source_evidence_ids=[],
+        schema_version="v1",
+    )
+
+    MarkdownExporter(tmp_path).export_project(project, [artifact], [])
+
+    project_dir = tmp_path / "vault-config-demo"
+    assert (project_dir / ".obsidian" / "app.json").exists()
+    assert (project_dir / ".obsidian" / "core-plugins.json").exists()

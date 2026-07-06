@@ -40,6 +40,8 @@ metadata:
 - 已新增 `docs/17-agent-state-memory-architecture.md` 和 `docs/superpowers/plans/2026-07-06-agent-state-memory-react-rebuild.md`，正式记录下一阶段核心：知识库设计、状态设计、Agent 记忆设计、上下文筛选、外部 DeepSearch 报告内化、动态 L0-L5 实战认知 Schema、子 Agent ReAct、可选安全冰山/风险探测、人类反馈后重新打开图。
 - V2 foundation 旧路径仍保留为 legacy 测试路径：`backend/app/v2_pipeline.py` 不再是个人版生产 auto-run 入口，后续不要把它接回主流程。
 - 重要排障记忆：旧 `uvicorn` 进程和 Vite 代理端口不一致会造成“后端配置好了但 UI 仍显示未配置/像没修”的假象。验收前先确认只有一个目标后端，当前默认是 `uvicorn backend.app.api.app:app --port 8030`，并在 `vite.config.ts` 或 `VITE_API_PROXY_TARGET` 变更后重启 Vite。
+- V2 Agent Kernel 失败处理已有 partial-write 回归保护：如果前一篇文档写作成功、后一篇写作失败，run 必须 failed，且不能把前序半成品 artifact 持久化到仓库。
+- 根目录 `.obsidian/` 是默认 Obsidian Vault 配置模板，包含用户常用插件/设置/工作区。Markdown 导出必须把它复制到每个生成的知识库目录；它不是 evidence，也不是 Agent artifact。
 - 文档与协作规范已建立。
 - 核心 schema、provider interfaces、provider factory、SQLite migration/repository 已建立。
 - 已新增 `source_policy`、`SupervisorPlan`、`AgentTask`、`AgentSelectionDecision`、`AgentSelectionSignal`、`EvidenceClaim`、`QAReport`、workflow definition schemas。
@@ -126,6 +128,7 @@ metadata:
 - 当前本轮已新增验证：`python -m pytest tests/unit/test_v1_pipeline.py -q` => 15 passed；上传/导出 API 子集 => 6 passed，1 warning；`cd frontend && npm test -- --run App.test.tsx` => 17 passed；`cd frontend && npm run build` => 通过，仅 Vite chunk-size warning。
 - 当前本轮已新增验证：`python -m pytest tests/unit/test_v1_pipeline.py -q` => 16 passed；`python -m pytest tests/api/test_app.py::test_api_exposes_workflow_definition_and_source_policy -q` => 1 passed，1 warning；`cd frontend && npm test -- --run App.test.tsx` => 17 passed；`cd frontend && npm run build` => 通过，仅 Vite chunk-size warning。
 - 当前本轮已新增验证：V2 Agent Kernel `python -m pytest tests/unit/test_agent_kernel_models.py tests/unit/test_agent_kernel_tools.py tests/unit/test_agent_kernel_runtime.py tests/api/test_app.py::test_api_runs_research_and_exports_markdown tests/api/test_app.py::test_api_agent_kernel_writer_failure_marks_run_failed_without_artifacts tests/api/test_app.py::test_api_agent_kernel_uploaded_report_reaches_writer_context -q` => 7 passed，1 warning；`cd frontend && npm test -- --run App.test.tsx` => 17 passed；真实 LLM 最小探针使用本地 runtime config 的 `mimo-v2.5-pro`，结构化 JSON 和 plain text 均通过。
+- 当前本轮已新增验证：`python -m pytest tests/api/test_app.py::test_api_agent_kernel_failed_run_does_not_persist_partial_artifacts tests/unit/test_markdown_exporter.py::test_markdown_exporter_copies_default_obsidian_config -q` => 2 passed，1 warning。
 - `cd frontend && npm test -- --run`：3 passed。
 - `cd frontend && npm run build`：通过。
 

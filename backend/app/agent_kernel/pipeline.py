@@ -65,8 +65,6 @@ async def run_v2_agent_kernel_pipeline(
         config=KernelLoopConfig(),
     )
     result = await runtime.run(runtime_context)
-    for artifact in runtime_context.artifacts:
-        repository.add_artifact(artifact)
     await emit_event(RunEvent(
         event_type="node_completed" if result.status == KernelRunStatus.COMPLETED else "node_degraded",
         gate="export" if result.status == KernelRunStatus.COMPLETED else "agent_decide",
@@ -77,6 +75,8 @@ async def run_v2_agent_kernel_pipeline(
     ))
     if result.status != KernelRunStatus.COMPLETED:
         raise RuntimeError(f"V2 Agent Kernel 未能完成：{result.status.value} / {result.stop_reason}")
+    for artifact in runtime_context.artifacts:
+        repository.add_artifact(artifact)
     return runtime_context.artifacts
 
 

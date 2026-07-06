@@ -147,6 +147,61 @@ def _failing_kernel_writer_llm():
     return FailingKernelWriterLLM()
 
 
+def _partial_then_failing_kernel_writer_llm():
+    class PartialThenFailingKernelWriterLLM(FakeLLMProvider):
+        def __init__(self):
+            super().__init__(response={})
+            self.agent_decision_count = 0
+            self.writer_calls = 0
+
+        async def complete_structured(self, messages, response_schema):
+            if getattr(response_schema, "__name__", "") == "AgentDecision":
+                self.agent_decision_count += 1
+                if self.agent_decision_count == 1:
+                    return response_schema.model_validate({
+                        "thought_summary": "先写第一篇文档。",
+                        "action_type": "write_artifact",
+                        "tool_call": {
+                            "tool_name": "write_layer_document",
+                            "args": {
+                                "layer_id": "L1_what_why",
+                                "title": "L1 本源与需求",
+                                "writing_goal": "解释领域是什么、为什么存在。",
+                            },
+                            "reason": "制造先成功再失败的回归场景。",
+                        },
+                    })
+                return response_schema.model_validate({
+                    "thought_summary": "第二篇写作会失败。",
+                    "action_type": "write_artifact",
+                    "tool_call": {
+                        "tool_name": "write_layer_document",
+                        "args": {
+                            "layer_id": "L2_who",
+                            "title": "L2 角色与玩家",
+                            "writing_goal": "识别角色与玩家。",
+                        },
+                        "reason": "验证 failed run 不落库前序半成品。",
+                    },
+                })
+            if response_schema is str:
+                self.writer_calls += 1
+                if self.writer_calls == 1:
+                    return (
+                        "# L1 本源与需求\n\n"
+                        "## 是什么\n\n"
+                        "这是一篇足够长的第一篇文档，用来模拟 Agent Kernel 在第一轮写作中成功生成了一个 artifact。"
+                        "它包含 Obsidian 链接 [[领域边界]] 和证据提示 EV-PARTIAL-1。"
+                        + "第一篇成功内容。" * 80
+                        + "\n\n## 为什么存在\n\n"
+                        "这一段继续补充背景，确保 Markdown 通过可用性检查。"
+                    )
+                raise ValueError("second writer failure")
+            return await super().complete_structured(messages, response_schema)
+
+    return PartialThenFailingKernelWriterLLM()
+
+
 class FakeJobSourceProvider:
     def __init__(self, jobs: list[JobPostingSource], available: bool = True) -> None:
         self.jobs = jobs
@@ -246,6 +301,34 @@ def test_api_agent_kernel_writer_failure_marks_run_failed_without_artifacts(tmp_
     events = client.get(f"/api/runs/{run_response.json()['id']}/events").text
     assert "LLM 写作连续失败" in events
     assert "未导出模板" in events
+
+
+def test_api_agent_kernel_failed_run_does_not_persist_partial_artifacts(tmp_path: Path) -> None:
+    llm = _partial_then_failing_kernel_writer_llm()
+    client = TestClient(
+        create_app(
+            database_path=tmp_path / "sectorbreaker.sqlite3",
+            export_root=tmp_path / "exports",
+            llm_provider=llm,
+        )
+    )
+    project = client.post(
+        "/api/projects",
+        json={
+            "title": "API中转站",
+            "domain": "API中转站",
+            "market_scope": "mixed",
+            "depth": "quick",
+        },
+    ).json()
+
+    run_response = client.post(f"/api/projects/{project['id']}/runs", params={"auto_run": "true"})
+    run_result = _wait_for_run(client, run_response.json()["id"])
+
+    assert run_result["status"] == "failed"
+    assert llm.writer_calls == 4
+    artifacts = client.get(f"/api/projects/{project['id']}/artifacts").json()
+    assert artifacts == []
 
 
 def test_api_agent_kernel_uploaded_report_reaches_writer_context(tmp_path: Path) -> None:

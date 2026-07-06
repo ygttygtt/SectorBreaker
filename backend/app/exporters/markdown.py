@@ -6,6 +6,7 @@ Exports are organized by the 5 steps from the design doc:
 
 import json
 import re
+import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -26,6 +27,7 @@ class ExportManifest(BaseModel):
 class MarkdownExporter:
     def __init__(self, export_root: Path) -> None:
         self.export_root = export_root
+        self.default_obsidian_config_dir = Path(__file__).resolve().parents[3] / ".obsidian"
 
     def export_project(
         self,
@@ -35,6 +37,7 @@ class MarkdownExporter:
     ) -> ExportManifest:
         project_dir = self.export_root / self._slugify(project.title)
         project_dir.mkdir(parents=True, exist_ok=True)
+        self._copy_default_obsidian_config(project_dir)
 
         artifact_paths: list[str] = []
 
@@ -87,6 +90,20 @@ class MarkdownExporter:
                 encoding="utf-8",
             )
         return manifest
+
+    def _copy_default_obsidian_config(self, project_dir: Path) -> None:
+        """Copy the repository's preferred Obsidian vault settings into exports."""
+        if not self.default_obsidian_config_dir.is_dir():
+            return
+        target_dir = project_dir / ".obsidian"
+        for source_path in self.default_obsidian_config_dir.rglob("*"):
+            relative_path = source_path.relative_to(self.default_obsidian_config_dir)
+            target_path = target_dir / relative_path
+            if source_path.is_dir():
+                target_path.mkdir(parents=True, exist_ok=True)
+                continue
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path, target_path)
 
     def _generate_readme(
         self, project: ResearchProject, artifacts: list[Artifact],

@@ -11,10 +11,14 @@ Tests should make the project safe for lower-context agents to modify. Prefer fo
 - Provider interfaces and environment-backed provider factories.
 - SQLite repositories, insertion ordering, and FTS retrieval.
 - Export writer.
+- Export writer must copy the repository-root `.obsidian/` default vault
+  configuration into every generated project vault.
 - Schema validation.
 - V1.6 Master Agent loop: multi-intent search planning, uploaded external
   report evidence ingestion, coverage-driven retry/degrade/block decisions, and
   zero-evidence blocking.
+- V2 Agent Kernel: failed runs must not persist partial artifacts, including the
+  case where an earlier document was written before a later write failed.
 
 ### Graph Tests
 
