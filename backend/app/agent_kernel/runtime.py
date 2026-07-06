@@ -144,7 +144,7 @@ class AgentKernelRuntime:
                     context,
                     failed,
                     gate="artifact_writing",
-                    agent="V2 Document Writer",
+                    agent="V2 Artifact Writer",
                     severity="error",
                 )
                 return self._result(

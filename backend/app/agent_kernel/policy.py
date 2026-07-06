@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from backend.app.agent_kernel.context import KernelContextBuilder
@@ -50,6 +51,9 @@ class LLMAgentPolicy:
                 AgentDecision,
             )
         except Exception as exc:
+            repaired = await self._repair_decision_json(prompt=prompt, error=exc)
+            if repaired is not None:
+                return repaired
             return AgentDecision(
                 thought_summary=f"上一轮 LLM 决策输出无法解析，需要记录错误并进入自我修正。错误：{type(exc).__name__}",
                 action_type=AgentActionType.CALL_TOOL,
@@ -61,6 +65,29 @@ class LLMAgentPolicy:
                 expected_observation="记录格式错误并进入下一轮决策。",
             )
         return decision
+
+    async def _repair_decision_json(self, *, prompt: str, error: Exception) -> AgentDecision | None:
+        if self.llm_provider is None:
+            return None
+        repair_prompt = (
+            "上一次 AgentDecision 输出不是合法 JSON，导致解析失败。\n"
+            f"错误类型：{type(error).__name__}\n"
+            f"错误摘要：{str(error)[:1000]}\n\n"
+            "请重新输出一个合法 JSON 对象，必须符合以下字段：\n"
+            "- thought_summary: string\n"
+            "- action_type: call_tool | update_state | write_artifact | review_artifact | ask_user | finish | block\n"
+            "- tool_call: 当 action_type 需要工具时必须包含 {tool_name, args, reason}\n"
+            "- expected_observation: string\n"
+            "- stop_reason: finish 或 block 时必须填写\n\n"
+            "不要输出 Markdown，不要解释，不要代码块，只输出 JSON。\n\n"
+            "原始任务上下文如下：\n"
+            f"{prompt[-12000:]}"
+        )
+        try:
+            content = await self.llm_provider.complete([ChatMessage(role="user", content=repair_prompt)])
+            return AgentDecision.model_validate(_loads_json_object(content))
+        except Exception:
+            return None
 
     def _build_prompt(
         self,
@@ -106,3 +133,22 @@ def load_prompt(name: str) -> str:
         "你是 SectorBreaker V2 Master Agent。读取 State，选择 Tools，观察结果，更新记忆。"
         "不要把 L1-L5 当成死流程。必须输出结构化 JSON action。"
     )
+
+
+def _loads_json_object(content: str) -> dict:
+    text = content.strip()
+    if text.startswith("```"):
+        text = text.strip("`").strip()
+        if text.lower().startswith("json"):
+            text = text[4:].strip()
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start < 0 or end <= start:
+            raise
+        value = json.loads(text[start:end + 1])
+    if not isinstance(value, dict):
+        raise ValueError("AgentDecision repair output must be a JSON object")
+    return value

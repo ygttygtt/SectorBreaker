@@ -27,9 +27,12 @@ def test_write_layer_document_retries_and_does_not_save_artifact_when_llm_fails(
         def __init__(self) -> None:
             self.calls = 0
 
-        async def complete_structured(self, messages, response_schema):
+        async def complete(self, messages):
             self.calls += 1
             raise ValueError("broken llm response")
+
+        async def complete_structured(self, messages, response_schema):
+            raise AssertionError("Markdown writing must not use structured completion")
 
     class FakeRepository:
         def list_evidence(self, project_id):
@@ -68,6 +71,6 @@ def test_write_layer_document_retries_and_does_not_save_artifact_when_llm_fails(
     assert observation.success is False
     assert observation.artifact_ids == []
     assert context.artifacts == []
-    assert llm.calls == 3
-    assert observation.data["attempts"] == 3
-    assert "LLM 写作连续失败" in observation.summary
+    assert llm.calls == 2
+    assert observation.data["attempts"] == 2
+    assert "LLM 分节写作失败" in observation.summary

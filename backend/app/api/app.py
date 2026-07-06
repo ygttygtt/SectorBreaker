@@ -29,7 +29,7 @@ from backend.app.graph.workflow import (
     run_research_workflow,
     run_workflow_until_pause,
 )
-from backend.app.graph.planner import build_v1_master_workflow_definition, build_workflow_definition
+from backend.app.graph.planner import build_agent_kernel_workflow_definition, build_workflow_definition
 from backend.app.providers.factory import (
     build_content_extraction_provider,
     build_content_extraction_provider_from_config,
@@ -97,12 +97,14 @@ class LLMConfig(BaseModel):
     base_url: str
     api_key: str
     model: str
+    max_tokens: int = Field(default=4096, ge=512, le=32768)
 
 
 class LLMConfigStatus(BaseModel):
     configured: bool
     base_url: str | None = None
     model: str | None = None
+    max_tokens: int | None = None
 
 
 class SearchConfigStatus(BaseModel):
@@ -577,6 +579,7 @@ def create_app(
             base_url=runtime_config["llm_base_url"],
             api_key=runtime_config["llm_api_key"],
             model=runtime_config["llm_model"],
+            max_tokens=int(runtime_config.get("llm_max_tokens", 4096)),
         )
     else:
         active_llm_provider = build_llm_provider()
@@ -621,7 +624,7 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="project not found") from exc
         if project.project_mode == ProjectMode.DOMAIN_KNOWLEDGE:
-            return build_v1_master_workflow_definition().model_dump(mode="json")
+            return build_agent_kernel_workflow_definition().model_dump(mode="json")
         definition = build_workflow_definition()
         return definition.model_dump(mode="json")
 
@@ -772,7 +775,7 @@ def create_app(
             except KeyError as exc:
                 raise HTTPException(status_code=404, detail="project not found") from exc
             if project.project_mode == ProjectMode.DOMAIN_KNOWLEDGE:
-                return build_v1_master_workflow_definition().model_dump(mode="json")
+                return build_agent_kernel_workflow_definition().model_dump(mode="json")
         return build_workflow_definition(plan).model_dump(mode="json")
 
     @app.post("/api/runs/{run_id}/resume")
@@ -1252,6 +1255,7 @@ def create_app(
             configured=True,
             base_url=active_llm_provider.base_url,
             model=active_llm_provider.model,
+            max_tokens=getattr(active_llm_provider, "max_tokens", None),
         ).model_dump(mode="json")
 
     @app.get("/api/config/search")
@@ -1519,6 +1523,7 @@ def create_app(
                 base_url=payload.base_url,
                 api_key=payload.api_key,
                 model=payload.model,
+                max_tokens=payload.max_tokens,
             )
             persisted_config = load_runtime_config(runtime_config_path)
             save_runtime_config(
@@ -1528,6 +1533,7 @@ def create_app(
                     "llm_base_url": payload.base_url,
                     "llm_api_key": payload.api_key,
                     "llm_model": payload.model,
+                    "llm_max_tokens": payload.max_tokens,
                 },
             )
             return {"success": True, "message": "LLM 配置已更新"}
@@ -1541,6 +1547,7 @@ def create_app(
                 base_url=payload.base_url,
                 api_key=payload.api_key,
                 model=payload.model,
+                max_tokens=payload.max_tokens,
             )
             from backend.app.providers.interfaces import ChatMessage
             messages = [ChatMessage(role="user", content="Hello")]

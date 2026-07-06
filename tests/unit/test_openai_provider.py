@@ -54,3 +54,36 @@ def test_openai_compatible_provider_returns_json(monkeypatch) -> None:
 
     assert result["sections"] == ["行业边界", "玩家结构"]
     assert result["key_questions"] == ["谁付钱？"]
+
+
+def test_openai_compatible_provider_parses_keepalive_wrapped_body(monkeypatch) -> None:
+    import backend.app.providers.openai_compatible as provider_module
+
+    class KeepaliveResponse:
+        status_code = 200
+        text = (
+            ': keepalive\n\n'
+            '{"choices":[{"message":{"content":"# 标题\\n\\n## 小节\\n\\n正文"}}]}'
+        )
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            raise provider_module.json.JSONDecodeError("wrapped", self.text, 0)
+
+    class KeepaliveClient(FakeAsyncClient):
+        async def post(self, url: str, json: dict, headers: dict) -> KeepaliveResponse:
+            self.requests.append({"url": url, "json": json, "headers": headers})
+            return KeepaliveResponse()
+
+    monkeypatch.setattr(provider_module.httpx, "AsyncClient", KeepaliveClient)
+    provider = OpenAICompatibleLLMProvider(
+        base_url="https://llm.example.com/v1",
+        api_key="test-key",
+        model="test-model",
+    )
+
+    result = asyncio.run(provider.complete([ChatMessage(role="user", content="write")]))
+
+    assert result.startswith("# 标题")

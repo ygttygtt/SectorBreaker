@@ -38,7 +38,7 @@ metadata:
 - V1.6 已实现个人版 `domain_knowledge` 的第一版 bounded Master Agent 调研循环：运行期 `RunWorkingMemory` 记录目标、上传材料、搜索尝试、工具结果、覆盖报告和决策；外部 AI 报告/用户材料/引用会先转为 V1 evidence；`SearchPlan` / `SearchIntent` 驱动多意图搜索；`CoverageReport` 按概念、现状、趋势、政策/风险、案例/玩家、用户需求、信源质量判断；`MasterAgentDecision` 决定继续、补搜、降级或中断。0 证据硬中断，薄证据只能以 degraded 继续，不再显示“充分”。
 - V1.6 前后端运行图已对齐真实 gate：个人版 workflow-definition 和前端 event mapping 使用 `master_agent`、`external_report_intake`、`source_collection`、`evidence_ledger`、`coverage_evaluation`、`knowledge_structuring`、`document_writing`、`artifact_review`、`export`。
 - 已新增 `docs/17-agent-state-memory-architecture.md` 和 `docs/superpowers/plans/2026-07-06-agent-state-memory-react-rebuild.md`，正式记录下一阶段核心：知识库设计、状态设计、Agent 记忆设计、上下文筛选、外部 DeepSearch 报告内化、动态 L0-L5 实战认知 Schema、子 Agent ReAct、可选安全冰山/风险探测、人类反馈后重新打开图。
-- V2 foundation 旧路径仍保留为 legacy 测试路径：`backend/app/v2_pipeline.py` 不再是个人版生产 auto-run 入口，后续不要把它接回主流程。
+- 旧 V1/V2 workflow 代码已隔离到 `backend/app/legacy/`：`legacy_v1_pipeline.py` 与 `legacy_fixed_v2_pipeline.py` 只允许作为历史对照和 legacy 单测使用，生产代码不得 import `backend.app.legacy`。
 - 重要排障记忆：旧 `uvicorn` 进程和 Vite 代理端口不一致会造成“后端配置好了但 UI 仍显示未配置/像没修”的假象。验收前先确认只有一个目标后端，当前默认是 `uvicorn backend.app.api.app:app --port 8030`，并在 `vite.config.ts` 或 `VITE_API_PROXY_TARGET` 变更后重启 Vite。
 - V2 Agent Kernel 失败处理已有 partial-write 回归保护：如果前一篇文档写作成功、后一篇写作失败，run 必须 failed，且不能把前序半成品 artifact 持久化到仓库。
 - 根目录 `.obsidian/` 是默认 Obsidian Vault 配置模板，包含用户常用插件/设置/工作区。Markdown 导出必须把它复制到每个生成的知识库目录；它不是 evidence，也不是 Agent artifact。
@@ -74,7 +74,7 @@ metadata:
 - Markdown/Obsidian 导出器已跑通。
 - FastAPI API 已跑通项目 create/list/detail、run、evidence、artifacts、export、chat。
 - React/Vite 工作台已重构：信源模式选择、可选 assistant brief、真实 workflow graph、纵向布局、活动节点居中、节点状态、事件流、运行时长、Supervisor Plan review、QA 阻塞视图、证据/产物/问答/导出。
-- Vite 已代理 `/api` 到 `http://127.0.0.1:8000`。
+- Vite 默认代理 `/api` 到 `http://127.0.0.1:8030`。
 
 强把控任务：
 
@@ -90,7 +90,9 @@ metadata:
 - Master Agent 后续优先级：V1.6 bounded loop 已落地，下一步应补 full `ask_user` 人在回路中断、更强来源验证、RAG/vector 检索进入主管上下文、更多工具路由，而不是继续写死搜索 heuristic。
 - 状态/记忆后续优先级：先定义 `SectorBreakerState`、`KnowledgeSchema`、`ContextPack`、`TaskMemory`、`AgentDecision` 等 Pydantic 契约，再做 ContextPackBuilder 和外部报告 internalizer，最后迁移到 LangGraph StateGraph 与 specialist ReAct loops。
 - V2 后续优先级：Pydantic 契约、ContextPackBuilder、ReportInternalizer、ReAct runner、specialist contracts、冰山风险 Agent、V2 graph skeleton 和真实个人版 auto-run V2 pipeline 已实现并测试；下一步要持久化 V2 state、让 specialist loop 使用更强 LLM/tool policy、接 human feedback reopening、深化 source verification/RAG。
-- V2 Agent Kernel 已接入个人版生产 auto-run：`backend/app/agent_kernel/pipeline.py` 初始化 `SectorBreakerState`、内化上传报告/用户材料、让 LLM policy 从 State 和 Tools 中选择下一步、执行工具、应用 StateDelta，并只持久化 completed artifacts。运行事件可见 Thought Summary / Action / Observation / State Update / Decision。`write_layer_document` 会重试 3 次；仍失败或过薄则 run failed / `artifact_writing_failed`，不保存模板假产物。
+- V2 Agent Kernel 已接入个人版生产 auto-run：`backend/app/agent_kernel/pipeline.py` 初始化 `SectorBreakerState`、内化上传报告/用户材料、让 LLM policy 从 State 和 Tools 中选择下一步、执行工具、应用 StateDelta，并只持久化 completed artifacts。运行事件可见 Thought Summary / Action / Observation / State Update / Decision。`write_layer_document` 使用普通文本 LLM completion 写 Markdown，不再把正文当 JSON 解析；会重试 3 次，仍失败或过薄则 run failed / `artifact_writing_failed`，不保存模板假产物。
+- Agent Kernel 验收规则：不能只看 fake/unit test。必须用真实 Mimo + Tavily 跑一轮端到端，并打开导出 Markdown 检查是否为 `schema_version: "v2-agent-kernel"`、内容非模板、没有 `EV-V1-*` / `ART-V1-*`。
+- 当前真实 Agent Kernel 验收：项目 `api中转站-v2-agent-kernel验收5` 已用真实 Mimo + Tavily 跑通，导出目录 `E:\QianFengStudy\PythonProject\SectorBreaker\exports\api中转站-v2-agent-kernel验收5`。导出包含 5 篇 V2 Markdown（约 17KB-22KB），使用 `schema_version: "v2-agent-kernel"` 和 `EV-KERNEL-*`，未发现 `EV-V1-*`、`ART-V1-*`、`Knowledge Builder`、`Document Writer`、`specialist_react_loop`、`已使用保底`。
 - QA Critic artifact prose unsupported-claim 检测与 retry 建议。
 - LangGraph interrupt/resume 与 checkpoint 策略。
 - Agent contract/schema 变更。
@@ -129,6 +131,8 @@ metadata:
 - 当前本轮已新增验证：`python -m pytest tests/unit/test_v1_pipeline.py -q` => 16 passed；`python -m pytest tests/api/test_app.py::test_api_exposes_workflow_definition_and_source_policy -q` => 1 passed，1 warning；`cd frontend && npm test -- --run App.test.tsx` => 17 passed；`cd frontend && npm run build` => 通过，仅 Vite chunk-size warning。
 - 当前本轮已新增验证：V2 Agent Kernel `python -m pytest tests/unit/test_agent_kernel_models.py tests/unit/test_agent_kernel_tools.py tests/unit/test_agent_kernel_runtime.py tests/api/test_app.py::test_api_runs_research_and_exports_markdown tests/api/test_app.py::test_api_agent_kernel_writer_failure_marks_run_failed_without_artifacts tests/api/test_app.py::test_api_agent_kernel_uploaded_report_reaches_writer_context -q` => 7 passed，1 warning；`cd frontend && npm test -- --run App.test.tsx` => 17 passed；真实 LLM 最小探针使用本地 runtime config 的 `mimo-v2.5-pro`，结构化 JSON 和 plain text 均通过。
 - 当前本轮已新增验证：`python -m pytest tests/api/test_app.py::test_api_agent_kernel_failed_run_does_not_persist_partial_artifacts tests/unit/test_markdown_exporter.py::test_markdown_exporter_copies_default_obsidian_config -q` => 2 passed，1 warning。
+- 当前真实 Agent Kernel 验收：`api中转站-v2-agent-kernel验收5` 导出 5 篇 V2 Markdown，文件大小约 17KB-22KB，抽查内容为非模板正文，且没有旧 V1/fallback 标记。
+- 当前切换收口验证：provider/kernel/API/export/planner 编译通过；`python -m pytest tests/unit/test_agent_kernel_tools.py tests/unit/test_openai_provider.py tests/unit/test_markdown_exporter.py::test_markdown_exporter_copies_default_obsidian_config -q` => 4 passed；`cd frontend && npm test -- --run App.test.tsx` => 18 passed；生产 legacy import 扫描无匹配；验收导出只命中 5 个 `schema_version: "v2-agent-kernel"`，无旧 V1/fallback 标记。
 - `cd frontend && npm test -- --run`：3 passed。
 - `cd frontend && npm run build`：通过。
 

@@ -41,8 +41,12 @@ async def run_v2_agent_kernel_pipeline(
         event_type="node_started",
         gate="initialize_state",
         agent="V2 Agent Kernel",
-        message="初始化 Agent Kernel State：目标、L1-L5 认知 schema、工具预算与运行记忆已建立。",
-        data={"state": state.model_dump(mode="json")},
+        message="Agent Kernel 已启动：本轮使用 State + Tools + ReAct 主循环，不再执行旧 L1-L5 固定 workflow。",
+        data={
+            "pipeline": "agent_kernel",
+            "schema_version": "v2-agent-kernel",
+            "state": state.model_dump(mode="json"),
+        },
     ))
     await _internalize_uploaded_documents(
         project=project,

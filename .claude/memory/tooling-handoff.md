@@ -40,7 +40,9 @@ metadata:
 - V1.6 已实现个人版 bounded Master Agent loop：`RunWorkingMemory`、外部报告/材料/引用证据入库、Master 多意图搜索计划、`SearchProvider` 工具调用诊断、`CoverageReport` 覆盖判断、`MasterAgentDecision` 继续/补搜/降级/中断。0 证据会阻塞，薄证据会 degraded，不再被标记为充分。
 - V1.6 个人版 workflow-definition 和前端流程图已对齐真实事件节点：`master_agent`、`external_report_intake`、`source_collection`、`evidence_ledger`、`coverage_evaluation`、`knowledge_structuring`、`document_writing`、`artifact_review`、`export`。
 - 已新增 `docs/17-agent-state-memory-architecture.md` 和 `docs/superpowers/plans/2026-07-06-agent-state-memory-react-rebuild.md`。下一阶段主线是状态/记忆/知识架构：`SectorBreakerState`、动态 L0-L5 Schema、ContextPack 过滤、外部报告内化、specialist ReAct loops、安全冰山/风险探测、人类反馈 reopening。
-- V2 Agent Kernel 已接入个人版生产 auto-run：`backend/app/agent_kernel/pipeline.py` 初始化 `SectorBreakerState`、内化上传报告/用户材料、让 LLM policy 从 State 和 Tools 中选择下一步、执行工具、应用 StateDelta，并只持久化 completed artifacts。旧 `backend/app/v2_pipeline.py` 是 legacy 测试路径，不能作为生产 V2 主流程继续扩展。`write_layer_document` 失败会重试 3 次；仍失败或输出过薄时 run failed / `artifact_writing_failed`，不会导出模板假产物。
+- V2 Agent Kernel 已接入个人版生产 auto-run：`backend/app/agent_kernel/pipeline.py` 初始化 `SectorBreakerState`、内化上传报告/用户材料、让 LLM policy 从 State 和 Tools 中选择下一步、执行工具、应用 StateDelta，并只持久化 completed artifacts。旧 V1/V2 workflow 已移动到 `backend/app/legacy/`，生产代码不得 import。`write_layer_document` 使用普通文本 LLM completion 写 Markdown，不再把正文当 JSON 解析；失败会重试 3 次，仍失败或输出过薄时 run failed / `artifact_writing_failed`，不会导出模板假产物。
+- Agent Kernel 验收必须包含真实 Mimo + Tavily 端到端运行和导出 Markdown 检查；fake/unit test 不能单独作为用户可测结论。
+- 当前真实 Agent Kernel 验收：项目 `api中转站-v2-agent-kernel验收5`，导出目录 `E:\QianFengStudy\PythonProject\SectorBreaker\exports\api中转站-v2-agent-kernel验收5`。导出包含 5 篇 V2 Markdown（约 17KB-22KB），使用 `schema_version: "v2-agent-kernel"` 和 `EV-KERNEL-*`，无旧 V1/fallback 标记。
 - V2 Agent Kernel 的失败语义包含 partial-write 场景：如果前一篇文档已生成、后一篇写作失败，失败 run 不能持久化任何半成品 artifact。
 - 根目录 `.obsidian/` 是默认 Obsidian Vault 配置模板，导出器会复制到每个生成的知识库目录；它不是 generated artifact 或 evidence。
 - 前端设置页已展示 Tavily / Serper / Brave / Exa provider mode；Tavily 仍是推荐默认。人才需求模式明确不默认抓取登录型招聘网站。
@@ -76,6 +78,8 @@ metadata:
 - 最新自动化验收：V1.6 pipeline 单测 16 passed；workflow-definition API 单测 1 passed，1 warning；`frontend App.test.tsx` 17 passed；`frontend npm run build` passed，仅 Vite chunk-size warning。
 - 最新自动化验收：V2 Agent Kernel 7 passed，1 warning；frontend App 17 passed；真实 LLM 最小探针使用 `mimo-v2.5-pro`，结构化 JSON 与 plain text 均通过。
 - 最新自动化验收：export/failure regression 2 passed，1 warning，覆盖 partial artifact 不落库和导出复制 `.obsidian/`。
+- 最新真实验收：`api中转站-v2-agent-kernel验收5` 导出 5 篇 V2 Markdown，文件大小约 17KB-22KB，抽查内容为非模板正文，且没有旧 V1/fallback 标记。
+- 最新切换收口验证：provider/kernel/API/export/planner 编译通过；focused Python suite 4 passed；frontend App suite 18 passed；生产 legacy import 扫描无匹配；验收导出只命中 5 个 `schema_version: "v2-agent-kernel"`，无旧 V1/fallback 标记。
 
 最高风险任务：
 

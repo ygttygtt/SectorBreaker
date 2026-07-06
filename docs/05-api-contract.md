@@ -17,14 +17,14 @@ Create accepts `source_policy` (`open_web`, `reliable_first`, `reliable_only`, `
 
 `project_mode` values:
 
-- `domain_knowledge` (default): run the V1/V1.6 learning-oriented knowledge-base workflow.
+- `domain_knowledge` (default): run the V2 Agent Kernel learning-oriented knowledge-base workflow.
 - `talent_demand`: run the V1.3 Talent Demand Intelligence workflow.
 
 Old create-project payloads that omit `project_mode` remain valid and are stored
-as `domain_knowledge`. Current v1 implementation supports create/list/detail and
+as `domain_knowledge`. Current implementation supports create/list/detail and
 workflow definition. Patch/update remains a contract target.
 
-- `GET /api/projects/{project_id}/workflow-definition`: returns the baseline workflow graph definition. For `domain_knowledge`, this is the V1.6 Master Agent graph (`master_agent`, `external_report_intake`, `source_collection`, `coverage_evaluation`, `knowledge_structuring`, `document_writing`, `artifact_review`, `export`).
+- `GET /api/projects/{project_id}/workflow-definition`: returns the baseline workflow graph definition. For `domain_knowledge`, this is the V2 Agent Kernel graph (`initialize_state`, `external_materials`, `agent_decide`, `tool_execution`, `state_update`, `artifact_writing`, `artifact_review`, `human_feedback`, `export`).
 
 ### Runs
 
@@ -32,9 +32,9 @@ workflow definition. Patch/update remains a contract target.
 - `GET /api/runs/{run_id}`: get run status.
 - `POST /api/runs/{run_id}/resume`: resume after human review.
 - `GET /api/runs/{run_id}/events`: stream run events with SSE.
-- `GET /api/runs/{run_id}/workflow-definition`: returns the run graph. Runs with a stored Supervisor plan return the expanded legacy Supervisor graph; personal V1.6 runs without a Supervisor plan return the Master Agent graph.
+- `GET /api/runs/{run_id}/workflow-definition`: returns the run graph. Runs with a stored Supervisor plan return the expanded legacy Supervisor graph; personal Agent Kernel runs without a Supervisor plan return the Agent Kernel graph.
 
-Current v1 implementation creates a background run, pauses for Supervisor plan confirmation unless `auto_run=true`, supports resume, and streams SSE node events. The `auto_run=true` personal path uses the V1.6 Master Agent loop before writing artifacts.
+Current implementation creates a background run, pauses for Supervisor plan confirmation unless `auto_run=true`, supports resume, and streams SSE node events. The `auto_run=true` personal path uses the V2 Agent Kernel loop and must not import archived legacy pipelines.
 
 ### Evidence And Artifacts
 

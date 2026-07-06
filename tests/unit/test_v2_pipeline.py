@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 
 from backend.app.providers.interfaces import SearchQuery, SearchResult
 from backend.app.schemas import MarketScope, ProjectStatus, ResearchDepth, ResearchProject, SourcePolicy
-from backend.app.v2_pipeline import run_v2_react_knowledge_pipeline
+from backend.app.legacy.legacy_fixed_v2_pipeline import run_v2_react_knowledge_pipeline
 
 
 def _project() -> ResearchProject:

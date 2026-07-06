@@ -59,18 +59,12 @@ const eventNodeMap: Record<string, string> = {
   artifact_writing: "artifact_writing",
   human_feedback: "human_feedback",
   supervisor_plan: "supervisor_plan",
-  master_agent: "master_agent",
   source_strategy: "source_strategy",
-  external_report_intake: "external_report_intake",
   source_collection: "source_collection",
-  specialist_react_loop: "specialist_react_loop",
   evidence: "source_collection",
   claim_extractor: "claim_extractor",
   counterevidence: "counterevidence",
   evidence_ledger: "evidence_ledger",
-  coverage_evaluation: "coverage_evaluation",
-  knowledge_structuring: "knowledge_structuring",
-  document_writing: "document_writing",
   artifact_review: "artifact_review",
   quality_review: "artifact_review",
   talent_source_intake: "talent_source_intake",
@@ -89,7 +83,21 @@ const eventNodeMap: Record<string, string> = {
 };
 
 export function nodeIdForEvent(event: Pick<RunEvent, "gate" | "step" | "agent">) {
-  return eventNodeMap[event.gate] ?? event.step ?? event.agent?.toLowerCase().replace(/\s+/g, "_");
+  return eventNodeMap[event.gate] ?? event.step ?? event.gate ?? event.agent?.toLowerCase().replace(/\s+/g, "_");
+}
+
+function nodeIdForDefinition(
+  event: Pick<RunEvent, "gate" | "step" | "agent">,
+  definition: WorkflowDefinition | null,
+) {
+  const nodeId = nodeIdForEvent(event);
+  if (!definition || definition.nodes.some((node) => node.id === nodeId)) return nodeId;
+  const aliases: Record<string, string> = {
+    obsidian_export: "export",
+  };
+  const fallback = aliases[event.gate] ?? aliases[nodeId ?? ""];
+  if (fallback && definition.nodes.some((node) => node.id === fallback)) return fallback;
+  return nodeId;
 }
 
 function extractPlan(events: RunEvent[]): SupervisorPlan | null {
@@ -322,10 +330,10 @@ function QAReportPanel({ qa }: { qa: QaPayload }) {
   );
 }
 
-function deriveStatuses(events: RunEvent[]): Record<string, NodeStatus> {
+function deriveStatuses(events: RunEvent[], definition: WorkflowDefinition | null = null): Record<string, NodeStatus> {
   const statuses: Record<string, NodeStatus> = {};
   for (const event of events) {
-    const nodeId = nodeIdForEvent(event);
+    const nodeId = nodeIdForDefinition(event, definition);
     if (!nodeId) continue;
     if (event.event_type === "node_started" || event.event_type === "node_progress") statuses[nodeId] = "running";
     if (event.event_type === "node_completed") statuses[nodeId] = "completed";
@@ -629,9 +637,10 @@ function ResearchView({
   const [selectedNode, setSelectedNode] = useState<WorkflowNode | null>(null);
   const [startedAt] = useState(Date.now());
   const [elapsed, setElapsed] = useState("00:00");
-  const statuses = useMemo(() => deriveStatuses(events), [events]);
+  const statuses = useMemo(() => deriveStatuses(events, workflowDefinition), [events, workflowDefinition]);
   const latest = events[events.length - 1];
-  const activeNodeId = latest ? nodeIdForEvent(latest) : "scope";
+  const initialNodeId = project.project_mode === "domain_knowledge" ? "initialize_state" : "scope";
+  const activeNodeId = latest ? nodeIdForDefinition(latest, workflowDefinition) : initialNodeId;
   const evidenceEvents = events.filter((event) => event.event_type === "evidence_collected").length;
   const qaReport = asQaPayload(extractQa(events));
   const snapshotProgress = snapshot?.progress.total

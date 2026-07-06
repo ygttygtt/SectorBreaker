@@ -396,6 +396,7 @@ class MarkdownExporter:
         alias = artifact.title.replace('"', '\\"')
         artifact_kind = "knowledge_card" if artifact.schema_version.endswith("card") else "main_artifact"
         status = "needs_review" if not artifact.source_evidence_ids else "draft"
+        content = MarkdownExporter._strip_leading_frontmatter(artifact.content)
         return (
             "---\n"
             f'project: "{project.title}"\n'
@@ -409,8 +410,19 @@ class MarkdownExporter:
             f"tags: {tags}\n"
             f"generated_at: \"{datetime.now(UTC).strftime('%Y-%m-%d')}\"\n"
             "---\n\n"
-            f"{artifact.content}\n"
+            f"{content}\n"
         )
+
+    @staticmethod
+    def _strip_leading_frontmatter(content: str) -> str:
+        stripped = content.lstrip()
+        if not stripped.startswith("---\n"):
+            return content
+        end = stripped.find("\n---", 4)
+        if end < 0:
+            return content
+        remainder = stripped[end + len("\n---"):].lstrip()
+        return remainder or content
 
     @staticmethod
     def _slugify(value: str) -> str:

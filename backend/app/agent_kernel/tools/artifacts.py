@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from backend.app.agent_kernel.context import KernelContextBuilder
 from backend.app.agent_kernel.models import KernelObservation, KernelStateDelta, ToolSpec
 from backend.app.agent_kernel.tool_registry import KernelRuntimeContext, ToolRegistry, schema
 from backend.app.agent_state.models import KnowledgeLayerId
 from backend.app.providers.interfaces import ChatMessage
-from backend.app.schemas import Artifact, ArtifactType
+from backend.app.schemas import Artifact, ArtifactType, RunEvent
 
 
 _LAYER_ARTIFACT_TYPES: dict[KnowledgeLayerId, ArtifactType] = {
@@ -77,48 +77,23 @@ async def write_layer_document(tool_call, context: KernelRuntimeContext) -> Kern
     layer = context.state.knowledge_schema.layer(layer_id)
     title = str(tool_call.args.get("title") or (layer.title if layer else layer_id.value)).strip()
     writing_goal = str(tool_call.args.get("writing_goal") or (layer.goal if layer else "")).strip()
-    context_text = KernelContextBuilder().build_prompt_context(
-        state=context.state,
-        tools=[],
-        trace_tail=[],
+    context_text = _build_writer_context(context, layer_id=layer_id, title=title)
+    cleaned, errors = await _write_document_in_sections(
+        context,
+        title=title,
+        layer_id=layer_id,
+        writing_goal=writing_goal,
+        required_questions=tool_call.args.get("required_questions") or (layer.guiding_questions if layer else []),
+        context_text=context_text,
     )
-    prompt = _load_prompt("artifact_writer.md") + (
-        f"\n\n# 当前写作任务\n"
-        f"项目：{context.project.title}\n领域：{context.project.domain}\n"
-        f"层级：{layer_id.value} / {title}\n写作目标：{writing_goal}\n"
-        f"必须回答：{tool_call.args.get('required_questions') or (layer.guiding_questions if layer else [])}\n\n"
-        f"# 当前 State Context\n{context_text}\n\n"
-        "请只输出 Markdown 正文，不要 JSON，不要代码块包裹。"
-    )
-    cleaned = ""
-    errors: list[str] = []
-    max_attempts = 3
-    for attempt in range(1, max_attempts + 1):
-        attempt_prompt = prompt if attempt == 1 else _retry_prompt(prompt, title=title, errors=errors, attempt=attempt)
-        try:
-            markdown = await context.llm_provider.complete_structured(
-                [ChatMessage(role="user", content=attempt_prompt)],
-                str,
-            )
-        except Exception as exc:
-            errors.append(f"attempt {attempt}: {type(exc).__name__}: {str(exc)[:220]}")
-            continue
-        cleaned = _clean_markdown(str(markdown))
-        if _usable_markdown(cleaned):
-            break
-        heading_count = cleaned.count("\n## ") + cleaned.count("\n### ")
-        errors.append(
-            f"attempt {attempt}: markdown too thin "
-            f"(chars={len(cleaned)}, headings={heading_count})"
-        )
-    else:
+    if not _usable_markdown(cleaned):
         return KernelObservation(
             tool_name="write_layer_document",
             success=False,
-            summary=f"LLM 写作连续失败，已重试 {max_attempts} 次且未保存任何模板产物：{title}",
+            summary=f"LLM 分节写作失败，未保存任何模板产物：{title}",
             error="llm writing failed after retries",
             data={
-                "attempts": max_attempts,
+                "attempts": len(errors),
                 "errors": errors,
                 "generated_chars": len(cleaned),
                 "heading_count": cleaned.count("\n## ") + cleaned.count("\n### "),
@@ -185,6 +160,125 @@ async def finish_run(tool_call, context: KernelRuntimeContext) -> KernelObservat
     )
 
 
+async def _write_document_in_sections(
+    context: KernelRuntimeContext,
+    *,
+    title: str,
+    layer_id: KnowledgeLayerId,
+    writing_goal: str,
+    required_questions,
+    context_text: str,
+) -> tuple[str, list[str]]:
+    base_instruction = (
+        "你是 SectorBreaker V2 Artifact Writer。"
+        "你的任务是基于给定 State 摘要写 Obsidian Markdown。"
+        "必须具体、详实、引用 evidence id；资料不足时标注 partial/unverified 和待补证任务。"
+        "不要输出 JSON，不要输出代码块，不要编造无证据事实。"
+    )
+    section_specs = [
+        ("本页解决什么问题", "解释本页目标、适合谁读、当前证据覆盖到什么程度。"),
+        ("核心结论", "写 3-5 条有解释的核心结论，每条说明证据状态和限制。"),
+        ("机制与结构", "围绕本层目标解释关键机制、参与关系、流程或概念边界。"),
+        ("证据与可信度", "列出主要 evidence id、来源质量、哪些只是 search snippet 或外部报告线索。"),
+        ("待验证问题与补库任务", "列出后续需要搜索、验证、询问用户或生成卡片的任务。"),
+    ]
+    frontmatter = _frontmatter(title=title, layer_id=layer_id, context=context)
+    sections: list[str] = []
+    errors: list[str] = []
+    for index, (heading, goal) in enumerate(section_specs, start=1):
+        section, section_errors = await _write_section(
+            context,
+            base_instruction=base_instruction,
+            title=title,
+            heading=heading,
+            section_goal=goal,
+            writing_goal=writing_goal,
+            required_questions=required_questions,
+            context_text=context_text,
+            index=index,
+        )
+        errors.extend(section_errors)
+        if section:
+            sections.append(section)
+        else:
+            return "\n\n".join([frontmatter, f"# {title}", *sections]), errors
+    markdown = "\n\n".join([frontmatter, f"# {title}", *sections]).strip()
+    return markdown, errors
+
+
+async def _write_section(
+    context: KernelRuntimeContext,
+    *,
+    base_instruction: str,
+    title: str,
+    heading: str,
+    section_goal: str,
+    writing_goal: str,
+    required_questions,
+    context_text: str,
+    index: int,
+) -> tuple[str, list[str]]:
+    errors: list[str] = []
+    max_attempts = 2
+    prompt = (
+        f"{base_instruction}\n\n"
+        "# 分节写作任务\n"
+        f"文档标题：{title}\n"
+        f"文档目标：{writing_goal}\n"
+        f"必须回答：{required_questions}\n"
+        f"当前章节：## {heading}\n"
+        f"章节目标：{section_goal}\n\n"
+        f"# 写作上下文\n{context_text}\n\n"
+        "请只输出这一节 Markdown，从二级标题开始，例如 `## 本页解决什么问题`。"
+        "不要输出 YAML，不要输出文档总标题，不要输出 JSON，不要代码块包裹。"
+        "本节写 300-700 中文字；必须具体、详实、引用 evidence id 或明确标注待补证。"
+    )
+    for attempt in range(1, max_attempts + 1):
+        attempt_prompt = prompt
+        if attempt > 1:
+            attempt_prompt += (
+                "\n\n# Retry Instruction\n"
+                f"上一轮失败原因：{errors[-1] if errors else '未知'}。\n"
+                f"请重新输出 `## {heading}` 这一节，保持 300-700 中文字。"
+            )
+        try:
+            output = await _complete_text_with_heartbeat(
+                context,
+                [ChatMessage(role="user", content=attempt_prompt)],
+                title=f"{title} / {heading}",
+                attempt=attempt,
+            )
+        except Exception as exc:
+            errors.append(f"section {index} {heading} attempt {attempt}: {type(exc).__name__}: {str(exc)[:260]}")
+            continue
+        cleaned = _clean_markdown(str(output))
+        if not cleaned.startswith("## "):
+            cleaned = f"## {heading}\n\n{cleaned}"
+        if len(cleaned) >= 180:
+            return cleaned, errors
+        errors.append(
+            f"section {index} {heading} attempt {attempt}: too thin "
+            f"(chars={len(cleaned)}, preview={cleaned[:180]!r})"
+        )
+    return "", errors
+
+
+def _frontmatter(*, title: str, layer_id: KnowledgeLayerId, context: KernelRuntimeContext) -> str:
+    evidence_lines = "\n".join(f'  - "{item}"' for item in list(dict.fromkeys(context.state.evidence_refs))[:20])
+    return (
+        "---\n"
+        'schema_version: "v2-agent-kernel"\n'
+        'type: "layer_artifact"\n'
+        f'layer_id: "{layer_id.value}"\n'
+        'status: "draft"\n'
+        'confidence: "partial"\n'
+        "evidence_ids:\n"
+        f"{evidence_lines if evidence_lines else '  []'}\n"
+        'tags: ["sectorbreaker", "domain-knowledge"]\n'
+        "---"
+    )
+
+
 def _load_prompt(name: str) -> str:
     path = Path(__file__).parents[2] / "agents" / "prompts" / name
     if path.exists():
@@ -193,6 +287,100 @@ def _load_prompt(name: str) -> str:
         "你是 SectorBreaker V2 写作者。必须基于 State 写详实的 Obsidian Markdown，"
         "引用 evidence id，使用 wikilinks，不要写空模板。"
     )
+
+
+def _build_writer_context(context: KernelRuntimeContext, *, layer_id: KnowledgeLayerId, title: str) -> str:
+    """Build a compact writer-only context so text generation does not drown in tool specs."""
+
+    state = context.state
+    layer = state.knowledge_schema.layer(layer_id)
+    relevant_sources = [
+        source for source in state.shared_knowledge.source_memories
+        if not source.related_layer_ids or layer_id in source.related_layer_ids
+    ][-10:]
+    relevant_claims = [
+        claim for claim in state.shared_knowledge.claims
+        if not claim.layer_ids or layer_id in claim.layer_ids
+    ][-16:]
+    open_questions = [
+        question for question in state.shared_knowledge.open_questions
+        if not question.layer_ids or layer_id in question.layer_ids
+    ][-10:]
+    evidence_rows = []
+    for evidence_id in state.evidence_refs[-14:]:
+        try:
+            evidence = context.repository.get_evidence(evidence_id)
+        except Exception:
+            continue
+        evidence_rows.append(
+            f"- {evidence.id}: {evidence.source_title} | "
+            f"status={evidence.verification_status.value}, quality={evidence.source_quality.value} | "
+            f"{(evidence.summary or evidence.snippet or '')[:360]}"
+        )
+    source_rows = [
+        f"- {source.title or source.source_id} | trust={source.trust_level.value} | "
+        f"evidence={','.join(source.evidence_ids) or '待补证'} | {source.summary[:420]}"
+        for source in relevant_sources
+    ]
+    claim_rows = [
+        f"- {claim.text} | trust={claim.trust_level.value}, status={claim.verification_status}, "
+        f"evidence={','.join(claim.evidence_ids) or '待补证'}"
+        for claim in relevant_claims
+    ]
+    question_rows = [f"- {question.question} | reason={question.reason[:180]}" for question in open_questions]
+    layer_questions = "\n".join(f"- {item}" for item in (layer.guiding_questions if layer else []))
+    layer_criteria = "\n".join(f"- {item}" for item in (layer.completion_criteria if layer else []))
+    return (
+        "## Project\n"
+        f"- title: {context.project.title}\n"
+        f"- domain: {context.project.domain}\n"
+        f"- market_scope: {context.project.market_scope.value}\n"
+        f"- source_policy: {context.project.source_policy.value}\n"
+        f"- user_goal: {state.meta_context.user_goal}\n\n"
+        "## Current Writing Layer\n"
+        f"- layer_id: {layer_id.value}\n"
+        f"- title: {title}\n"
+        f"- layer_goal: {(layer.goal if layer else '')}\n"
+        f"- guiding_questions:\n{layer_questions or '- 未指定'}\n"
+        f"- completion_criteria:\n{layer_criteria or '- 未指定'}\n\n"
+        "## Evidence Ledger Snippets\n"
+        + ("\n".join(evidence_rows) if evidence_rows else "- 暂无 evidence id，必须写成待补证初稿并说明阻断/缺口。")
+        + "\n\n## Source Memories\n"
+        + ("\n".join(source_rows) if source_rows else "- 暂无 source memory。")
+        + "\n\n## Claims\n"
+        + ("\n".join(claim_rows) if claim_rows else "- 暂无结构化 claim。")
+        + "\n\n## Open Questions\n"
+        + ("\n".join(question_rows) if question_rows else "- 暂无。")
+        + "\n\n## Output Constraints\n"
+        "- 只输出 Markdown 正文，不输出 JSON。\n"
+        "- 目标长度 1500-3000 中文字；优先详实清楚，不要写成长篇废话。\n"
+        "- 至少包含 5 个二级标题，并在正文中引用可用 evidence id。\n"
+        "- 资料薄弱处必须标注 partial/unverified，并列入待验证问题。\n"
+    )
+
+
+async def _complete_text_with_heartbeat(
+    context: KernelRuntimeContext,
+    messages: list[ChatMessage],
+    *,
+    title: str,
+    attempt: int,
+) -> str:
+    task = asyncio.create_task(context.llm_provider.complete(messages))  # type: ignore[union-attr]
+    waited = 0
+    while not task.done():
+        await asyncio.sleep(15)
+        waited += 15
+        if task.done():
+            break
+        await context.emit_event(RunEvent(
+            event_type="node_progress",
+            gate="artifact_writing",
+            agent="V2 Artifact Writer",
+            message=f"仍在写作：{title}，LLM 正在生成 Markdown 正文（第 {attempt} 次，已等待约 {waited} 秒）",
+            severity="info",
+        ))
+    return await task
 
 
 def _clean_markdown(value: str) -> str:

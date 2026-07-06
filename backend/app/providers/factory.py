@@ -19,8 +19,14 @@ from backend.app.providers.source_verification import HeuristicSourceVerificatio
 from backend.app.providers.tavily import TavilySearchProvider
 
 
-def build_llm_provider_from_config(*, base_url: str, api_key: str, model: str) -> LLMProvider:
-    return OpenAICompatibleLLMProvider(base_url=base_url, api_key=api_key, model=model)
+def build_llm_provider_from_config(
+    *,
+    base_url: str,
+    api_key: str,
+    model: str,
+    max_tokens: int = 4096,
+) -> LLMProvider:
+    return OpenAICompatibleLLMProvider(base_url=base_url, api_key=api_key, model=model, max_tokens=max_tokens)
 
 
 def build_llm_provider() -> LLMProvider | None:
@@ -29,7 +35,12 @@ def build_llm_provider() -> LLMProvider | None:
     model = os.getenv("LLM_MODEL")
     if not base_url or not api_key or not model:
         return None
-    return build_llm_provider_from_config(base_url=base_url, api_key=api_key, model=model)
+    max_tokens_value = os.getenv("LLM_MAX_TOKENS", "4096")
+    try:
+        max_tokens = int(max_tokens_value)
+    except ValueError:
+        max_tokens = 4096
+    return build_llm_provider_from_config(base_url=base_url, api_key=api_key, model=model, max_tokens=max_tokens)
 
 
 def build_search_provider_from_config(

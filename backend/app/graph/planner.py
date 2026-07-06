@@ -486,7 +486,7 @@ def _source_policy_reason(policy: SourcePolicy) -> str:
     return "可靠来源优先，不足时使用开放网络补充，是商业情报的稳健默认策略。"
 
 
-def build_v1_master_workflow_definition() -> WorkflowDefinition:
+def build_agent_kernel_workflow_definition() -> WorkflowDefinition:
     """Workflow definition for the product-facing V2 Agent Kernel path."""
 
     nodes = [

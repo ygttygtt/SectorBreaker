@@ -15,10 +15,14 @@ Configuration:
 - `LLM_BASE_URL`
 - `LLM_API_KEY`
 - `LLM_MODEL`
+- `LLM_MAX_TOKENS` (optional, default `4096`)
 
 Required behavior:
 
+- plain text completion for Markdown/artifact writing;
 - structured output support;
+- tolerate OpenAI-compatible gateways that wrap JSON bodies with keepalive/SSE
+  lines such as `: keepalive`, `event:` or `data:`;
 - no API keys in logs.
 
 Upgrade target:

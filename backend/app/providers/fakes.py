@@ -12,6 +12,13 @@ class FakeLLMProvider:
         self.response = response
         self.messages: list[list[ChatMessage]] = []
 
+    async def complete(
+        self,
+        messages: list[ChatMessage],
+    ) -> str:
+        self.messages.append(messages)
+        return self.response if isinstance(self.response, str) else str(self.response)
+
     async def complete_structured(
         self,
         messages: list[ChatMessage],

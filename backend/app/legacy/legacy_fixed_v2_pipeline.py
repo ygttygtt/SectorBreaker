@@ -28,7 +28,7 @@ from backend.app.agents.specialists import SpecialistTaskPlanner, default_specia
 from backend.app.providers.interfaces import LLMProvider, SearchProvider, SearchQuery
 from backend.app.schemas import Artifact, EvidenceItem, ResearchProject, RunEvent, SourcePolicy
 from backend.app.storage.sqlite import SQLiteRepository
-from backend.app.v1_pipeline import (
+from backend.app.legacy.legacy_v1_pipeline import (
     _V1_ZERO_EVIDENCE_BLOCK_MESSAGE,
     _build_artifacts,
     _build_knowledge_database,

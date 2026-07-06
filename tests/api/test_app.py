@@ -111,6 +111,24 @@ def _default_fake_llm():
                 )
             return await super().complete_structured(messages, response_schema)
 
+        async def complete(self, messages):
+            return (
+                "# L1 本源与需求\n\n"
+                "## 是什么\n\n"
+                "这是一个用于测试 SectorBreaker V2 Agent Kernel 的结构化知识库文档。它不是空模板，而是验证写作工具能够由 Agent 决策触发。"
+                "本文会保留 Obsidian 友好的结构，例如 [[领域边界]]、[[用户需求]] 和 [[待验证问题]]。"
+                + "测试内容用于模拟详实段落，确保写作工具不会把过薄文本保存为成功产物。"*20
+                + "\n\n"
+                "## 为什么存在\n\n"
+                "用户进入陌生领域时，通常会面对概念、玩家、工具、风险和实践路径混杂的问题。SectorBreaker 的目标是把这些信息放入可持续更新的知识库。"
+                "在真实运行中，本节应引用 evidence id；测试环境中使用 source_evidence_ids 作为证据关联。\n\n"
+                "## 解决什么问题\n\n"
+                "它解决的是从碎片信息到结构化认知的转换问题。文档需要足够详细、可继续补库，并能被 Obsidian 直接打开。"
+                "证据：EV-TEST-1。\n\n"
+                "## 下一步\n\n"
+                "继续补充 L2 角色与玩家、L3 原理与实操、L4 商业与激励、L5 风险与边界。"
+            )
+
     return KernelAwareFakeLLM()
 
 
@@ -139,10 +157,11 @@ def _failing_kernel_writer_llm():
                     },
                     "expected_observation": "写作工具应失败并阻断。",
                 })
-            if response_schema is str:
-                self.writer_calls += 1
-                raise ValueError("simulated writer failure")
             return await super().complete_structured(messages, response_schema)
+
+        async def complete(self, messages):
+            self.writer_calls += 1
+            raise ValueError("simulated writer failure")
 
     return FailingKernelWriterLLM()
 
@@ -184,20 +203,21 @@ def _partial_then_failing_kernel_writer_llm():
                         "reason": "验证 failed run 不落库前序半成品。",
                     },
                 })
-            if response_schema is str:
-                self.writer_calls += 1
-                if self.writer_calls == 1:
-                    return (
-                        "# L1 本源与需求\n\n"
-                        "## 是什么\n\n"
-                        "这是一篇足够长的第一篇文档，用来模拟 Agent Kernel 在第一轮写作中成功生成了一个 artifact。"
-                        "它包含 Obsidian 链接 [[领域边界]] 和证据提示 EV-PARTIAL-1。"
-                        + "第一篇成功内容。" * 80
-                        + "\n\n## 为什么存在\n\n"
-                        "这一段继续补充背景，确保 Markdown 通过可用性检查。"
-                    )
-                raise ValueError("second writer failure")
             return await super().complete_structured(messages, response_schema)
+
+        async def complete(self, messages):
+            self.writer_calls += 1
+            if self.writer_calls == 1:
+                return (
+                    "# L1 本源与需求\n\n"
+                    "## 是什么\n\n"
+                    "这是一篇足够长的第一篇文档，用来模拟 Agent Kernel 在第一轮写作中成功生成了一个 artifact。"
+                    "它包含 Obsidian 链接 [[领域边界]] 和证据提示 EV-PARTIAL-1。"
+                    + "第一篇成功内容。" * 80
+                    + "\n\n## 为什么存在\n\n"
+                    "这一段继续补充背景，确保 Markdown 通过可用性检查。"
+                )
+            raise ValueError("second writer failure")
 
     return PartialThenFailingKernelWriterLLM()
 
@@ -254,6 +274,19 @@ def test_api_runs_research_and_exports_markdown(tmp_path: Path) -> None:
     artifacts_response = client.get(f"/api/projects/{project_id}/artifacts")
     assert artifacts_response.status_code == 200
     assert len(artifacts_response.json()) >= 3
+    artifacts = artifacts_response.json()
+    assert {artifact["schema_version"] for artifact in artifacts} == {"v2-agent-kernel"}
+    assert all(not artifact["id"].startswith("ART-V1-") for artifact in artifacts)
+
+    events_text = client.get(f"/api/runs/{run_id}/events").text
+    assert "specialist_react_loop" not in events_text
+    assert "Knowledge Builder" not in events_text
+    assert "Document Writer" not in events_text
+    assert "已使用保底" not in events_text
+    assert "Thought Summary:" in events_text
+    assert "Action:" in events_text
+    assert "Observation:" in events_text
+    assert "State Update:" in events_text
 
     export_response = client.post(f"/api/projects/{project_id}/exports")
     assert export_response.status_code == 200
@@ -776,11 +809,14 @@ def test_api_exposes_workflow_definition_and_source_policy(tmp_path: Path) -> No
     definition = client.get(f"/api/projects/{project['id']}/workflow-definition")
     assert definition.status_code == 200
     node_ids = {node["id"] for node in definition.json()["nodes"]}
-    assert "master_agent" in node_ids
-    assert "source_collection" in node_ids
-    assert "coverage_evaluation" in node_ids
-    assert "knowledge_structuring" in node_ids
-    assert "evidence_ledger" in node_ids
+    assert "initialize_state" in node_ids
+    assert "agent_decide" in node_ids
+    assert "tool_execution" in node_ids
+    assert "state_update" in node_ids
+    assert "artifact_writing" in node_ids
+    assert "knowledge_structuring" not in node_ids
+    assert "document_writing" not in node_ids
+    assert "specialist_react_loop" not in node_ids
 
 
 def test_api_exposes_search_config_status(tmp_path: Path) -> None:

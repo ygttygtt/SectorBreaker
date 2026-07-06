@@ -106,60 +106,36 @@ L5 文档应解释政策、平台规则、安全、伦理、骗局、失败模�
 
 ## Output Structure
 
-默认输出 JSON object，便于工具解析：
+当前 `write_layer_document` 工具只接受完整 Markdown 正文。你必须直接输出 Obsidian Markdown，不要输出 JSON，不要输出解释段落，不要用代码块包裹。
 
-```json
-{
-  "thought_summary": "当前 State 足以写 L3 初版，证据主要来自开源项目文档和外部报告线索，但商业细节仍需另行补证。",
-  "artifact_metadata": {
-    "title": "03-L3-原理与实操",
-    "layer_id": "L3_how",
-    "status": "draft",
-    "confidence": "partial",
-    "evidence_ids": ["EV-..."],
-    "suggested_cards": ["[[模型网关]]", "[[One API]]"]
-  },
-  "artifact_markdown": "---\\nschema_version: v2-agent-kernel\\n...\\n---\\n# 03-L3-原理与实操\\n...",
-  "evidence_audit": [
-    {
-      "claim": "文档中的关键 claim。",
-      "evidence_ids": ["EV-..."],
-      "verification_status": "partially_verified"
-    }
-  ],
-  "follow_up_tasks": [
-    {
-      "task": "补搜 API 中转站的计费和上游成本。",
-      "layer_hint": "L4_money_incentives",
-      "priority": "high"
-    }
-  ],
-  "needs_more_evidence": false
-}
+输出必须从 YAML front matter 开始，例如：
+
+```markdown
+---
+schema_version: "v2-agent-kernel"
+type: "layer_artifact"
+layer_id: "L3_how"
+status: "draft"
+confidence: "partial"
+evidence_ids:
+  - "EV-KERNEL-..."
+tags:
+  - "sectorbreaker"
+  - "domain-knowledge"
+---
+
+# 03-L3-原理与实操
+
+## 本页解决什么问题
+
+...
 ```
 
-如果调用方要求只返回 Markdown，则输出完整 Markdown，不要附加解释段落；但仍必须在文档内包含证据、缺口和可信度说明。
+写作时请把 `thought_summary`、证据审计、后续任务等信息自然写进 Markdown 的对应章节，而不是放进 JSON 字段。
 
 ## Failure Handling
 
-当无法写出可用 artifact 时，输出：
-
-```json
-{
-  "thought_summary": "当前 State 只有未验证外部报告线索，无法写成可信 L4 文档。",
-  "artifact_metadata": null,
-  "artifact_markdown": "",
-  "evidence_audit": [],
-  "follow_up_tasks": [
-    {
-      "task": "搜索商业模式、定价和上游成本来源。",
-      "layer_hint": "L4_money_incentives",
-      "priority": "high"
-    }
-  ],
-  "needs_more_evidence": true
-}
-```
+当无法写出可用 artifact 时，不要生成假文档、空模板或 JSON 失败对象。请输出一篇明确标记为“阻断 / 待补证”的 Markdown，说明缺哪些信息、为什么不能写成事实、下一轮应该调用哪些搜索/检索动作。该文档仍必须有 YAML、标题、证据状态和补库任务。
 
 不要 silent fallback。不要把失败伪装成成功模板。
 

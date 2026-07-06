@@ -139,6 +139,12 @@ class RetrievalResult:
 
 
 class LLMProvider(Protocol):
+    async def complete(
+        self,
+        messages: list[ChatMessage],
+    ) -> str:
+        """Return plain text without forcing a structured JSON response."""
+
     async def complete_structured(
         self,
         messages: list[ChatMessage],

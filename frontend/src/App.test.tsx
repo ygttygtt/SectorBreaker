@@ -262,7 +262,18 @@ afterEach(() => {
   mockEventsState.current = [];
 });
 
-test("maps V1 run events to visible workflow graph nodes", () => {
+test("maps personal Agent Kernel events to visible workflow graph nodes", () => {
+  expect(nodeIdForEvent({ gate: "initialize_state", step: null, agent: "V2 Agent Kernel" })).toBe("initialize_state");
+  expect(nodeIdForEvent({ gate: "external_materials", step: null, agent: "V2 Report Internalizer" })).toBe("external_materials");
+  expect(nodeIdForEvent({ gate: "agent_decide", step: null, agent: "V2 Master Agent" })).toBe("agent_decide");
+  expect(nodeIdForEvent({ gate: "tool_execution", step: null, agent: "V2 Tool Executor" })).toBe("tool_execution");
+  expect(nodeIdForEvent({ gate: "state_update", step: null, agent: "V2 State Reducer" })).toBe("state_update");
+  expect(nodeIdForEvent({ gate: "artifact_writing", step: null, agent: "V2 Artifact Writer" })).toBe("artifact_writing");
+  expect(nodeIdForEvent({ gate: "artifact_review", step: null, agent: "Artifact Reviewer" })).toBe("artifact_review");
+  expect(nodeIdForEvent({ gate: "export", step: null, agent: "V2 Master Agent" })).toBe("export");
+});
+
+test("does not hide legacy personal workflow events as Agent Kernel nodes", () => {
   expect(nodeIdForEvent({ gate: "master_agent", step: null, agent: "Master Agent" })).toBe("master_agent");
   expect(nodeIdForEvent({ gate: "external_report_intake", step: null, agent: "External Report Agent" })).toBe("external_report_intake");
   expect(nodeIdForEvent({ gate: "source_collection", step: null, agent: "Search Scout" })).toBe("source_collection");
@@ -270,7 +281,6 @@ test("maps V1 run events to visible workflow graph nodes", () => {
   expect(nodeIdForEvent({ gate: "coverage_evaluation", step: null, agent: "Master Agent" })).toBe("coverage_evaluation");
   expect(nodeIdForEvent({ gate: "knowledge_structuring", step: null, agent: "Knowledge Builder" })).toBe("knowledge_structuring");
   expect(nodeIdForEvent({ gate: "document_writing", step: null, agent: "Document Writer" })).toBe("document_writing");
-  expect(nodeIdForEvent({ gate: "artifact_review", step: null, agent: "Artifact Reviewer" })).toBe("artifact_review");
   expect(nodeIdForEvent({ gate: "obsidian_export", step: null, agent: "Export Writer" })).toBe("export");
 });
 

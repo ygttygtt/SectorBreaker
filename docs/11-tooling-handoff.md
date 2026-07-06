@@ -49,7 +49,9 @@ The latest completed implementation milestone is:
 - V1.6 implements the first bounded Master Agent loop in the personal `domain_knowledge` path. It records run-local memory, ingests uploaded reports/user materials/citations as evidence before search, creates multi-intent search plans, calls the configured `SearchProvider`, records tool diagnostics, evaluates coverage with `CoverageReport`, and decides continue/search-again/degrade/block. Zero evidence blocks before writing; thin evidence is shown as degraded instead of sufficient.
 - V1.6 workflow graphs now match actual personal run events: `master_agent`, `external_report_intake`, `source_collection`, `evidence_ledger`, `coverage_evaluation`, `knowledge_structuring`, `document_writing`, `artifact_review`, and `export`.
 - State/memory architecture direction is now documented in `docs/17-agent-state-memory-architecture.md`. The next rebuild plan is `docs/superpowers/plans/2026-07-06-agent-state-memory-react-rebuild.md`: explicit `SectorBreakerState`, dynamic practical cognition schema, context-pack filtering, report internalization, specialist ReAct loops, safe iceberg/risk investigation, and human-feedback reopen.
-- V2 Agent Kernel is now the production personal `domain_knowledge` auto-run path. `backend/app/agent_kernel/pipeline.py` initializes state, internalizes uploaded reports/materials, lets the LLM policy choose approved tools, applies observations into state, and persists only completed artifacts. The older `backend/app/v2_pipeline.py` is a legacy tested path and should not be reconnected as production V2. Writer failure is strict: `write_layer_document` retries three times, then fails the run with `artifact_writing_failed` instead of exporting fake template Markdown.
+- V2 Agent Kernel is now the production personal `domain_knowledge` auto-run path. `backend/app/agent_kernel/pipeline.py` initializes state, internalizes uploaded reports/materials, lets the LLM policy choose approved tools, applies observations into state, and persists only completed artifacts. Legacy V1/V2 workflow files live under `backend/app/legacy/` and must not be imported by production code. Writer failure is strict: `write_layer_document` writes Markdown through plain text completion, retries three times, then fails the run with `artifact_writing_failed` instead of exporting fake template Markdown.
+- Agent Kernel readiness must be verified with one real Mimo + Tavily end-to-end run and exported Markdown inspection. Passing fake/unit tests alone is not an acceptance signal for the user-facing path.
+- Current real Agent Kernel acceptance used project `api中转站-v2-agent-kernel验收5` and export directory `E:\QianFengStudy\PythonProject\SectorBreaker\exports\api中转站-v2-agent-kernel验收5`. The accepted export has five V2 Markdown documents around 17KB-22KB each, `schema_version: "v2-agent-kernel"`, and `EV-KERNEL-*` evidence IDs. It must not regress to `Knowledge Builder`, `Document Writer`, `specialist_react_loop`, `已使用保底`, `EV-V1-*`, or `ART-V1-*`.
 - V2 Agent Kernel failure handling is strict across the whole run: if one document write succeeds and a later write fails, the failed run must not persist that earlier partial artifact. Do not weaken this into "save whatever succeeded" unless the product explicitly adds a partial-results review mode.
 - Markdown/Obsidian export copies the repository-root `.obsidian/` folder into each generated project vault. Treat `.obsidian/` as the default vault configuration template for preferred Obsidian plugins/settings/workspace, not as generated research output.
 - The frontend now exposes a mode selector and multi-provider search settings (Tavily recommended, Serper/Brave/Exa visible). It also carries explicit guardrails: do not scrape login-gated job boards by default; use uploads and configured search providers first.
@@ -126,6 +128,29 @@ python -m pytest tests/api/test_app.py::test_api_agent_kernel_failed_run_does_no
 ```
 
 Expected result: 2 tests pass with the known TestClient warning.
+
+Latest real Agent Kernel acceptance:
+
+```text
+Project: api中转站-v2-agent-kernel验收5
+Export: E:\QianFengStudy\PythonProject\SectorBreaker\exports\api中转站-v2-agent-kernel验收5
+```
+
+Expected result: five exported V2 Markdown documents, each with
+`schema_version: "v2-agent-kernel"`, `EV-KERNEL-*` evidence ids, and no legacy
+V1/fallback event markers.
+
+Latest cutover closeout verification:
+
+```bash
+python -m py_compile backend/app/providers/openai_compatible.py backend/app/agent_kernel/tools/artifacts.py backend/app/api/app.py backend/app/exporters/markdown.py backend/app/graph/planner.py
+python -m pytest tests/unit/test_agent_kernel_tools.py tests/unit/test_openai_provider.py tests/unit/test_markdown_exporter.py::test_markdown_exporter_copies_default_obsidian_config -q
+cd frontend && npm test -- --run App.test.tsx
+```
+
+Expected result: compile passes, focused Python suite reports 4 passed, frontend
+App suite reports 18 passed, production legacy import scan returns no matches,
+and the accepted export contains V2 schema markers only.
 
 ## Local Run
 

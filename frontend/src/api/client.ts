@@ -179,6 +179,7 @@ export interface LLMConfigStatus {
   configured: boolean;
   base_url?: string;
   model?: string;
+  max_tokens?: number | null;
 }
 
 export interface LLMTestResult {

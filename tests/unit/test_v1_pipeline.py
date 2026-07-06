@@ -11,7 +11,7 @@ from backend.app.schemas import (
     SourcePolicy,
 )
 from backend.app.schemas.documents import DocumentCitation, DocumentSegment, ProjectDocument
-from backend.app.v1_pipeline import (
+from backend.app.legacy.legacy_v1_pipeline import (
     DomainArchitecture,
     DomainConcept,
     DomainKnowledgeBase,
