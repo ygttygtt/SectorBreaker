@@ -112,3 +112,43 @@ machine-readable fenced JSON block:
 
 The UI may parse this block or use `source_coverage` run events to render the
 coverage panel.
+
+## V2 Agent Kernel Obsidian Export
+
+The personal V2 Agent Kernel writes artifacts only after the LLM policy chooses
+`write_layer_document` and the writing tool produces usable Markdown. Failed or
+thin writing is not exported as a template.
+
+Minimum V2 artifact shape:
+
+```yaml
+---
+schema_version: "v2-agent-kernel"
+artifact_type: "<artifact type>"
+evidence_ids: []
+status: "draft"
+---
+```
+
+Recommended V2 vault layout:
+
+```text
+00-知识库首页.md
+01-L1-本源与需求.md
+02-L2-角色与玩家.md
+03-L3-原理与实操.md
+04-L4-商业与激励.md
+05-L5-风险与边界.md
+90-Agent运行日志.md
+99-待验证问题与补库任务.md
+concepts/
+players/
+tools/
+risks/
+_sources/evidence-ledger.md
+manifest.json
+```
+
+The Agent may create fewer or more files depending on State, but any completed
+run must contain non-template Markdown, evidence metadata, and enough trace
+events for the user to understand why each artifact was written.

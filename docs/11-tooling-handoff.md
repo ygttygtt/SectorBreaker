@@ -49,7 +49,7 @@ The latest completed implementation milestone is:
 - V1.6 implements the first bounded Master Agent loop in the personal `domain_knowledge` path. It records run-local memory, ingests uploaded reports/user materials/citations as evidence before search, creates multi-intent search plans, calls the configured `SearchProvider`, records tool diagnostics, evaluates coverage with `CoverageReport`, and decides continue/search-again/degrade/block. Zero evidence blocks before writing; thin evidence is shown as degraded instead of sufficient.
 - V1.6 workflow graphs now match actual personal run events: `master_agent`, `external_report_intake`, `source_collection`, `evidence_ledger`, `coverage_evaluation`, `knowledge_structuring`, `document_writing`, `artifact_review`, and `export`.
 - State/memory architecture direction is now documented in `docs/17-agent-state-memory-architecture.md`. The next rebuild plan is `docs/superpowers/plans/2026-07-06-agent-state-memory-react-rebuild.md`: explicit `SectorBreakerState`, dynamic practical cognition schema, context-pack filtering, report internalization, specialist ReAct loops, safe iceberg/risk investigation, and human-feedback reopen.
-- V2 foundation code now exists and personal `domain_knowledge` auto-runs use `backend/app/v2_pipeline.py`: `backend/app/agent_state/` contains state/memory models, context-pack selection, and report internalization; `backend/app/agents/` contains bounded ReAct primitives, L1-L5 specialist contracts, recursive follow-up task discovery, and safe iceberg/risk extraction; `backend/app/graph/v2_react_graph.py` contains the first LangGraph skeleton. The final Markdown writing/export layer still reuses the stable V1 artifact builder.
+- V2 Agent Kernel is now the production personal `domain_knowledge` auto-run path. `backend/app/agent_kernel/pipeline.py` initializes state, internalizes uploaded reports/materials, lets the LLM policy choose approved tools, applies observations into state, and persists only completed artifacts. The older `backend/app/v2_pipeline.py` is a legacy tested path and should not be reconnected as production V2. Writer failure is strict: `write_layer_document` retries three times, then fails the run with `artifact_writing_failed` instead of exporting fake template Markdown.
 - The frontend now exposes a mode selector and multi-provider search settings (Tavily recommended, Serper/Brave/Exa visible). It also carries explicit guardrails: do not scrape login-gated job boards by default; use uploads and configured search providers first.
 - Backend: FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + explainable agent selection traces.
 - Frontend: Vite + React + TypeScript explainable research workbench with real workflow graph, vertical layout, and active-node centering.
@@ -97,7 +97,7 @@ Expected result: 16 V1 pipeline tests pass, workflow-definition API test passes
 with the known TestClient warning, 17 frontend App tests pass, and frontend
 build passes with the existing Vite chunk-size warning.
 
-Latest V2 verification:
+Latest V2 legacy verification:
 
 ```bash
 python -m pytest tests/unit/test_agent_state_models.py tests/unit/test_context_pack_builder.py tests/unit/test_report_internalizer.py tests/unit/test_react_loop.py tests/unit/test_specialists_and_iceberg_agent.py tests/graph/test_v2_react_graph.py tests/unit/test_v2_pipeline.py -q
@@ -105,8 +105,17 @@ python -m pytest tests/unit/test_v1_pipeline.py tests/api/test_app.py::test_api_
 cd frontend && npm test -- --run App.test.tsx
 ```
 
-Expected result: 15 V2 tests pass, 17 V1.6/API regression tests pass with the
+Expected result: 15 legacy V2 tests pass, 17 V1.6/API regression tests pass with the
 known TestClient warning, and 17 frontend App tests pass.
+
+Latest V2 Agent Kernel verification:
+
+```bash
+python -m pytest tests/unit/test_agent_kernel_models.py tests/unit/test_agent_kernel_tools.py tests/unit/test_agent_kernel_runtime.py tests/api/test_app.py::test_api_runs_research_and_exports_markdown tests/api/test_app.py::test_api_agent_kernel_writer_failure_marks_run_failed_without_artifacts tests/api/test_app.py::test_api_agent_kernel_uploaded_report_reaches_writer_context -q
+cd frontend && npm test -- --run App.test.tsx
+```
+
+Expected result: 7 Agent Kernel/API tests pass with the known TestClient warning, and 17 frontend App tests pass. A minimal real LLM probe also passed against local runtime config for structured JSON and plain-text calls using `mimo-v2.5-pro`.
 
 ## Local Run
 

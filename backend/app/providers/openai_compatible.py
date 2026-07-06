@@ -1,6 +1,7 @@
 """OpenAI-compatible structured LLM provider."""
 
 import json
+import re
 from typing import Any
 
 import httpx
@@ -49,9 +50,20 @@ class OpenAICompatibleLLMProvider:
                 headers=headers,
             )
             response.raise_for_status()
-            data = response.json()
+            try:
+                data = response.json()
+            except json.JSONDecodeError as exc:
+                preview = response.text[:800].replace("\n", "\\n")
+                raise ValueError(
+                    f"LLM endpoint returned non-JSON HTTP body "
+                    f"(status={response.status_code}): {preview}"
+                ) from exc
 
-        content = data["choices"][0]["message"]["content"]
+        try:
+            content = data["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            preview = json.dumps(data, ensure_ascii=False)[:800]
+            raise ValueError(f"LLM response missing choices/message/content: {preview}") from exc
 
         # If caller expects plain text, return as-is
         if response_schema is str:
@@ -59,16 +71,35 @@ class OpenAICompatibleLLMProvider:
 
         # Try parsing as JSON; fall back to raw text if the API ignored json_object mode
         try:
-            parsed = json.loads(content)
-        except json.JSONDecodeError:
+            parsed = _loads_llm_json(content)
+        except json.JSONDecodeError as exc:
             if response_schema is dict:
                 return {"text": content}
-            if isinstance(response_schema, type) and issubclass(response_schema, BaseModel):
-                return response_schema.model_validate({"text": content})
-            return {"text": content}
+            preview = content[:800].replace("\n", "\\n")
+            raise ValueError(f"LLM returned non-JSON structured content: {preview}") from exc
 
         if response_schema is dict:
             return parsed
         if isinstance(response_schema, type) and issubclass(response_schema, BaseModel):
             return response_schema.model_validate(parsed)
         return parsed
+
+
+def _loads_llm_json(content: str) -> Any:
+    """Parse JSON even when a model wraps it in markdown fences or prose."""
+
+    text = content.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s*```$", "", text).strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        start_candidates = [idx for idx in (text.find("{"), text.find("[")) if idx >= 0]
+        if not start_candidates:
+            raise
+        start = min(start_candidates)
+        end = max(text.rfind("}"), text.rfind("]"))
+        if end <= start:
+            raise
+        return json.loads(text[start:end + 1])

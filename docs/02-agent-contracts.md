@@ -183,6 +183,25 @@ All Agent outputs that include factual claims must support:
 - Must not: generate new facts during export.
 - Failure mode: stop export and report invalid artifact schema.
 
+### V2 Agent Kernel
+
+- Input: `SectorBreakerState`, available `ToolSpec` registry, recent
+  `KernelTraceEvent` tail, run budgets, uploaded report/material state, and
+  provider-backed search/LLM/repository services.
+- Output: `AgentDecision`, `KernelObservation`, `KernelStateDelta`,
+  `KernelTraceEvent`, and completed `Artifact` records with
+  `schema_version="v2-agent-kernel"`.
+- Allowed actions: `call_tool`, `write_artifact`, `review_artifact`,
+  `ask_user`, `finish`, and `block`.
+- Must not: traverse L1-L5 as a hard-coded production workflow, silently
+  substitute fallback Markdown, persist partial artifacts after a failed run, or
+  finish when no artifact exists.
+- Failure mode: if `write_layer_document` fails or returns thin output, retry
+  the LLM writing call up to three times. If still unusable, emit visible
+  `artifact_writing` error events, return `artifact_writing_failed`, mark the
+  run failed, and wait for user/config/material correction instead of exporting
+  a fake template.
+
 ### Talent Source Scout
 
 - Input: project config, uploaded project documents, existing evidence, optional search provider.

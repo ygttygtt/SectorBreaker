@@ -42,21 +42,109 @@ def _wait_for_run(client: TestClient, run_id: str, timeout: float = 10.0) -> dic
 
 
 def _default_fake_llm():
-    """FakeLLMProvider that returns valid data for any prompt."""
-    return FakeLLMProvider(
-        response={
-            "domain_definition": "测试行业",
-            "boundaries": "测试边界",
-            "common_confusions": ["测试混淆"],
-            "key_questions": [{"question": "测试问题", "importance": "重要", "source": "搜索", "common_mistake": "无", "priority_1h": "高"}],
-            "data_caliber": [{"metric": "市场规模", "caliber": "统一口径", "confusion": "无", "suitable_for": "概况", "not_suitable_for": "细节", "recommended_source": "行业报告"}],
-            "sections": ["行业定义", "市场现状"],
-            "key_questions_list": ["用户为什么付费？"],
-            "learning_path": ["先学行业定义"],
-            "title": "测试产物",
-            "content": "# 测试内容\n\n行业边界和市场现状分析。",
-        }
-    )
+    """Fake LLM that supports both legacy schemas and Agent Kernel decisions."""
+
+    class KernelAwareFakeLLM(FakeLLMProvider):
+        def __init__(self):
+            super().__init__(
+                response={
+                    "domain_definition": "测试行业",
+                    "boundaries": "测试边界",
+                    "common_confusions": ["测试混淆"],
+                    "key_questions": [{"question": "测试问题", "importance": "重要", "source": "搜索", "common_mistake": "无", "priority_1h": "高"}],
+                    "data_caliber": [{"metric": "市场规模", "caliber": "统一口径", "confusion": "无", "suitable_for": "概况", "not_suitable_for": "细节", "recommended_source": "行业报告"}],
+                    "sections": ["行业定义", "市场现状"],
+                    "key_questions_list": ["用户为什么付费？"],
+                    "learning_path": ["先学行业定义"],
+                    "title": "测试产物",
+                    "content": "# 测试内容\n\n行业边界和市场现状分析。",
+                }
+            )
+            self.agent_decision_count = 0
+
+        async def complete_structured(self, messages, response_schema):
+            if getattr(response_schema, "__name__", "") == "AgentDecision":
+                self.agent_decision_count += 1
+                if self.agent_decision_count <= 3:
+                    layers = [
+                        ("L1_what_why", "L1 本源与需求", "解释领域是什么、为什么存在、解决什么问题。"),
+                        ("L2_who", "L2 角色与玩家", "识别用户、供给方、主要玩家和资源角色。"),
+                        ("L3_how", "L3 原理与实操", "解释实现机制、工具、流程和关键术语。"),
+                    ]
+                    layer_id, title, writing_goal = layers[self.agent_decision_count - 1]
+                    return response_schema.model_validate({
+                        "thought_summary": f"测试环境写作 {title}，验证 Agent Kernel 工具链。",
+                        "action_type": "write_artifact",
+                        "tool_call": {
+                            "tool_name": "write_layer_document",
+                            "args": {
+                                "layer_id": layer_id,
+                                "title": title,
+                                "writing_goal": writing_goal,
+                                "required_questions": ["是什么？", "为什么重要？", "下一步怎么补库？"],
+                            },
+                            "reason": "测试环境不依赖外部搜索，先验证真实写作工具。",
+                        },
+                        "expected_observation": "生成一篇可导出的 Markdown 文档。",
+                    })
+                return response_schema.model_validate({
+                    "thought_summary": "测试产物已经生成，可以结束。",
+                    "action_type": "finish",
+                    "stop_reason": "测试 Agent Kernel 完成。",
+                })
+            if response_schema is str:
+                return (
+                    "# L1 本源与需求\n\n"
+                    "## 是什么\n\n"
+                    "这是一个用于测试 SectorBreaker V2 Agent Kernel 的结构化知识库文档。它不是空模板，而是验证写作工具能够由 Agent 决策触发。"
+                    "本文会保留 Obsidian 友好的结构，例如 [[领域边界]]、[[用户需求]] 和 [[待验证问题]]。"
+                    + "测试内容用于模拟详实段落，确保写作工具不会把过薄文本保存为成功产物。"*20
+                    + "\n\n"
+                    "## 为什么存在\n\n"
+                    "用户进入陌生领域时，通常会面对概念、玩家、工具、风险和实践路径混杂的问题。SectorBreaker 的目标是把这些信息放入可持续更新的知识库。"
+                    "在真实运行中，本节应引用 evidence id；测试环境中使用 source_evidence_ids 作为证据关联。\n\n"
+                    "## 解决什么问题\n\n"
+                    "它解决的是从碎片信息到结构化认知的转换问题。文档需要足够详细、可继续补库，并能被 Obsidian 直接打开。"
+                    "证据：EV-TEST-1。\n\n"
+                    "## 下一步\n\n"
+                    "继续补充 L2 角色与玩家、L3 原理与实操、L4 商业与激励、L5 风险与边界。"
+                )
+            return await super().complete_structured(messages, response_schema)
+
+    return KernelAwareFakeLLM()
+
+
+def _failing_kernel_writer_llm():
+    class FailingKernelWriterLLM(FakeLLMProvider):
+        def __init__(self):
+            super().__init__(response={})
+            self.agent_decision_count = 0
+            self.writer_calls = 0
+
+        async def complete_structured(self, messages, response_schema):
+            if getattr(response_schema, "__name__", "") == "AgentDecision":
+                self.agent_decision_count += 1
+                return response_schema.model_validate({
+                    "thought_summary": "测试写作失败路径：先触发 write_layer_document。",
+                    "action_type": "write_artifact",
+                    "tool_call": {
+                        "tool_name": "write_layer_document",
+                        "args": {
+                            "layer_id": "L1_what_why",
+                            "title": "L1 本源与需求",
+                            "writing_goal": "解释领域是什么、为什么存在。",
+                            "required_questions": ["是什么？", "为什么存在？"],
+                        },
+                        "reason": "验证写作失败不能导出模板。",
+                    },
+                    "expected_observation": "写作工具应失败并阻断。",
+                })
+            if response_schema is str:
+                self.writer_calls += 1
+                raise ValueError("simulated writer failure")
+            return await super().complete_structured(messages, response_schema)
+
+    return FailingKernelWriterLLM()
 
 
 class FakeJobSourceProvider:
@@ -125,6 +213,131 @@ def test_api_runs_research_and_exports_markdown(tmp_path: Path) -> None:
     assert detail_response.status_code == 200
     assert detail_response.json()["domain"] == "AI Agent 工具"
     assert detail_response.json()["project_mode"] == "domain_knowledge"
+
+
+def test_api_agent_kernel_writer_failure_marks_run_failed_without_artifacts(tmp_path: Path) -> None:
+    llm = _failing_kernel_writer_llm()
+    client = TestClient(
+        create_app(
+            database_path=tmp_path / "sectorbreaker.sqlite3",
+            export_root=tmp_path / "exports",
+            llm_provider=llm,
+        )
+    )
+    project_response = client.post(
+        "/api/projects",
+        json={
+            "title": "API中转站",
+            "domain": "API中转站",
+            "market_scope": "mixed",
+            "depth": "quick",
+        },
+    )
+    project_id = project_response.json()["id"]
+
+    run_response = client.post(f"/api/projects/{project_id}/runs", params={"auto_run": "true"})
+    run_result = _wait_for_run(client, run_response.json()["id"])
+
+    assert run_result["status"] == "failed"
+    assert llm.writer_calls == 3
+    artifacts_response = client.get(f"/api/projects/{project_id}/artifacts")
+    assert artifacts_response.status_code == 200
+    assert artifacts_response.json() == []
+    events = client.get(f"/api/runs/{run_response.json()['id']}/events").text
+    assert "LLM 写作连续失败" in events
+    assert "未导出模板" in events
+
+
+def test_api_agent_kernel_uploaded_report_reaches_writer_context(tmp_path: Path) -> None:
+    class ReportAwareLLM(FakeLLMProvider):
+        def __init__(self):
+            super().__init__(response={})
+            self.agent_decision_count = 0
+            self.writer_prompts: list[str] = []
+
+        async def complete_structured(self, messages, response_schema):
+            if getattr(response_schema, "__name__", "") == "AgentDecision":
+                self.agent_decision_count += 1
+                if self.agent_decision_count == 1:
+                    return response_schema.model_validate({
+                        "thought_summary": "已经读取上传报告，先写 L1 验证报告是否进入上下文。",
+                        "action_type": "write_artifact",
+                        "tool_call": {
+                            "tool_name": "write_layer_document",
+                            "args": {
+                                "layer_id": "L1_what_why",
+                                "title": "L1 本源与需求",
+                                "writing_goal": "基于上传报告解释 API 中转站的本源需求。",
+                                "required_questions": ["是什么？", "上传报告说了什么？"],
+                            },
+                            "reason": "验证外部报告进入 writer context。",
+                        },
+                        "expected_observation": "生成一篇引用报告信息的文档。",
+                    })
+                return response_schema.model_validate({
+                    "thought_summary": "上传报告已进入文档，可以结束。",
+                    "action_type": "finish",
+                    "stop_reason": "测试完成。",
+                })
+            if response_schema is str:
+                prompt = messages[-1].content
+                self.writer_prompts.append(prompt)
+                assert "DeepSearch 报告判断：API 中转站的核心需求来自多模型聚合和成本控制" in prompt
+                return (
+                    "# L1 本源与需求\n\n"
+                    "## 是什么\n\n"
+                    "API 中转站是一类把多个模型 API、账号资源或上游接口聚合到统一调用入口的服务。"
+                    "根据上传的 DeepSearch 报告判断：API 中转站的核心需求来自多模型聚合和成本控制。"
+                    "它面向需要快速接入多家模型、统一账单、切换线路或降低接入复杂度的开发者与团队。"
+                    "证据：上传报告。\n\n"
+                    "## 为什么存在\n\n"
+                    "当模型供应商、价格、可用性、协议和限额不断变化时，单一接口会让使用者承担较高迁移成本。"
+                    "中转站通过统一协议、额度管理、路由和聚合能力，把这些变化封装到服务侧。"
+                    "这让用户可以更快尝试不同模型，也能把成本、稳定性和接入体验放在同一个操作界面里观察。"
+                    "这里的判断仍应标注为低可信上传材料，需要后续搜索验证。\n\n"
+                    "## 待验证问题\n\n"
+                    "- [[多模型聚合]] 的主流实现方式是什么？\n"
+                    "- [[成本控制]] 是否真的是用户付费的首要因素？\n"
+                    "- 哪些平台公开说明了额度、路由或协议转换能力？\n"
+                    + "补充说明：" * 80
+                )
+            return await super().complete_structured(messages, response_schema)
+
+    llm = ReportAwareLLM()
+    client = TestClient(
+        create_app(
+            database_path=tmp_path / "sectorbreaker.sqlite3",
+            export_root=tmp_path / "exports",
+            llm_provider=llm,
+        )
+    )
+    project = client.post(
+        "/api/projects",
+        json={
+            "title": "API中转站",
+            "domain": "API中转站",
+            "market_scope": "mixed",
+            "depth": "quick",
+        },
+    ).json()
+    upload = client.post(
+        f"/api/projects/{project['id']}/documents",
+        json={
+            "channel": "assistant_brief",
+            "file_name": "deepsearch.md",
+            "mime_type": "text/markdown",
+            "content": "DeepSearch 报告判断：API 中转站的核心需求来自多模型聚合和成本控制。\n来源：https://example.com/report",
+        },
+    )
+    assert upload.status_code == 200
+
+    run_response = client.post(f"/api/projects/{project['id']}/runs", params={"auto_run": "true"})
+    run_result = _wait_for_run(client, run_response.json()["id"])
+
+    assert run_result["status"] == "completed"
+    assert llm.writer_prompts
+    artifacts = client.get(f"/api/projects/{project['id']}/artifacts").json()
+    assert any("多模型聚合和成本控制" in item["content"] for item in artifacts)
 
 
 def test_api_opens_export_folder_inside_export_root(tmp_path: Path, monkeypatch) -> None:

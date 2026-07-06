@@ -83,6 +83,29 @@ continue, search again, ask the user, degrade, or block.
 Hard-coded evidence counts may remain only as guardrails. They must not replace
 the Master Agent's coverage judgment.
 
+## V2 Agent Kernel Principle
+
+The authoritative V2 correction is documented in
+`docs/18-agent-kernel-design-philosophy.md`. SectorBreaker must not implement V2
+as a fixed L1-L5 workflow. LangGraph may host state, loop routing,
+checkpointing, event streaming, and human-in-the-loop, but LLM policy must
+decide the next action from State and Tools.
+
+L1-L5 is the cognitive schema inside State, not a hard-coded execution chain.
+The production personal path should converge on an Agent Kernel loop:
+
+```text
+build_context_pack(state)
+  -> llm_decide(context, tools)
+  -> execute_tool(action)
+  -> observe_result
+  -> apply_state_delta
+  -> llm_decide(updated_state, tools)
+```
+
+The implementation plan is
+`docs/superpowers/plans/2026-07-06-v2-agent-kernel-rebuild.md`.
+
 ## V1.3 Talent Demand Branch
 
 `ResearchProject.project_mode` now selects the product-facing auto-run branch:

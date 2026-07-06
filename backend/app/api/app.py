@@ -71,8 +71,7 @@ from backend.app.schemas import (
 )
 from backend.app.storage.sqlite import SQLiteRepository, init_database
 from backend.app.talent_demand.pipeline import run_talent_demand_pipeline
-from backend.app.v1_pipeline import run_v1_knowledge_pipeline
-from backend.app.v2_pipeline import run_v2_react_knowledge_pipeline
+from backend.app.agent_kernel import run_v2_agent_kernel_pipeline
 
 
 class ChatRequest(BaseModel):
@@ -670,7 +669,7 @@ def create_app(
                             emit=emit_event,
                         )
                     else:
-                        await run_v2_react_knowledge_pipeline(
+                        await run_v2_agent_kernel_pipeline(
                             project=project,
                             repository=repository,
                             search_provider=active_search_provider,

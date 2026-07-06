@@ -51,6 +51,13 @@ const sourcePolicies = [
 
 const eventNodeMap: Record<string, string> = {
   scope: "scope",
+  initialize_state: "initialize_state",
+  external_materials: "external_materials",
+  agent_decide: "agent_decide",
+  tool_execution: "tool_execution",
+  state_update: "state_update",
+  artifact_writing: "artifact_writing",
+  human_feedback: "human_feedback",
   supervisor_plan: "supervisor_plan",
   master_agent: "master_agent",
   source_strategy: "source_strategy",
