@@ -54,6 +54,7 @@ The latest completed implementation milestone is:
 - Agent Kernel readiness must be verified with one real Mimo + Tavily end-to-end run and exported Markdown inspection. Passing fake/unit tests alone is not an acceptance signal for the user-facing path.
 - Current real Agent Kernel acceptance used project `api中转站-v2-agent-kernel验收5` and export directory `E:\QianFengStudy\PythonProject\SectorBreaker\exports\api中转站-v2-agent-kernel验收5`. The accepted export has five V2 Markdown documents around 17KB-22KB each, `schema_version: "v2-agent-kernel"`, and `EV-KERNEL-*` evidence IDs. It must not regress to `Knowledge Builder`, `Document Writer`, `specialist_react_loop`, `已使用保底`, `EV-V1-*`, or `ART-V1-*`.
 - V2 Agent Kernel failure handling is strict across the whole run: if one document write succeeds and a later write fails, the failed run must not persist that earlier partial artifact. Do not weaken this into "save whatever succeeded" unless the product explicitly adds a partial-results review mode.
+- V2 running-page UX now shows Agent activity in a center live brief panel rather than forcing users to read the narrow raw event stream. Existing Kernel events are rendered as concise cards for Agent judgment, action, tool result, state update, writing, and warning. The raw log is still available, but it is a collapsible right panel with wrapping. Frontend evidence metrics count `State Update: sources+N` from V2 traces, not only legacy `evidence_collected`.
 - Markdown/Obsidian export copies the repository-root `.obsidian/` folder into each generated project vault. Treat `.obsidian/` as the default vault configuration template for preferred Obsidian plugins/settings/workspace, not as generated research output.
 - V2 debugging retrospective is now `docs/19-agent-kernel-debugging-retrospective.md`. It is required reading because it documents the exact failure chain that caused repeated template output: old workflow leakage, fake Agent naming without real control, Markdown routed through JSON parsing, fallback artifacts hiding failure, frontend graph drift, and fake-test overconfidence.
 - The frontend now exposes a mode selector and multi-provider search settings (Tavily recommended, Serper/Brave/Exa visible). It also carries explicit guardrails: do not scrape login-gated job boards by default; use uploads and configured search providers first.
@@ -153,6 +154,16 @@ cd frontend && npm test -- --run App.test.tsx
 Expected result: compile passes, focused Python suite reports 4 passed, frontend
 App suite reports 18 passed, production legacy import scan returns no matches,
 and the accepted export contains V2 schema markers only.
+
+Latest V2 running-page UX verification:
+
+```bash
+cd frontend && npm test -- --run App.test.tsx
+cd frontend && npm run build
+```
+
+Expected result: App suite reports 20 passed, and frontend build passes with
+only the existing Vite chunk-size warning.
 
 ## Local Run
 

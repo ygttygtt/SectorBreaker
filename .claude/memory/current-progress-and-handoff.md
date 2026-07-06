@@ -41,6 +41,7 @@ metadata:
 - 旧 V1/V2 workflow 代码已隔离到 `backend/app/legacy/`：`legacy_v1_pipeline.py` 与 `legacy_fixed_v2_pipeline.py` 只允许作为历史对照和 legacy 单测使用，生产代码不得 import `backend.app.legacy`。
 - 重要排障记忆：旧 `uvicorn` 进程和 Vite 代理端口不一致会造成“后端配置好了但 UI 仍显示未配置/像没修”的假象。验收前先确认只有一个目标后端，当前默认是 `uvicorn backend.app.api.app:app --port 8030`，并在 `vite.config.ts` 或 `VITE_API_PROXY_TARGET` 变更后重启 Vite。
 - V2 Agent Kernel 失败处理已有 partial-write 回归保护：如果前一篇文档写作成功、后一篇写作失败，run 必须 failed，且不能把前序半成品 artifact 持久化到仓库。
+- V2 运行页 UX 已调整：中间区域成为用户主要看的 Agent 实时汇报面板，把 Thought Summary / Action / Observation / State Update 转成简短卡片；运行图降为辅助监控；右侧完整日志改为可折叠并支持换行。前端证据指标已兼容 V2 `State Update: sources+N`，不要再因 `证据事件 0` 直接误判 Kernel 没搜索。
 - 根目录 `.obsidian/` 是默认 Obsidian Vault 配置模板，包含用户常用插件/设置/工作区。Markdown 导出必须把它复制到每个生成的知识库目录；它不是 evidence，也不是 Agent artifact。
 - 文档与协作规范已建立。
 - 核心 schema、provider interfaces、provider factory、SQLite migration/repository 已建立。
@@ -134,6 +135,7 @@ metadata:
 - 当前本轮已新增验证：`python -m pytest tests/api/test_app.py::test_api_agent_kernel_failed_run_does_not_persist_partial_artifacts tests/unit/test_markdown_exporter.py::test_markdown_exporter_copies_default_obsidian_config -q` => 2 passed，1 warning。
 - 当前真实 Agent Kernel 验收：`api中转站-v2-agent-kernel验收5` 导出 5 篇 V2 Markdown，文件大小约 17KB-22KB，抽查内容为非模板正文，且没有旧 V1/fallback 标记。
 - 当前切换收口验证：provider/kernel/API/export/planner 编译通过；`python -m pytest tests/unit/test_agent_kernel_tools.py tests/unit/test_openai_provider.py tests/unit/test_markdown_exporter.py::test_markdown_exporter_copies_default_obsidian_config -q` => 4 passed；`cd frontend && npm test -- --run App.test.tsx` => 18 passed；生产 legacy import 扫描无匹配；验收导出只命中 5 个 `schema_version: "v2-agent-kernel"`，无旧 V1/fallback 标记。
+- 当前 V2 运行页 UX 验证：`cd frontend && npm test -- --run App.test.tsx` => 20 passed；`cd frontend && npm run build` => 通过，仅 Vite chunk-size warning。
 - `cd frontend && npm test -- --run`：3 passed。
 - `cd frontend && npm run build`：通过。
 

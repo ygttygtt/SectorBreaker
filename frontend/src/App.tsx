@@ -179,6 +179,112 @@ function formatEventTime(timestamp: number) {
   return new Date(millis).toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
+export type AgentBriefCard = {
+  id: string;
+  label: string;
+  summary: string;
+  detail?: string;
+  tone: "thinking" | "action" | "result" | "state" | "writing" | "warning";
+  timestamp: number;
+};
+
+function stripKernelPrefix(message: string, prefix: string) {
+  return message.startsWith(prefix) ? message.slice(prefix.length).trim() : message.trim();
+}
+
+function compactMessage(message: string, maxLength = 260) {
+  const normalized = message.replace(/\s+/g, " ").trim();
+  return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1).trim()}…` : normalized;
+}
+
+export function countEvidenceSignals(events: RunEvent[]) {
+  const stateUpdateTotal = events.reduce((total, event) => {
+    const match = event.message.match(/sources\+(\d+)/i);
+    return total + (match ? Number(match[1]) : 0);
+  }, 0);
+  if (stateUpdateTotal > 0) return stateUpdateTotal;
+
+  const collectedEvents = events.filter((event) => event.event_type === "evidence_collected").length;
+  if (collectedEvents > 0) return collectedEvents;
+
+  return events.reduce((total, event) => {
+    const match = event.message.match(/采纳\s*(\d+)\s*条/);
+    return total + (match ? Number(match[1]) : 0);
+  }, 0);
+}
+
+export function buildAgentBriefCards(events: RunEvent[], limit = 8): AgentBriefCard[] {
+  const cards: AgentBriefCard[] = [];
+  let latestWritingIndex = -1;
+
+  events.forEach((event, index) => {
+    const raw = event.message || "";
+    let card: AgentBriefCard | null = null;
+
+    if (raw.startsWith("Thought Summary:")) {
+      card = {
+        id: `${event.timestamp}-${index}-thought`,
+        label: "Agent 判断",
+        summary: compactMessage(stripKernelPrefix(raw, "Thought Summary:")),
+        tone: "thinking",
+        timestamp: event.timestamp,
+      };
+    } else if (raw.startsWith("Action:")) {
+      const summary = stripKernelPrefix(raw, "Action:");
+      const [tool, reason] = summary.split(/\s+-\s+(.+)/);
+      card = {
+        id: `${event.timestamp}-${index}-action`,
+        label: "准备行动",
+        summary: compactMessage(tool ? `调用 ${tool.trim()}` : summary),
+        detail: reason ? compactMessage(reason, 220) : undefined,
+        tone: "action",
+        timestamp: event.timestamp,
+      };
+    } else if (raw.startsWith("Observation:") || raw.startsWith("Action Observation:")) {
+      card = {
+        id: `${event.timestamp}-${index}-observation`,
+        label: "工具结果",
+        summary: compactMessage(stripKernelPrefix(stripKernelPrefix(raw, "Observation:"), "Action Observation:")),
+        tone: "result",
+        timestamp: event.timestamp,
+      };
+    } else if (raw.startsWith("State Update:")) {
+      card = {
+        id: `${event.timestamp}-${index}-state`,
+        label: "状态更新",
+        summary: compactMessage(stripKernelPrefix(raw, "State Update:")),
+        tone: "state",
+        timestamp: event.timestamp,
+      };
+    } else if (event.gate === "artifact_writing" || event.agent === "V2 Artifact Writer") {
+      card = {
+        id: `${event.timestamp}-${index}-writing`,
+        label: raw.includes("已写作") ? "写作完成" : "正在写作",
+        summary: compactMessage(raw),
+        tone: event.severity === "error" ? "warning" : "writing",
+        timestamp: event.timestamp,
+      };
+      if (!raw.includes("已写作") && latestWritingIndex >= 0) {
+        cards[latestWritingIndex] = card;
+        return;
+      }
+      if (!raw.includes("已写作")) latestWritingIndex = cards.length;
+    } else if (event.severity === "error" || event.event_type === "node_blocked") {
+      card = {
+        id: `${event.timestamp}-${index}-warning`,
+        label: "需要处理",
+        summary: compactMessage(raw),
+        tone: "warning",
+        timestamp: event.timestamp,
+      };
+    }
+
+    if (card) cards.push(card);
+  });
+
+  return cards.slice(-limit);
+}
+
 function isKnowledgeCard(artifact: Artifact) {
   return artifact.schema_version === "v1-card"
     || artifact.schema_version === "talent-v1-card"
@@ -635,13 +741,15 @@ function ResearchView({
   searchConfigured: boolean;
 }) {
   const [selectedNode, setSelectedNode] = useState<WorkflowNode | null>(null);
+  const [isLogOpen, setIsLogOpen] = useState(false);
   const [startedAt] = useState(Date.now());
   const [elapsed, setElapsed] = useState("00:00");
   const statuses = useMemo(() => deriveStatuses(events, workflowDefinition), [events, workflowDefinition]);
   const latest = events[events.length - 1];
   const initialNodeId = project.project_mode === "domain_knowledge" ? "initialize_state" : "scope";
   const activeNodeId = latest ? nodeIdForDefinition(latest, workflowDefinition) : initialNodeId;
-  const evidenceEvents = events.filter((event) => event.event_type === "evidence_collected").length;
+  const evidenceEvents = countEvidenceSignals(events);
+  const agentBriefCards = useMemo(() => buildAgentBriefCards(events), [events]);
   const qaReport = asQaPayload(extractQa(events));
   const snapshotProgress = snapshot?.progress.total
     ? Math.min(100, (snapshot.progress.current / snapshot.progress.total) * 100)
@@ -680,7 +788,7 @@ function ResearchView({
           </button>
         </div>
       </header>
-      <div className="workbench-grid">
+      <div className={`workbench-grid ${isLogOpen ? "workbench-grid--log-open" : "workbench-grid--log-collapsed"}`}>
         <aside className="workbench-left">
           <div className="panel-title">
             <Network size={15} />
@@ -698,7 +806,7 @@ function ResearchView({
         <main className="workbench-center">
           <section className="agent-focus-card">
             <div className="agent-focus-head">
-              <span>{snapshot?.current_stage ?? activeAgent ?? "等待执行"}</span>
+              <span>{activeAgent ?? snapshot?.current_stage ?? "Agent Kernel"}</span>
               {snapshot?.status === "failed" || latest?.severity === "error" ? <AlertTriangle size={18} /> : <Loader2 size={18} className={isConnected ? "spinner" : ""} />}
             </div>
             <p>{activeMessage ?? latest?.message ?? "正在构建可导出的知识系统。"}</p>
@@ -731,6 +839,7 @@ function ResearchView({
               <div className="heartbeat-line" />
             )}
           </section>
+          <AgentLiveBrief cards={agentBriefCards} latest={latest} />
           <section className="metrics-strip">
             <div>
               <strong>{events.length}</strong>
@@ -773,15 +882,60 @@ function ResearchView({
             </section>
           )}
         </main>
-        <aside className="workbench-right">
-          <div className="panel-title">
+        {isLogOpen ? (
+          <aside className="workbench-right">
+            <div className="panel-title panel-title--split">
+              <span>
+                <FileText size={15} />
+                <span>完整运行日志</span>
+              </span>
+              <button className="ghost-chip" onClick={() => setIsLogOpen(false)} type="button">收起</button>
+            </div>
+            <LogStream events={events} />
+          </aside>
+        ) : (
+          <button className="log-drawer-tab" onClick={() => setIsLogOpen(true)} type="button">
             <FileText size={15} />
-            <span>研究事件流</span>
-          </div>
-          <LogStream events={events} />
-        </aside>
+            展开日志
+          </button>
+        )}
       </div>
     </div>
+  );
+}
+
+function AgentLiveBrief({ cards, latest }: { cards: AgentBriefCard[]; latest?: RunEvent }) {
+  const headline = cards[cards.length - 1];
+
+  return (
+    <section className="agent-live-panel">
+      <div className="agent-live-head">
+        <div>
+          <span className="eyebrow">实时汇报</span>
+          <h2>{headline ? headline.label : "等待 Agent 行动"}</h2>
+        </div>
+        <span className="agent-live-time">{latest ? formatEventTime(latest.timestamp) : "--:--:--"}</span>
+      </div>
+      {cards.length === 0 ? (
+        <div className="agent-live-empty">
+          <Sparkles size={18} />
+          <span>Agent 启动后，这里会用简短卡片说明它为什么行动、调用了什么工具、拿到了什么结果。</span>
+        </div>
+      ) : (
+        <div className="agent-brief-list">
+          {cards.map((card) => (
+            <article className={`agent-brief-card agent-brief-card--${card.tone}`} key={card.id}>
+              <div className="agent-brief-meta">
+                <span>{card.label}</span>
+                <time>{formatEventTime(card.timestamp)}</time>
+              </div>
+              <p>{card.summary}</p>
+              {card.detail && <small>{card.detail}</small>}
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 

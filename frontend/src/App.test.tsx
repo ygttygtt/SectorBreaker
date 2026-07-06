@@ -253,7 +253,7 @@ vi.mock("./api/client", () => ({
   },
 }));
 
-import { App, nodeIdForEvent } from "./App";
+import { App, buildAgentBriefCards, countEvidenceSignals, nodeIdForEvent } from "./App";
 
 afterEach(() => {
   cleanup();
@@ -282,6 +282,70 @@ test("does not hide legacy personal workflow events as Agent Kernel nodes", () =
   expect(nodeIdForEvent({ gate: "knowledge_structuring", step: null, agent: "Knowledge Builder" })).toBe("knowledge_structuring");
   expect(nodeIdForEvent({ gate: "document_writing", step: null, agent: "Document Writer" })).toBe("document_writing");
   expect(nodeIdForEvent({ gate: "obsidian_export", step: null, agent: "Export Writer" })).toBe("export");
+});
+
+test("counts V2 Agent Kernel source updates as evidence signals", () => {
+  expect(countEvidenceSignals([
+    {
+      event_type: "node_progress",
+      gate: "state_update",
+      step: null,
+      agent: "V2 State Reducer",
+      message: "State Update: sources+8, claims+8, questions+0, artifacts+0",
+      data: null,
+      severity: "info",
+      timestamp: Date.now(),
+    },
+    {
+      event_type: "node_progress",
+      gate: "tool_execution",
+      step: null,
+      agent: "search_web",
+      message: "Observation: 搜索「API中转站」返回 8 条，采纳 8 条，去重/过滤 0 条。",
+      data: null,
+      severity: "info",
+      timestamp: Date.now(),
+    },
+  ])).toBe(8);
+});
+
+test("builds user-facing Agent brief cards from kernel trace events", () => {
+  const cards = buildAgentBriefCards([
+    {
+      event_type: "node_progress",
+      gate: "agent_decide",
+      step: null,
+      agent: "V2 Master Agent",
+      message: "Thought Summary: 当前 State 完全空白，需要先做基础搜索。",
+      data: null,
+      severity: "info",
+      timestamp: Date.now(),
+    },
+    {
+      event_type: "node_progress",
+      gate: "tool_execution",
+      step: null,
+      agent: "V2 Tool Executor",
+      message: "Action: search_web - 为 L1 建立定义和需求基础。",
+      data: null,
+      severity: "info",
+      timestamp: Date.now(),
+    },
+    {
+      event_type: "node_progress",
+      gate: "tool_execution",
+      step: null,
+      agent: "search_web",
+      message: "Observation: 搜索「API中转站 是什么」返回 8 条，采纳 8 条，去重/过滤 0 条。",
+      data: null,
+      severity: "info",
+      timestamp: Date.now(),
+    },
+  ]);
+
+  expect(cards.map((card) => card.label)).toEqual(["Agent 判断", "准备行动", "工具结果"]);
+  expect(cards[1].summary).toContain("search_web");
+  expect(cards[2].summary).toContain("采纳 8 条");
 });
 
 test("renders the landing page with search input", () => {

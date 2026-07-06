@@ -45,6 +45,7 @@ metadata:
 - 当前真实 Agent Kernel 验收：项目 `api中转站-v2-agent-kernel验收5`，导出目录 `E:\QianFengStudy\PythonProject\SectorBreaker\exports\api中转站-v2-agent-kernel验收5`。导出包含 5 篇 V2 Markdown（约 17KB-22KB），使用 `schema_version: "v2-agent-kernel"` 和 `EV-KERNEL-*`，无旧 V1/fallback 标记。
 - V2 长调试失败复盘已写入 `docs/19-agent-kernel-debugging-retrospective.md`。后续工具接手 Agent Kernel 任务时必须先读：它记录了旧 workflow 泄漏、伪 Agent 命名、Markdown 走 JSON 解析、模板兜底掩盖失败、前端图与后端执行漂移、fake/unit test 误判可用等失败链路，以及真实导出验收门槛。
 - V2 Agent Kernel 的失败语义包含 partial-write 场景：如果前一篇文档已生成、后一篇写作失败，失败 run 不能持久化任何半成品 artifact。
+- V2 运行页 UX 已调整：中间区域显示 Agent 实时汇报卡片，右侧完整日志可折叠并换行；前端证据指标已兼容 V2 `State Update: sources+N`，不是只数旧 `evidence_collected`。
 - 根目录 `.obsidian/` 是默认 Obsidian Vault 配置模板，导出器会复制到每个生成的知识库目录；它不是 generated artifact 或 evidence。
 - 前端设置页已展示 Tavily / Serper / Brave / Exa provider mode；Tavily 仍是推荐默认。人才需求模式明确不默认抓取登录型招聘网站。
 - 后端：FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + 可解释选择轨迹
@@ -81,6 +82,7 @@ metadata:
 - 最新自动化验收：export/failure regression 2 passed，1 warning，覆盖 partial artifact 不落库和导出复制 `.obsidian/`。
 - 最新真实验收：`api中转站-v2-agent-kernel验收5` 导出 5 篇 V2 Markdown，文件大小约 17KB-22KB，抽查内容为非模板正文，且没有旧 V1/fallback 标记。
 - 最新切换收口验证：provider/kernel/API/export/planner 编译通过；focused Python suite 4 passed；frontend App suite 18 passed；生产 legacy import 扫描无匹配；验收导出只命中 5 个 `schema_version: "v2-agent-kernel"`，无旧 V1/fallback 标记。
+- 最新 V2 运行页 UX 验证：frontend App suite 20 passed；frontend build passed，仅 Vite chunk-size warning。
 
 最高风险任务：
 
