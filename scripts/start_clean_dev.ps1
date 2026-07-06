@@ -9,12 +9,12 @@ function Stop-PortListeners {
     param([int]$Port)
     $connections = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
     $pids = @($connections | Select-Object -ExpandProperty OwningProcess -Unique)
-    foreach ($pid in $pids) {
-        if ($pid -and $pid -ne 0) {
-            $process = Get-Process -Id $pid -ErrorAction SilentlyContinue
+    foreach ($processId in $pids) {
+        if ($processId -and $processId -ne 0) {
+            $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
             if ($process) {
-                Write-Host "Stopping process $pid on port $Port ($($process.ProcessName))"
-                Stop-Process -Id $pid -Force
+                Write-Host "Stopping process $processId on port $Port ($($process.ProcessName))"
+                Stop-Process -Id $processId -Force
             }
         }
     }
