@@ -144,7 +144,7 @@ button { border: 0; }
 .inline-warning { margin-top: 8px; color: #8a4b00; font-size: 13px; }
 .panel-title { display: flex; align-items: center; gap: 8px; color: #344054; font-weight: 800; font-size: 13px; margin-bottom: 12px; }
 
-.workbench { min-height: 100vh; display: flex; flex-direction: column; }
+.workbench { height: 100vh; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .workbench-topbar {
   height: 54px;
   display: grid;
@@ -164,12 +164,14 @@ button { border: 0; }
 .workbench-grid {
   flex: 1;
   min-height: 0;
+  height: calc(100vh - 54px);
   display: grid;
-  grid-template-columns: minmax(520px, 1.35fr) minmax(320px, .8fr) minmax(300px, .7fr);
+  grid-template-columns: minmax(260px, .64fr) minmax(620px, 2.35fr) 54px;
   gap: 12px;
   padding: 12px;
+  overflow: hidden;
 }
-.workbench-grid--log-open { grid-template-columns: minmax(260px, .7fr) minmax(560px, 1.9fr) minmax(360px, .9fr); }
+.workbench-grid--log-open { grid-template-columns: minmax(260px, .62fr) minmax(560px, 1.85fr) minmax(380px, .95fr); }
 .workbench-grid--log-collapsed { grid-template-columns: minmax(260px, .66fr) minmax(620px, 2.35fr) 54px; }
 .workbench-left, .workbench-center, .workbench-right {
   min-width: 0;
@@ -181,6 +183,7 @@ button { border: 0; }
 }
 .workbench-left { display: flex; flex-direction: column; min-height: 0; }
 .workbench-right { display: flex; flex-direction: column; min-height: 0; }
+.workbench-center { min-height: 0; overflow-y: auto; scroll-behavior: smooth; }
 .workbench-left > .panel-title,
 .workbench-right > .panel-title { flex: 0 0 auto; }
 .workbench-left > .workflow-editor { flex: 1; min-height: 0; }
@@ -320,7 +323,7 @@ button { border: 0; }
     linear-gradient(135deg, rgba(112, 43, 35, .98), rgba(91, 61, 16, .92)),
     radial-gradient(circle at 88% 12%, rgba(255, 194, 140, .42), transparent 28%);
 }
-.agent-brief-list { display: grid; gap: 10px; max-height: min(38vh, 420px); overflow-y: auto; padding-right: 4px; }
+.agent-brief-list { display: grid; gap: 10px; max-height: min(34vh, 360px); overflow-y: auto; padding-right: 4px; scroll-behavior: smooth; }
 .agent-brief-card {
   border: 1px solid rgba(23, 33, 43, .09);
   border-left: 4px solid #9aa7a3;
@@ -328,7 +331,12 @@ button { border: 0; }
   background: rgba(255,255,255,.82);
   padding: 12px 13px;
   box-shadow: 0 8px 22px rgba(23, 33, 43, .045);
+  animation: briefIn .22s ease both;
 }
+.agent-brief-card--secondary { opacity: .84; }
+.agent-brief-card details { margin-top: 7px; }
+.agent-brief-card summary { cursor: pointer; color: var(--muted); font-size: 12px; font-weight: 800; }
+.agent-brief-card details[open] summary { margin-bottom: 5px; }
 .agent-brief-card--thinking { border-left-color: #2f6f73; }
 .agent-brief-card--action { border-left-color: #d0a246; }
 .agent-brief-card--result { border-left-color: #0e6b5b; }
@@ -344,6 +352,7 @@ button { border: 0; }
 .progress-line span { display: block; height: 100%; background: var(--green); transition: width .25s ease; }
 .heartbeat-line::after { content: ""; display: block; width: 34%; height: 100%; background: linear-gradient(90deg, transparent, var(--green), transparent); animation: heartbeat 1.8s ease-in-out infinite; }
 @keyframes heartbeat { from { transform: translateX(-100%); } to { transform: translateX(310%); } }
+@keyframes briefIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 .metrics-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
 .metrics-strip div { background: #fff; border: 1px solid var(--soft-line); border-radius: 7px; padding: 12px; }
 .metrics-strip strong { display: block; font-size: 22px; line-height: 1; }
@@ -362,7 +371,7 @@ button { border: 0; }
 .qa-report-panel li + li { margin-top: 4px; }
 .qa-warning-note { margin: 0; color: #8a4b00 !important; font-size: 12px !important; }
 
-.workflow-editor { width: 100%; min-height: 360px; flex: 1; display: flex; }
+.workflow-editor { width: 100%; min-height: 260px; flex: 1; display: flex; }
 .workflow-editor .react-flow { flex: 1; min-height: 100%; }
 .workflow-node {
   background: #fff;
@@ -390,7 +399,7 @@ button { border: 0; }
   touch-action: none;
 }
 
-.log-stream { flex: 1; overflow-y: auto; padding-right: 4px; }
+.log-stream { flex: 1; min-height: 0; max-height: 100%; overflow-y: auto; padding-right: 4px; overscroll-behavior: contain; }
 .log-empty { color: var(--muted); font-size: 13px; padding: 28px 8px; text-align: center; }
 .log-entry { display: grid; grid-template-columns: 62px minmax(92px, 128px) 1fr; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--soft-line); font-size: 12px; }
 .log-time { color: var(--muted); font-variant-numeric: tabular-nums; }

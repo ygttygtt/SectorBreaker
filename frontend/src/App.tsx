@@ -185,8 +185,11 @@ export type AgentBriefCard = {
   summary: string;
   detail?: string;
   tone: "thinking" | "action" | "result" | "state" | "writing" | "warning";
+  importance: "primary" | "secondary";
   timestamp: number;
 };
+
+const RUN_RESTORE_KEY = "sectorbreaker:last-run";
 
 function stripKernelPrefix(message: string, prefix: string) {
   return message.startsWith(prefix) ? message.slice(prefix.length).trim() : message.trim();
@@ -195,6 +198,70 @@ function stripKernelPrefix(message: string, prefix: string) {
 function compactMessage(message: string, maxLength = 260) {
   const normalized = message.replace(/\s+/g, " ").trim();
   return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1).trim()}…` : normalized;
+}
+
+function parseStateUpdateCounts(message: string) {
+  const counts: Record<string, number> = {};
+  for (const match of message.matchAll(/([a-z_]+)\+(\d+)/gi)) {
+    counts[match[1]] = Number(match[2]);
+  }
+  return counts;
+}
+
+function isZeroStateUpdate(message: string) {
+  if (!message.startsWith("State Update:")) return false;
+  const counts = parseStateUpdateCounts(message);
+  const values = Object.values(counts);
+  return values.length > 0 && values.every((value) => value === 0);
+}
+
+function summarizeStateUpdate(message: string) {
+  const counts = parseStateUpdateCounts(message);
+  const parts = [
+    counts.sources ? `新增 ${counts.sources} 个来源` : "",
+    counts.claims ? `新增 ${counts.claims} 条主张` : "",
+    counts.updated_claims ? `更新 ${counts.updated_claims} 条主张` : "",
+    counts.questions ? `新增 ${counts.questions} 个问题` : "",
+    counts.coverage_updates ? `更新 ${counts.coverage_updates} 个覆盖评估` : "",
+    counts.artifacts ? `写入 ${counts.artifacts} 个产物` : "",
+  ].filter(Boolean);
+  return parts.length ? parts.join("，") : "状态已同步，本轮没有新增长期记忆。";
+}
+
+function shouldPromoteEvent(event: RunEvent) {
+  return !isZeroStateUpdate(event.message || "");
+}
+
+function rememberRun(projectId: string, runId: string) {
+  window.localStorage.setItem(RUN_RESTORE_KEY, JSON.stringify({ projectId, runId }));
+  const url = new URL(window.location.href);
+  url.searchParams.set("project", projectId);
+  url.searchParams.set("run", runId);
+  window.history.replaceState(null, "", url);
+}
+
+function clearRememberedRun() {
+  window.localStorage.removeItem(RUN_RESTORE_KEY);
+  const url = new URL(window.location.href);
+  url.searchParams.delete("project");
+  url.searchParams.delete("run");
+  window.history.replaceState(null, "", url);
+}
+
+function readRememberedRun() {
+  const url = new URL(window.location.href);
+  const fromUrl = {
+    projectId: url.searchParams.get("project") || "",
+    runId: url.searchParams.get("run") || "",
+  };
+  if (fromUrl.projectId && fromUrl.runId) return fromUrl;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(RUN_RESTORE_KEY) || "{}");
+    if (parsed.projectId && parsed.runId) return parsed as { projectId: string; runId: string };
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 export function countEvidenceSignals(events: RunEvent[]) {
@@ -227,6 +294,7 @@ export function buildAgentBriefCards(events: RunEvent[], limit = 8): AgentBriefC
         label: "Agent 判断",
         summary: compactMessage(stripKernelPrefix(raw, "Thought Summary:")),
         tone: "thinking",
+        importance: "primary",
         timestamp: event.timestamp,
       };
     } else if (raw.startsWith("Action:")) {
@@ -235,25 +303,30 @@ export function buildAgentBriefCards(events: RunEvent[], limit = 8): AgentBriefC
       card = {
         id: `${event.timestamp}-${index}-action`,
         label: "准备行动",
-        summary: compactMessage(tool ? `调用 ${tool.trim()}` : summary),
-        detail: reason ? compactMessage(reason, 220) : undefined,
+        summary: compactMessage(tool && reason ? `调用 ${tool.trim()}：${reason}` : summary, 240),
+        detail: tool ? `工具：${tool.trim()}` : undefined,
         tone: "action",
+        importance: "secondary",
         timestamp: event.timestamp,
       };
     } else if (raw.startsWith("Observation:") || raw.startsWith("Action Observation:")) {
       card = {
         id: `${event.timestamp}-${index}-observation`,
-        label: "工具结果",
+        label: event.gate === "artifact_review" ? "审查结果" : "工具结果",
         summary: compactMessage(stripKernelPrefix(stripKernelPrefix(raw, "Observation:"), "Action Observation:")),
         tone: "result",
+        importance: event.gate === "artifact_review" ? "primary" : "secondary",
         timestamp: event.timestamp,
       };
     } else if (raw.startsWith("State Update:")) {
+      if (isZeroStateUpdate(raw)) return;
       card = {
         id: `${event.timestamp}-${index}-state`,
         label: "状态更新",
-        summary: compactMessage(stripKernelPrefix(raw, "State Update:")),
+        summary: summarizeStateUpdate(raw),
+        detail: compactMessage(stripKernelPrefix(raw, "State Update:"), 220),
         tone: "state",
+        importance: "secondary",
         timestamp: event.timestamp,
       };
     } else if (raw.startsWith("Decision:") || raw.startsWith("Agent Decision:")) {
@@ -262,6 +335,7 @@ export function buildAgentBriefCards(events: RunEvent[], limit = 8): AgentBriefC
         label: "下一步决策",
         summary: compactMessage(stripKernelPrefix(stripKernelPrefix(raw, "Decision:"), "Agent Decision:")),
         tone: "thinking",
+        importance: "primary",
         timestamp: event.timestamp,
       };
     } else if (event.gate === "artifact_writing" || event.agent === "V2 Artifact Writer") {
@@ -270,6 +344,7 @@ export function buildAgentBriefCards(events: RunEvent[], limit = 8): AgentBriefC
         label: raw.includes("已写作") ? "写作完成" : "正在写作",
         summary: compactMessage(raw),
         tone: event.severity === "error" ? "warning" : "writing",
+        importance: raw.includes("已写作") ? "primary" : "secondary",
         timestamp: event.timestamp,
       };
       if (!raw.includes("已写作") && latestWritingIndex >= 0) {
@@ -283,6 +358,7 @@ export function buildAgentBriefCards(events: RunEvent[], limit = 8): AgentBriefC
         label: "需要处理",
         summary: compactMessage(raw),
         tone: "warning",
+        importance: "primary",
         timestamp: event.timestamp,
       };
     }
@@ -823,7 +899,7 @@ function ResearchView({
             activeNodeId={activeNodeId}
             nodeStatuses={statuses}
             onNodeClick={setSelectedNode}
-            showMinimap
+            showMinimap={false}
             fillHeight
           />
         </aside>
@@ -931,6 +1007,7 @@ function ResearchView({
 function AgentLiveBrief({ cards, latest }: { cards: AgentBriefCard[]; latest?: RunEvent }) {
   const headline = cards[cards.length - 1];
   const timelineCards = [...cards].reverse();
+  const listRef = useRef<HTMLDivElement | null>(null);
   const headlineBadge = headline?.tone === "action"
     ? "执行前通知"
     : headline?.tone === "result" || headline?.tone === "state"
@@ -938,6 +1015,15 @@ function AgentLiveBrief({ cards, latest }: { cards: AgentBriefCard[]; latest?: R
       : headline?.tone === "writing"
         ? "写作同步"
         : "Agent 思考";
+
+  useEffect(() => {
+    if (!listRef.current) return;
+    if (typeof listRef.current.scrollTo === "function") {
+      listRef.current.scrollTo({ top: 0, behavior: "smooth" });
+    } else {
+      listRef.current.scrollTop = 0;
+    }
+  }, [headline?.id]);
 
   return (
     <section className="agent-live-panel">
@@ -955,7 +1041,7 @@ function AgentLiveBrief({ cards, latest }: { cards: AgentBriefCard[]; latest?: R
         </div>
       ) : (
         <>
-          <article className={`agent-current-card agent-current-card--${headline?.tone ?? "thinking"}`}>
+          <article className={`agent-current-card agent-current-card--${headline?.tone ?? "thinking"}`} key={headline?.id}>
             <div className="agent-current-badge">
               <Sparkles size={14} />
               <span>{headlineBadge}</span>
@@ -964,15 +1050,20 @@ function AgentLiveBrief({ cards, latest }: { cards: AgentBriefCard[]; latest?: R
             <p>{headline?.summary}</p>
             {headline?.detail && <small>{headline.detail}</small>}
           </article>
-          <div className="agent-brief-list">
+          <div className="agent-brief-list" ref={listRef}>
           {timelineCards.map((card) => (
-            <article className={`agent-brief-card agent-brief-card--${card.tone}`} key={card.id}>
+            <article className={`agent-brief-card agent-brief-card--${card.tone} agent-brief-card--${card.importance}`} key={card.id}>
               <div className="agent-brief-meta">
                 <span>{card.label}</span>
                 <time>{formatEventTime(card.timestamp)}</time>
               </div>
               <p>{card.summary}</p>
-              {card.detail && <small>{card.detail}</small>}
+              {card.detail && (
+                <details>
+                  <summary>查看细节</summary>
+                  <small>{card.detail}</small>
+                </details>
+              )}
             </article>
           ))}
           </div>
@@ -1450,8 +1541,51 @@ export function App() {
   }, [refreshRuntimeStatus]);
 
   const onEvent = useCallback((event: RunEvent) => {
+    if (!shouldPromoteEvent(event)) return;
     setActiveAgent(event.agent ?? null);
     setActiveMessage(event.message);
+  }, []);
+
+  useEffect(() => {
+    const remembered = readRememberedRun();
+    if (!remembered) return;
+    const restoreTarget = remembered;
+    let disposed = false;
+    async function restoreRun() {
+      try {
+        setIsLoading(true);
+        const [restoredProject, snapshot] = await Promise.all([
+          api.getProject(restoreTarget.projectId),
+          api.getRunSnapshot(restoreTarget.runId),
+        ]);
+        if (disposed) return;
+        const [artifactData, evidenceData, definition] = await Promise.all([
+          api.listArtifacts(restoredProject.id),
+          api.listEvidence(restoredProject.id),
+          api.getRunWorkflowDefinition(restoreTarget.runId).catch(() => null),
+        ]);
+        if (disposed) return;
+        setProject(restoredProject);
+        setRunId(restoreTarget.runId);
+        setRunSnapshot(snapshot);
+        setArtifacts(artifactData);
+        setEvidence(evidenceData);
+        if (definition) setWorkflowDefinition(definition);
+        if (snapshot.status === "completed") {
+          setPhase("result");
+        } else {
+          setPhase("researching");
+        }
+      } catch {
+        clearRememberedRun();
+      } finally {
+        if (!disposed) setIsLoading(false);
+      }
+    }
+    void restoreRun();
+    return () => {
+      disposed = true;
+    };
   }, []);
 
   const onComplete = useCallback(async () => {
@@ -1579,6 +1713,7 @@ export function App() {
       }
       const run = await api.startRun(proj.id, autoRun);
       setRunId(run.id);
+      rememberRun(proj.id, run.id);
       setPhase("researching");
       if (assistantBrief && !autoRun) {
         // The user can still edit it on the plan confirmation screen; keep this UX non-blocking.
@@ -1592,6 +1727,7 @@ export function App() {
   }
 
   function resetToLanding() {
+    clearRememberedRun();
     setPhase("landing");
     setProject(null);
     setRunId(null);

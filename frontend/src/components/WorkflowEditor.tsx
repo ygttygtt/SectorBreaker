@@ -254,7 +254,7 @@ function WorkflowEditorInner({
       id: edge.id,
       source: edge.source,
       target: edge.target,
-      label: edge.label ?? undefined,
+      label: undefined,
       type: "smoothstep",
       markerEnd: { type: MarkerType.ArrowClosed, color: "#a7b0bd", width: 14, height: 14 },
       style: { stroke: "#cfd6df", strokeWidth: 1.6 },
@@ -276,7 +276,6 @@ function WorkflowEditorInner({
         reactFlow.fitView({ padding: isCompact ? 0.16 : 0.24, duration: 350 });
       });
       firstFitRef.current = true;
-      return;
     }
     if (!activeNodeId) return;
     const activeNode = nodes.find((node) => node.id === activeNodeId);
@@ -284,7 +283,9 @@ function WorkflowEditorInner({
     const x = activeNode.position.x + (typeof activeNode.width === "number" ? activeNode.width / 2 : (isCompact ? 80 : 110));
     const y = activeNode.position.y + (typeof activeNode.height === "number" ? activeNode.height / 2 : (isCompact ? 32 : 48));
     window.requestAnimationFrame(() => {
-      reactFlow.setCenter(x, y, { zoom: isCompact ? 0.72 : 0.88, duration: 400 });
+      window.setTimeout(() => {
+        reactFlow.setCenter(x, y, { zoom: isCompact ? 0.72 : 0.82, duration: 420 });
+      }, firstFitRef.current ? 80 : 420);
     });
   }, [activeNodeId, isCompact, nodes, reactFlow]);
 
