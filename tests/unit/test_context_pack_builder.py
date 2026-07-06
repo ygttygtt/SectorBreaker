@@ -69,3 +69,61 @@ def test_context_pack_keeps_relevant_claims_and_filters_noise() -> None:
     assert "SM-noise" in pack.excluded_source_memory_ids
     assert "SM-risk" in pack.excluded_source_memory_ids
     assert "Skip to content" not in pack.to_prompt_text()
+
+
+def test_context_pack_excludes_hidden_and_superseded_memories() -> None:
+    state = SectorBreakerState.initialize(project_id="p1", domain="API 中转站", user_goal="生成知识库")
+    state.shared_knowledge.claims.extend([
+        KnowledgeClaim(
+            id="CLM-active",
+            text="API 中转站可以聚合多个模型供应商。",
+            layer_ids=["L1_what_why"],
+            evidence_ids=["EV-1"],
+            trust_level=TrustLevel.MEDIUM,
+            verification_status="partially_verified",
+        ),
+        KnowledgeClaim(
+            id="CLM-hidden",
+            text="这条隐藏主张不应进入上下文。",
+            layer_ids=["L1_what_why"],
+            hidden_from_context=True,
+        ),
+        KnowledgeClaim(
+            id="CLM-old",
+            text="这条过时主张不应进入上下文。",
+            layer_ids=["L1_what_why"],
+            superseded_by="CLM-active",
+        ),
+    ])
+    state.shared_knowledge.source_memories.extend([
+        SourceMemory(
+            id="SM-active",
+            source_id="EV-1",
+            source_kind="search",
+            title="有效来源",
+            summary="API 中转站常见能力包括多模型聚合、统一鉴权和计费。",
+            use=SourceUse.EVIDENCE,
+            trust_level=TrustLevel.MEDIUM,
+            evidence_ids=["EV-1"],
+            related_layer_ids=["L1_what_why"],
+        ),
+        SourceMemory(
+            id="SM-hidden",
+            source_id="EV-hidden",
+            source_kind="search",
+            title="隐藏来源",
+            summary="这条隐藏来源不应进入上下文。",
+            hidden_from_context=True,
+            related_layer_ids=["L1_what_why"],
+        ),
+    ])
+
+    pack = ContextPackBuilder().build(state, layer_id="L1_what_why", active_task="解释定义")
+    prompt = pack.to_prompt_text()
+
+    assert "多个模型供应商" in prompt
+    assert "隐藏主张" not in prompt
+    assert "过时主张" not in prompt
+    assert "统一鉴权" in prompt
+    assert "隐藏来源" not in prompt
+    assert "SM-hidden" in pack.excluded_source_memory_ids

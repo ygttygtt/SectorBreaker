@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from backend.app.agent_kernel.models import KernelLoopConfig, KernelRunStatus
 from backend.app.agent_kernel.policy import LLMAgentPolicy
 from backend.app.agent_kernel.runtime import AgentKernelRuntime
+from backend.app.agent_kernel.schema_planner import build_adaptive_schema
 from backend.app.agent_kernel.tool_registry import KernelRuntimeContext
 from backend.app.agent_kernel.tools import build_default_tool_registry
 from backend.app.agent_state import ReportInternalizer, SectorBreakerState
@@ -30,12 +31,20 @@ async def run_v2_agent_kernel_pipeline(
         if emit is not None:
             await emit(event)
 
+    knowledge_schema = await build_adaptive_schema(
+        domain=project.domain,
+        user_goal=f"为“{project.domain}”构建可持续扩展的 Obsidian 领域知识库",
+        market_scope=project.market_scope.value,
+        source_policy=project.source_policy.value,
+        llm_provider=llm_provider,
+    )
     state = SectorBreakerState.initialize(
         project_id=project.id,
         domain=project.domain,
         user_goal=f"为“{project.domain}”构建可持续扩展的 Obsidian 领域知识库",
         market_scope=project.market_scope.value,
         source_policy=project.source_policy.value,
+        knowledge_schema=knowledge_schema,
     )
     await emit_event(RunEvent(
         event_type="node_started",
@@ -45,6 +54,8 @@ async def run_v2_agent_kernel_pipeline(
         data={
             "pipeline": "agent_kernel",
             "schema_version": "v2-agent-kernel",
+            "knowledge_schema_strategy": state.knowledge_schema.strategy,
+            "knowledge_schema_reason": state.knowledge_schema.generated_reason,
             "state": state.model_dump(mode="json"),
         },
     ))

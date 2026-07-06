@@ -61,6 +61,7 @@ class ToolSpec(BaseModel):
 class KernelStateDelta(BaseModel):
     source_memories: list[SourceMemory] = Field(default_factory=list)
     claims: list[KnowledgeClaim] = Field(default_factory=list)
+    updated_claims: list[KnowledgeClaim] = Field(default_factory=list)
     entities: list[EntityRecord] = Field(default_factory=list)
     relationships: list[RelationshipRecord] = Field(default_factory=list)
     open_questions: list[OpenQuestion] = Field(default_factory=list)
@@ -69,11 +70,20 @@ class KernelStateDelta(BaseModel):
     task_notes: list[str] = Field(default_factory=list)
     rejected_notes: list[str] = Field(default_factory=list)
     coverage_gaps: list[str] = Field(default_factory=list)
+    coverage_updates: list[dict[str, Any]] = Field(default_factory=list)
+    hidden_source_ids: list[str] = Field(default_factory=list)
+    deleted_source_ids: list[str] = Field(default_factory=list)
+    hidden_claim_ids: list[str] = Field(default_factory=list)
+    deleted_claim_ids: list[str] = Field(default_factory=list)
+    superseded_claim_ids: list[str] = Field(default_factory=list)
+    resolved_open_question_ids: list[str] = Field(default_factory=list)
+    phase_reflection: str = ""
 
     def is_empty(self) -> bool:
         return not (
             self.source_memories
             or self.claims
+            or self.updated_claims
             or self.entities
             or self.relationships
             or self.open_questions
@@ -82,6 +92,14 @@ class KernelStateDelta(BaseModel):
             or self.task_notes
             or self.rejected_notes
             or self.coverage_gaps
+            or self.coverage_updates
+            or self.hidden_source_ids
+            or self.deleted_source_ids
+            or self.hidden_claim_ids
+            or self.deleted_claim_ids
+            or self.superseded_claim_ids
+            or self.resolved_open_question_ids
+            or self.phase_reflection
         )
 
 
@@ -89,9 +107,13 @@ class AgentDecision(BaseModel):
     thought_summary: str
     action_type: AgentActionType
     tool_call: ToolCall | None = None
+    tool_calls: list[ToolCall] = Field(default_factory=list)
     state_delta: KernelStateDelta | None = None
     expected_observation: str = ""
     stop_reason: str = ""
+    current_goal: str = ""
+    plan_steps: list[str] = Field(default_factory=list)
+    progress_check: str = ""
 
     @model_validator(mode="after")
     def validate_action_payload(self) -> "AgentDecision":
@@ -100,7 +122,7 @@ class AgentDecision(BaseModel):
             AgentActionType.WRITE_ARTIFACT,
             AgentActionType.REVIEW_ARTIFACT,
             AgentActionType.ASK_USER,
-        } and self.tool_call is None:
+        } and self.tool_call is None and not self.tool_calls:
             raise ValueError(f"{self.action_type.value} requires tool_call")
         if self.action_type in {AgentActionType.FINISH, AgentActionType.BLOCK} and not self.stop_reason:
             raise ValueError(f"{self.action_type.value} requires stop_reason")

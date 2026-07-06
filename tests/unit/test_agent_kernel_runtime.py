@@ -1,7 +1,7 @@
 import asyncio
 from datetime import UTC, datetime
 
-from backend.app.agent_kernel.models import AgentActionType, AgentDecision, KernelObservation, KernelRunStatus, ToolCall
+from backend.app.agent_kernel.models import AgentActionType, AgentDecision, KernelObservation, KernelRunStatus, KernelStateDelta, ToolCall
 from backend.app.agent_kernel.runtime import AgentKernelRuntime
 from backend.app.agent_kernel.tool_registry import KernelRuntimeContext, ToolRegistry
 from backend.app.agent_state import SectorBreakerState
@@ -178,3 +178,104 @@ def test_agent_kernel_runtime_stops_on_document_writing_failure() -> None:
     assert result.stop_reason == "artifact_writing_failed"
     assert policy.index == 1
     assert any(event.gate == "artifact_writing" and event.severity == "error" for event in events)
+
+
+def test_agent_kernel_runtime_executes_ordered_tool_calls_and_updates_state_between_tools() -> None:
+    class FakePolicy:
+        def __init__(self) -> None:
+            self.index = 0
+            self.decisions = [
+                AgentDecision(
+                    thought_summary="先评估覆盖，再记录反思。",
+                    action_type=AgentActionType.CALL_TOOL,
+                    current_goal="确认 L1 是否可写",
+                    plan_steps=["评估覆盖", "记录反思"],
+                    progress_check="State 还没有覆盖评分。",
+                    tool_calls=[
+                        ToolCall(
+                            tool_name="evaluate_coverage",
+                            args={"layer_id": "L1_what_why"},
+                            reason="先让 State 产生覆盖评分。",
+                        ),
+                        ToolCall(
+                            tool_name="reflect_on_progress",
+                            args={"reflection": "覆盖不足，下一轮应补搜定义和需求场景。"},
+                            reason="根据覆盖评分更新工作记忆。",
+                        ),
+                    ],
+                ),
+                AgentDecision(
+                    thought_summary="测试结束。",
+                    action_type=AgentActionType.BLOCK,
+                    stop_reason="测试主动停止",
+                ),
+            ]
+
+        async def decide(self, **kwargs):
+            decision = self.decisions[self.index]
+            self.index += 1
+            return decision
+
+    class FakeRepository:
+        def list_evidence(self, project_id):
+            return []
+
+        def list_documents(self, project_id):
+            return []
+
+        def list_artifacts(self, project_id):
+            return []
+
+    seen_scores = []
+
+    async def fake_evaluate(tool_call, context):
+        return KernelObservation(
+            tool_name="evaluate_coverage",
+            success=True,
+            summary="覆盖评估完成",
+            state_delta=KernelStateDelta(coverage_updates=[{
+                "layer_id": "L1_what_why",
+                "coverage_score": 0.25,
+                "coverage_status": "needs_more",
+                "coverage_notes": "测试覆盖不足",
+            }]),
+        )
+
+    async def fake_reflect(tool_call, context):
+        layer = context.state.knowledge_schema.layer("L1_what_why")
+        seen_scores.append(layer.coverage_score if layer else None)
+        return KernelObservation(
+            tool_name="reflect_on_progress",
+            success=True,
+            summary="阶段反思完成",
+            state_delta=KernelStateDelta(phase_reflection="覆盖不足，下一轮应补搜定义和需求场景。"),
+        )
+
+    events = []
+
+    async def emit(event):
+        events.append(event)
+
+    registry = ToolRegistry()
+    from backend.app.agent_kernel.models import ToolSpec
+
+    registry.register(ToolSpec(name="evaluate_coverage", description="fake"), fake_evaluate)
+    registry.register(ToolSpec(name="reflect_on_progress", description="fake"), fake_reflect)
+    state = SectorBreakerState.initialize(project_id="project-kernel", domain="API中转站", user_goal="建库")
+    context = KernelRuntimeContext(
+        project=_project(),
+        repository=FakeRepository(),  # type: ignore[arg-type]
+        state=state,
+        search_provider=None,
+        llm_provider=None,
+        emit_event=emit,
+    )
+    result = asyncio.run(AgentKernelRuntime(policy=FakePolicy(), registry=registry).run(context))  # type: ignore[arg-type]
+
+    assert result.status == KernelRunStatus.BLOCKED
+    assert seen_scores == [0.25]
+    assert [
+        event.agent for event in events
+        if event.gate == "tool_execution" and event.message.startswith("Action:")
+    ] == ["V2 Tool Executor", "V2 Tool Executor"]
+    assert any("coverage_updates+1" in event.message for event in events)

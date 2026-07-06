@@ -125,6 +125,13 @@ Core models:
 Design rule: long documents, raw pages, rejected sources, and event logs stay in
 storage/audit surfaces. LLM calls receive `ContextPack`, not the whole state.
 
+V2 governance update: Agent Kernel state is no longer append-only. Deltas may
+hide/delete noisy source memories, hide/delete/supersede or update claims,
+resolve open questions, update layer coverage scores/status, and record phase
+reflections. `ContextPackBuilder` must filter hidden, inactive, rejected, and
+superseded memories before prompt construction. Adaptive schemas may use string
+layer ids in addition to the original L0-L5 enum ids.
+
 ## Source Policy
 
 `source_policy` values:

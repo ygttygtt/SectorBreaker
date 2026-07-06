@@ -29,28 +29,19 @@ class KernelContextBuilder:
         )
         layers = [
             {
-                "id": layer.id.value,
+                "id": _layer_value(layer.id),
                 "title": layer.title,
                 "goal": layer.goal,
+                "priority_weight": layer.priority_weight,
+                "prerequisite_layer_ids": [_layer_value(item) for item in layer.prerequisite_layer_ids],
                 "guiding_questions": layer.guiding_questions,
                 "completion_criteria": layer.completion_criteria,
                 "coverage_status": layer.coverage_status.value,
+                "coverage_score": layer.coverage_score,
+                "ready_to_write": layer.ready_to_write,
                 "coverage_notes": layer.coverage_notes,
             }
             for layer in state.knowledge_schema.layers
-        ]
-        sources = [
-            {
-                "id": source.id,
-                "kind": source.source_kind,
-                "title": source.title,
-                "summary": source.summary[:360],
-                "use": source.use.value,
-                "trust": source.trust_level.value,
-                "evidence_ids": source.evidence_ids,
-                "layers": [layer.value for layer in source.related_layer_ids],
-            }
-            for source in state.shared_knowledge.source_memories[-12:]
         ]
         trace = [
             {
@@ -68,10 +59,12 @@ class KernelContextBuilder:
             f"{json.dumps(layers, ensure_ascii=False, indent=2)}\n\n"
             "## Curated ContextPack\n"
             f"{pack.to_prompt_text()}\n\n"
-            "## Recent Source Memories\n"
-            f"{json.dumps(sources, ensure_ascii=False, indent=2)}\n\n"
             "## Available Tools\n"
             f"{json.dumps(tool_specs, ensure_ascii=False, indent=2)}\n\n"
             "## Recent Agent Trace\n"
             f"{json.dumps(trace, ensure_ascii=False, indent=2)}"
         )
+
+
+def _layer_value(layer_id) -> str:
+    return layer_id.value if hasattr(layer_id, "value") else str(layer_id)

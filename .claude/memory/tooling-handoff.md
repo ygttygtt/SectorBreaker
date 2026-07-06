@@ -51,6 +51,7 @@ metadata:
 - 可持续知识库 / 第二大脑路线已写入 `docs/21-living-knowledge-base-roadmap.md`。后续不要把 SectorBreaker 只讲成 Deep Search 报告生成器；核心差异是结构化留存、证据连续性、Obsidian 双链和 human-in-the-loop 增长。当前已实现第一步真实增长环：追问会调用项目 RAG，并持久化为 `followups/*.md` artifact，导出会写入 `.sectorbreaker/` 状态包。完整可视化 reopen/resume 仍是后续工作。
 - V2 Agent Kernel 的失败语义包含 partial-write 场景：如果前一篇文档已生成、后一篇写作失败，失败 run 不能持久化任何半成品 artifact。
 - V2 运行页 UX 已调整：中间区域显示 Agent 实时汇报卡片，右侧完整日志可折叠并换行；前端证据指标已兼容 V2 `State Update: sources+N`，不是只数旧 `evidence_collected`。
+- V2 Agent Kernel 状态治理升级已按 `docs/22-agent-kernel-architecture-review.md` 落地：支持 LLM 自适应 `KnowledgeSchema`、动态 layer id、覆盖评分与状态更新、顺序 `tool_calls`、反思/覆盖评估/记忆治理工具、下钻 OpenQuestion、隐藏/删除/取代 source/claim delta，以及 ContextPack 排除 hidden/superseded 记忆。展示前仍要跑新的真实 provider 端到端验收。
 - 根目录 `.obsidian/` 是默认 Obsidian Vault 配置模板，导出器会复制到每个生成的知识库目录；它不是 generated artifact 或 evidence。
 - 前端设置页已展示 Tavily / Serper / Brave / Exa provider mode；Tavily 仍是推荐默认。人才需求模式明确不默认抓取登录型招聘网站。
 - 后端：FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + 可解释选择轨迹
@@ -89,6 +90,7 @@ metadata:
 - 最新切换收口验证：provider/kernel/API/export/planner 编译通过；focused Python suite 4 passed；frontend App suite 18 passed；生产 legacy import 扫描无匹配；验收导出只命中 5 个 `schema_version: "v2-agent-kernel"`，无旧 V1/fallback 标记。
 - 最新 V2 运行页 UX 验证：frontend App suite 20 passed；frontend build passed，仅 Vite chunk-size warning。
 - 最新硬删除旧链路验证：旧事件守卫和 workflow-definition API 测试 2 passed；后端关键文件 py_compile passed；Agent Kernel 单测 4 passed；frontend App 19 passed；frontend build passed；backend/tests 旧 pipeline import 扫描无匹配。
+- 最新 Agent Kernel 治理验证：Agent State/Kernel 关键文件 py_compile passed；Agent Kernel/State 聚焦 suite 15 passed；`python tools/check_version_isolation.py` passed；workflow-definition API 测试 1 passed，1 warning。较慢 API 三件套本地挂住后中断，不能算通过。
 - 最新版本隔离验证入口：`python tools/check_version_isolation.py`。如果失败，优先移除生产引用或隔离历史代码，不允许继续补丁式防御。
 
 最高风险任务：

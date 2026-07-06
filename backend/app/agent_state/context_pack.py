@@ -61,10 +61,11 @@ class ContextPackBuilder:
         coverage_gaps = state.layer_coverage_gaps(normalized_layer_id) if normalized_layer_id else []
         keywords = self._keywords_for_context(state, normalized_layer_id, active_task)
 
+        layer_key = _layer_value(normalized_layer_id) if normalized_layer_id else None
         entities = [
             f"{item.name}（{item.entity_type}）：{item.summary or '暂无摘要'}"
             for item in state.shared_knowledge.entities
-            if not normalized_layer_id or normalized_layer_id in item.layer_ids
+            if not layer_key or layer_key in {_layer_value(layer) for layer in item.layer_ids}
         ][: self.budget.max_entities]
 
         claims = self._select_claims(state.shared_knowledge.claims, normalized_layer_id, keywords)
@@ -72,7 +73,7 @@ class ContextPackBuilder:
         open_questions = [
             item.question
             for item in state.shared_knowledge.open_questions
-            if not item.resolved and (not normalized_layer_id or normalized_layer_id in item.layer_ids)
+            if not item.resolved and (not layer_key or layer_key in {_layer_value(layer) for layer in item.layer_ids})
         ][: self.budget.max_open_questions]
 
         reflection = task_memory.compressed_reflection() if task_memory else ""
@@ -101,12 +102,14 @@ class ContextPackBuilder:
     def _select_claims(
         self,
         claims: list[KnowledgeClaim],
-        layer_id: KnowledgeLayerId | None,
+        layer_id: KnowledgeLayerId | str | None,
         keywords: set[str],
     ) -> list[KnowledgeClaim]:
         scored: list[tuple[int, KnowledgeClaim]] = []
         for claim in claims:
-            if layer_id and layer_id not in claim.layer_ids:
+            if not claim.active or claim.hidden_from_context or claim.superseded_by:
+                continue
+            if layer_id and _layer_value(layer_id) not in {_layer_value(item) for item in claim.layer_ids}:
                 continue
             score = 0
             if claim.evidence_ids:
@@ -123,7 +126,7 @@ class ContextPackBuilder:
     def _select_sources(
         self,
         sources: list[SourceMemory],
-        layer_id: KnowledgeLayerId | None,
+        layer_id: KnowledgeLayerId | str | None,
         keywords: set[str],
     ) -> tuple[list[SourceMemory], list[SourceMemory], list[str]]:
         scored: list[tuple[int, SourceMemory]] = []
@@ -133,6 +136,10 @@ class ContextPackBuilder:
         for source in sources:
             normalized_summary = self._clean_text(source.summary)
             summary_key = normalized_summary[:120].lower()
+            if not source.active or source.hidden_from_context:
+                excluded.append(source)
+                notes.append(f"{source.id}: inactive or hidden source memory")
+                continue
             if source.use == SourceUse.REJECTED:
                 excluded.append(source)
                 notes.append(f"{source.id}: rejected source memory")
@@ -145,7 +152,7 @@ class ContextPackBuilder:
                 excluded.append(source)
                 notes.append(f"{source.id}: duplicate summary")
                 continue
-            if layer_id and source.related_layer_ids and layer_id not in source.related_layer_ids:
+            if layer_id and source.related_layer_ids and _layer_value(layer_id) not in {_layer_value(item) for item in source.related_layer_ids}:
                 excluded.append(source)
                 notes.append(f"{source.id}: unrelated layer")
                 continue
@@ -157,6 +164,7 @@ class ContextPackBuilder:
                 score += 2
             if source.evidence_ids:
                 score += 2
+            score += int(source.relevance_score * 3)
             if any(keyword and keyword in normalized_summary.lower() for keyword in keywords):
                 score += 2
             scored.append((score, source))
@@ -176,7 +184,7 @@ class ContextPackBuilder:
     def _keywords_for_context(
         self,
         state: SectorBreakerState,
-        layer_id: KnowledgeLayerId | None,
+        layer_id: KnowledgeLayerId | str | None,
         active_task: str,
     ) -> set[str]:
         words = {state.meta_context.domain.lower()}
@@ -187,6 +195,11 @@ class ContextPackBuilder:
             if layer:
                 words.update(token for question in layer.guiding_questions for token in re.split(r"[\s,，;；/|]+", question.lower()) if len(token) >= 2)
         return words
+
+    @staticmethod
+    def _is_noisy(text: str) -> bool:
+        lowered = text.lower()
+        return any(marker in lowered for marker in _NOISE_MARKERS) and len(text) < 500
 
     def _enforce_total_budget(self, pack: ContextPack) -> ContextPack:
         while len(pack.to_prompt_text()) > self.budget.max_total_chars and pack.evidence_summaries:
@@ -201,7 +214,8 @@ class ContextPackBuilder:
     def _clean_text(text: str) -> str:
         return _WHITESPACE_RE.sub(" ", text).strip()
 
-    @staticmethod
-    def _is_noisy(text: str) -> bool:
-        lowered = text.lower()
-        return any(marker in lowered for marker in _NOISE_MARKERS) and len(text) < 500
+
+def _layer_value(layer_id: KnowledgeLayerId | str | None) -> str:
+    if layer_id is None:
+        return ""
+    return layer_id.value if isinstance(layer_id, KnowledgeLayerId) else str(layer_id)

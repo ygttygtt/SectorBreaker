@@ -193,6 +193,19 @@ All Agent outputs that include factual claims must support:
   `schema_version="v2-agent-kernel"`.
 - Allowed actions: `call_tool`, `write_artifact`, `review_artifact`,
   `ask_user`, `finish`, and `block`.
+- Decision contract: every LLM decision should expose user-facing
+  `thought_summary`, `current_goal`, `plan_steps`, and `progress_check`.
+  It may contain one `tool_call` or a short ordered `tool_calls` list. Ordered
+  tool calls are executed serially, with each observation applied to State
+  before the next tool runs.
+- State governance contract: `KernelStateDelta` supports append, update,
+  hide/delete, supersede, coverage update, resolved open question, and phase
+  reflection operations. Context builders must exclude hidden, inactive, or
+  superseded memories by default.
+- Schema contract: L1-L5 are cognitive defaults, not a required execution
+  chain. Production initialization may use an LLM-planned adaptive
+  `KnowledgeSchema` with string layer ids, priorities, prerequisites, coverage
+  scores, and drill-down tasks.
 - Must not: traverse L1-L5 as a hard-coded production workflow, silently
   substitute fallback Markdown, persist partial artifacts after a failed run, or
   finish when no artifact exists.

@@ -79,103 +79,168 @@ class AgentKernelRuntime:
                 await self._emit(context, blocked, gate="agent_decide", agent="V2 Master Agent", severity="error")
                 return self._result(KernelRunStatus.BLOCKED, context, trace, iteration, decision.stop_reason)
 
-            if decision.tool_call is None:
+            tool_calls = self._tool_calls_for_decision(decision)
+            if not tool_calls:
                 observation = KernelObservation(
                     tool_name="none",
                     success=False,
                     summary="Agent 决策缺少 tool_call，无法执行。",
                     error="missing tool_call",
                 )
-            else:
+                consecutive_failed_tools, early_result = await self._handle_observation(
+                    context=context,
+                    trace=trace,
+                    iteration=iteration,
+                    decision=decision,
+                    observation=observation,
+                    consecutive_failed_tools=consecutive_failed_tools,
+                )
+                if early_result is not None:
+                    return early_result
+            for tool_call in tool_calls:
                 action_event = KernelTraceEvent(
                     kind=TraceEventKind.ACTION,
-                    message=f"Action: {decision.tool_call.tool_name} - {decision.tool_call.reason}",
-                    data=decision.tool_call.model_dump(mode="json"),
+                    message=f"Action: {tool_call.tool_name} - {tool_call.reason}",
+                    data={
+                        **tool_call.model_dump(mode="json"),
+                        "current_goal": decision.current_goal,
+                        "plan_steps": decision.plan_steps,
+                        "progress_check": decision.progress_check,
+                    },
                 )
                 trace.append(action_event)
                 await self._emit(context, action_event, gate="tool_execution", agent="V2 Tool Executor")
-                budget_observation = self._budget_check(decision)
-                observation = budget_observation or await self.registry.dispatch(decision.tool_call, context)
-
-            event_gate = self._gate_for_tool(observation.tool_name)
-            event_severity = self._severity_for_observation(observation)
-            obs_event = KernelTraceEvent(
-                kind=TraceEventKind.OBSERVATION,
-                message=f"Observation: {observation.summary}",
-                data=observation.model_dump(mode="json"),
-            )
-            trace.append(obs_event)
-            await self._emit(
-                context,
-                obs_event,
-                gate=event_gate,
-                agent=observation.tool_name,
-                severity=event_severity,
-            )
-
-            context.state = apply_state_delta(
-                context.state,
-                observation.state_delta,
-                decision=decision,
-                observation=observation,
-            )
-            state_event = KernelTraceEvent(
-                kind=TraceEventKind.STATE_UPDATE,
-                message=(
-                    "State Update: "
-                    f"sources+{len(observation.state_delta.source_memories)}, "
-                    f"claims+{len(observation.state_delta.claims)}, "
-                    f"questions+{len(observation.state_delta.open_questions)}, "
-                    f"artifacts+{len(observation.state_delta.artifact_ids)}"
-                ),
-                data=observation.state_delta.model_dump(mode="json"),
-            )
-            trace.append(state_event)
-            await self._emit(context, state_event, gate="state_update", agent="V2 State Reducer")
-
-            if observation.tool_name == "write_layer_document" and not observation.success:
-                failed = KernelTraceEvent(
-                    kind=TraceEventKind.BLOCKED,
-                    message="Blocked: LLM 写作失败，已停止运行，未导出模板或假产物。",
-                    data=observation.model_dump(mode="json"),
-                )
-                trace.append(failed)
-                await self._emit(
+                budget_observation = self._budget_check(tool_call)
+                observation = budget_observation or await self.registry.dispatch(tool_call, context)
+                consecutive_failed_tools, early_result = await self._handle_observation(
                     context,
-                    failed,
-                    gate="artifact_writing",
-                    agent="V2 Artifact Writer",
-                    severity="error",
+                    trace=trace,
+                    iteration=iteration,
+                    decision=decision,
+                    observation=observation,
+                    consecutive_failed_tools=consecutive_failed_tools,
                 )
-                return self._result(
-                    KernelRunStatus.FAILED,
-                    context,
-                    trace,
-                    iteration,
-                    "artifact_writing_failed",
-                )
-            if observation.requires_human:
-                return self._result(KernelRunStatus.WAITING_FOR_HUMAN, context, trace, iteration, observation.summary)
-            if observation.tool_name == "finish_run" and observation.success:
-                if not context.artifacts:
-                    return self._result(KernelRunStatus.BLOCKED, context, trace, iteration, "finish_without_artifacts")
-                return self._result(KernelRunStatus.COMPLETED, context, trace, iteration, observation.summary)
-            consecutive_failed_tools = 0 if observation.success else consecutive_failed_tools + 1
-            if consecutive_failed_tools >= self.config.max_consecutive_failed_tools:
-                return self._result(
-                    KernelRunStatus.FAILED,
-                    context,
-                    trace,
-                    iteration,
-                    f"连续工具失败 {consecutive_failed_tools} 次，停止以避免死循环。",
-                )
+                if early_result is not None:
+                    return early_result
         return self._result(KernelRunStatus.MAX_ITERATIONS, context, trace, self.config.max_iterations, "达到最大迭代次数")
 
-    def _budget_check(self, decision: AgentDecision) -> KernelObservation | None:
-        if decision.tool_call is None:
-            return None
-        name = decision.tool_call.tool_name
+    @staticmethod
+    def _tool_calls_for_decision(decision: AgentDecision):
+        if decision.tool_calls:
+            return decision.tool_calls
+        if decision.tool_call is not None:
+            return [decision.tool_call]
+        return []
+
+    def _budget_check(self, tool_call) -> KernelObservation | None:
+        name = tool_call.tool_name
         return None
+
+    async def _handle_observation(
+        self,
+        context: KernelRuntimeContext,
+        *,
+        trace: list[KernelTraceEvent],
+        iteration: int,
+        decision: AgentDecision,
+        observation: KernelObservation,
+        consecutive_failed_tools: int,
+    ) -> tuple[int, KernelRunResult | None]:
+        event_gate = self._gate_for_tool(observation.tool_name)
+        event_severity = self._severity_for_observation(observation)
+        obs_event = KernelTraceEvent(
+            kind=TraceEventKind.OBSERVATION,
+            message=f"Observation: {observation.summary}",
+            data=observation.model_dump(mode="json"),
+        )
+        trace.append(obs_event)
+        await self._emit(
+            context,
+            obs_event,
+            gate=event_gate,
+            agent=observation.tool_name,
+            severity=event_severity,
+        )
+
+        context.state = apply_state_delta(
+            context.state,
+            observation.state_delta,
+            decision=decision,
+            observation=observation,
+        )
+        state_event = KernelTraceEvent(
+            kind=TraceEventKind.STATE_UPDATE,
+            message=(
+                "State Update: "
+                f"sources+{len(observation.state_delta.source_memories)}, "
+                f"claims+{len(observation.state_delta.claims)}, "
+                f"updated_claims+{len(observation.state_delta.updated_claims)}, "
+                f"questions+{len(observation.state_delta.open_questions)}, "
+                f"coverage_updates+{len(observation.state_delta.coverage_updates)}, "
+                f"hidden_sources+{len(observation.state_delta.hidden_source_ids)}, "
+                f"deleted_sources+{len(observation.state_delta.deleted_source_ids)}, "
+                f"artifacts+{len(observation.state_delta.artifact_ids)}"
+            ),
+            data=observation.state_delta.model_dump(mode="json"),
+        )
+        trace.append(state_event)
+        await self._emit(context, state_event, gate="state_update", agent="V2 State Reducer")
+
+        if observation.tool_name == "write_layer_document" and not observation.success:
+            failed = KernelTraceEvent(
+                kind=TraceEventKind.BLOCKED,
+                message="Blocked: LLM 写作失败，已停止运行，未导出模板或假产物。",
+                data=observation.model_dump(mode="json"),
+            )
+            trace.append(failed)
+            await self._emit(
+                context,
+                failed,
+                gate="artifact_writing",
+                agent="V2 Artifact Writer",
+                severity="error",
+            )
+            return consecutive_failed_tools, self._result(
+                KernelRunStatus.FAILED,
+                context,
+                trace,
+                iteration,
+                "artifact_writing_failed",
+            )
+        if observation.requires_human:
+            return consecutive_failed_tools, self._result(
+                KernelRunStatus.WAITING_FOR_HUMAN,
+                context,
+                trace,
+                iteration,
+                observation.summary,
+            )
+        if observation.tool_name == "finish_run" and observation.success:
+            if not context.artifacts:
+                return consecutive_failed_tools, self._result(
+                    KernelRunStatus.BLOCKED,
+                    context,
+                    trace,
+                    iteration,
+                    "finish_without_artifacts",
+                )
+            return consecutive_failed_tools, self._result(
+                KernelRunStatus.COMPLETED,
+                context,
+                trace,
+                iteration,
+                observation.summary,
+            )
+        consecutive_failed_tools = 0 if observation.success else consecutive_failed_tools + 1
+        if consecutive_failed_tools >= self.config.max_consecutive_failed_tools:
+            return consecutive_failed_tools, self._result(
+                KernelRunStatus.FAILED,
+                context,
+                trace,
+                iteration,
+                f"连续工具失败 {consecutive_failed_tools} 次，停止以避免死循环。",
+            )
+        return consecutive_failed_tools, None
 
     @staticmethod
     def _gate_for_tool(tool_name: str) -> str:

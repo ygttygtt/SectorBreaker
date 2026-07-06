@@ -84,15 +84,23 @@ class MetaContext(BaseModel):
 
 
 class KnowledgeLayer(BaseModel):
-    id: KnowledgeLayerId
+    id: KnowledgeLayerId | str
     title: str
     goal: str
+    priority_weight: float = Field(default=1.0, ge=0.0, le=5.0)
+    prerequisite_layer_ids: list[KnowledgeLayerId | str] = Field(default_factory=list)
     guiding_questions: list[str] = Field(default_factory=list)
     completion_criteria: list[str] = Field(default_factory=list)
     required_evidence_types: list[str] = Field(default_factory=list)
     card_titles: list[str] = Field(default_factory=list)
     open_question_ids: list[str] = Field(default_factory=list)
+    drill_down_task_ids: list[str] = Field(default_factory=list)
     coverage_status: CoverageStatus = CoverageStatus.NOT_STARTED
+    coverage_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    evidence_count: int = Field(default=0, ge=0)
+    claim_count: int = Field(default=0, ge=0)
+    open_question_count: int = Field(default=0, ge=0)
+    ready_to_write: bool = False
     coverage_notes: str = ""
 
     @field_validator("guiding_questions", "completion_criteria", "required_evidence_types")
@@ -169,15 +177,15 @@ class KnowledgeSchema(BaseModel):
         )
 
     def layer(self, layer_id: KnowledgeLayerId | str) -> KnowledgeLayer | None:
-        normalized = KnowledgeLayerId(layer_id) if not isinstance(layer_id, KnowledgeLayerId) else layer_id
-        return next((layer for layer in self.layers if layer.id == normalized), None)
+        raw = layer_id.value if isinstance(layer_id, KnowledgeLayerId) else str(layer_id)
+        return next((layer for layer in self.layers if _layer_id_value(layer.id) == raw), None)
 
 
 class EntityRecord(BaseModel):
     id: str = Field(default_factory=lambda: f"ENT-{uuid4().hex[:12]}")
     name: str
     entity_type: str
-    layer_ids: list[KnowledgeLayerId] = Field(default_factory=list)
+    layer_ids: list[KnowledgeLayerId | str] = Field(default_factory=list)
     aliases: list[str] = Field(default_factory=list)
     summary: str = ""
     evidence_ids: list[str] = Field(default_factory=list)
@@ -187,7 +195,7 @@ class EntityRecord(BaseModel):
 class KnowledgeClaim(BaseModel):
     id: str = Field(default_factory=lambda: f"CLM-{uuid4().hex[:12]}")
     text: str
-    layer_ids: list[KnowledgeLayerId] = Field(default_factory=list)
+    layer_ids: list[KnowledgeLayerId | str] = Field(default_factory=list)
     evidence_ids: list[str] = Field(default_factory=list)
     source_memory_ids: list[str] = Field(default_factory=list)
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
@@ -195,6 +203,13 @@ class KnowledgeClaim(BaseModel):
     verification_status: str = "unverified"
     needs_verification: bool = True
     notes: str = ""
+    active: bool = True
+    hidden_from_context: bool = False
+    superseded_by: str | None = None
+    supersedes: list[str] = Field(default_factory=list)
+    conflicts_with: list[str] = Field(default_factory=list)
+    revision_reason: str = ""
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     @model_validator(mode="after")
     def verified_claims_need_evidence(self) -> "KnowledgeClaim":
@@ -216,11 +231,15 @@ class RelationshipRecord(BaseModel):
 class OpenQuestion(BaseModel):
     id: str = Field(default_factory=lambda: f"OQ-{uuid4().hex[:12]}")
     question: str
-    layer_ids: list[KnowledgeLayerId] = Field(default_factory=list)
+    layer_ids: list[KnowledgeLayerId | str] = Field(default_factory=list)
+    parent_layer_id: KnowledgeLayerId | str | None = None
+    concept_or_entity: str = ""
     reason: str = ""
     priority: int = Field(default=2, ge=1, le=5)
     suggested_actions: list[str] = Field(default_factory=list)
+    status: str = "open"
     resolved: bool = False
+    resolved_by_artifact_ids: list[str] = Field(default_factory=list)
 
 
 class SourceMemory(BaseModel):
@@ -233,11 +252,16 @@ class SourceMemory(BaseModel):
     use: SourceUse = SourceUse.CONTEXT
     trust_level: TrustLevel = TrustLevel.UNKNOWN
     evidence_ids: list[str] = Field(default_factory=list)
-    related_layer_ids: list[KnowledgeLayerId] = Field(default_factory=list)
+    related_layer_ids: list[KnowledgeLayerId | str] = Field(default_factory=list)
     extracted_entity_ids: list[str] = Field(default_factory=list)
     extracted_claim_ids: list[str] = Field(default_factory=list)
     keep_reason: str = ""
     filter_reason: str = ""
+    relevance_score: float = Field(default=0.5, ge=0.0, le=1.0)
+    active: bool = True
+    hidden_from_context: bool = False
+    trust_update_reason: str = ""
+    last_used_at: datetime | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -254,11 +278,12 @@ class ToolAttempt(BaseModel):
 
 class TaskMemory(BaseModel):
     task_id: str = Field(default_factory=lambda: f"TASK-{uuid4().hex[:12]}")
-    layer_id: KnowledgeLayerId | None = None
+    layer_id: KnowledgeLayerId | str | None = None
     objective: str
     checklist: list[str] = Field(default_factory=list)
     attempts: list[ToolAttempt] = Field(default_factory=list)
     local_reflections: list[str] = Field(default_factory=list)
+    memory_summary: str = ""
     state_delta_summary: str = ""
     stop_reason: str = ""
 
@@ -267,6 +292,8 @@ class TaskMemory(BaseModel):
         useful = [attempt.observation for attempt in self.attempts if attempt.success and attempt.useful]
         reflection = "；".join(self.local_reflections[-3:])
         parts = []
+        if self.memory_summary:
+            parts.append(f"阶段摘要：{self.memory_summary}")
         if reflection:
             parts.append(f"反思：{reflection}")
         if failed:
@@ -289,6 +316,9 @@ class SharedKnowledge(BaseModel):
             claim for claim in self.claims
             if claim.verification_status in {"verified", "partially_verified", "unverified"}
             and claim.trust_level != TrustLevel.LOW
+            and claim.active
+            and not claim.hidden_from_context
+            and not claim.superseded_by
         ]
 
 
@@ -297,7 +327,7 @@ class AgentDecision(BaseModel):
     actor: str = "master_agent"
     action: AgentAction
     reason: str
-    layer_id: KnowledgeLayerId | None = None
+    layer_id: KnowledgeLayerId | str | None = None
     next_task_ids: list[str] = Field(default_factory=list)
     coverage_gaps: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -343,7 +373,7 @@ class SectorBreakerState(BaseModel):
     working_memory: dict[str, TaskMemory] = Field(default_factory=dict)
     decision_log: list[AgentDecision] = Field(default_factory=list)
     human_feedback: list[str] = Field(default_factory=list)
-    current_layer_id: KnowledgeLayerId | None = None
+    current_layer_id: KnowledgeLayerId | str | None = None
     current_task_id: str | None = None
 
     @classmethod
@@ -356,8 +386,9 @@ class SectorBreakerState(BaseModel):
         market_scope: str = "mixed",
         source_policy: str = "reliable_first",
         include_prerequisite: bool = False,
+        knowledge_schema: KnowledgeSchema | None = None,
     ) -> "SectorBreakerState":
-        schema = KnowledgeSchema.default_for_domain(domain, include_prerequisite=include_prerequisite)
+        schema = knowledge_schema or KnowledgeSchema.default_for_domain(domain, include_prerequisite=include_prerequisite)
         return cls(
             meta_context=MetaContext(
                 project_id=project_id,
@@ -396,6 +427,10 @@ class SectorBreakerState(BaseModel):
         if layer.coverage_status in {CoverageStatus.NOT_STARTED, CoverageStatus.NEEDS_MORE}:
             gaps.extend(layer.completion_criteria)
         for question in self.shared_knowledge.open_questions:
-            if layer.id in question.layer_ids and not question.resolved:
+            if _layer_id_value(layer.id) in {_layer_id_value(item) for item in question.layer_ids} and not question.resolved:
                 gaps.append(question.question)
         return list(dict.fromkeys(gaps))
+
+
+def _layer_id_value(layer_id: KnowledgeLayerId | str) -> str:
+    return layer_id.value if isinstance(layer_id, KnowledgeLayerId) else str(layer_id)

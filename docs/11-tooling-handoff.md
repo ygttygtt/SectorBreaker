@@ -58,6 +58,7 @@ The latest completed implementation milestone is:
 - Current real Agent Kernel acceptance used project `api中转站-v2-agent-kernel验收5` and export directory `E:\QianFengStudy\PythonProject\SectorBreaker\exports\api中转站-v2-agent-kernel验收5`. The accepted export has five V2 Markdown documents around 17KB-22KB each, `schema_version: "v2-agent-kernel"`, and `EV-KERNEL-*` evidence IDs. It must not regress to `Knowledge Builder`, `Document Writer`, `specialist_react_loop`, `已使用保底`, `EV-V1-*`, or `ART-V1-*`.
 - V2 Agent Kernel failure handling is strict across the whole run: if one document write succeeds and a later write fails, the failed run must not persist that earlier partial artifact. Do not weaken this into "save whatever succeeded" unless the product explicitly adds a partial-results review mode.
 - V2 running-page UX now shows Agent activity in a center live brief panel rather than forcing users to read the narrow raw event stream. Existing Kernel events are rendered as concise cards for Agent judgment, action, tool result, state update, writing, and warning. The raw log is still available, but it is a collapsible right panel with wrapping. Frontend evidence metrics count `State Update: sources+N` from V2 traces, not only legacy `evidence_collected`.
+- V2 Agent Kernel governance has been upgraded based on `docs/22-agent-kernel-architecture-review.md`: adaptive LLM-planned knowledge schema, dynamic layer ids, coverage score/status updates, ordered `tool_calls`, reflection and coverage tools, memory hide/delete/supersede deltas, drill-down open questions, and ContextPack filtering for hidden/superseded memories are now implemented. This is an architecture maturity step, not a replacement for real provider acceptance; run one real Mimo/DeepSeek + search acceptance before presenting output quality.
 - Markdown/Obsidian export copies the repository-root `.obsidian/` folder into each generated project vault. Treat `.obsidian/` as the default vault configuration template for preferred Obsidian plugins/settings/workspace, not as generated research output.
 - V2 debugging retrospective is now `docs/19-agent-kernel-debugging-retrospective.md`. It is required reading because it documents the exact failure chain that caused repeated template output: old workflow leakage, fake Agent naming without real control, Markdown routed through JSON parsing, fallback artifacts hiding failure, frontend graph drift, and fake-test overconfidence.
 - Version isolation governance is now `docs/20-version-isolation-and-cutover-rules.md`. It is required reading before changing Agent entrypoints, product-mode routing, workflow definitions, or anything that could make archived workflow code reachable again. New architecture work must isolate or delete old executable paths first; runtime guards are smoke alarms only.
@@ -178,6 +179,20 @@ python tools/check_version_isolation.py
 
 Expected result: production paths do not reference legacy workflow modules or
 forbidden runtime markers outside the explicit fail-closed smoke alarm.
+
+Latest Agent Kernel governance verification:
+
+```bash
+python -m py_compile backend/app/agent_state/models.py backend/app/agent_state/context_pack.py backend/app/agent_kernel/models.py backend/app/agent_kernel/reducer.py backend/app/agent_kernel/context.py backend/app/agent_kernel/tools/state.py backend/app/agent_kernel/runtime.py backend/app/agent_kernel/policy.py backend/app/agent_kernel/pipeline.py backend/app/agent_kernel/schema_planner.py
+python -m pytest tests/unit/test_agent_kernel_models.py tests/unit/test_agent_state_models.py tests/unit/test_agent_kernel_runtime.py tests/unit/test_agent_kernel_tools.py tests/unit/test_context_pack_builder.py tests/unit/test_agent_kernel_schema_planner.py -q
+python tools/check_version_isolation.py
+python -m pytest tests/api/test_app.py::test_api_exposes_workflow_definition_and_source_policy -q
+```
+
+Expected result: compile passes, Agent Kernel/State suite reports 15 passed,
+version isolation passes, and the workflow-definition API test passes with the
+known TestClient warning. A slower API trio was interrupted after hanging
+locally; do not treat it as passed.
 
 ## Local Run
 
