@@ -12,6 +12,7 @@ from backend.app.schemas import (
     MarketScope,
     ResearchDepth,
     ResearchProject,
+    RunEvent,
     SourceChannel,
     SourceQuality,
     VerificationStatus,
@@ -201,3 +202,56 @@ def test_markdown_exporter_copies_default_obsidian_config(tmp_path: Path) -> Non
     project_dir = tmp_path / "vault-config-demo"
     assert (project_dir / ".obsidian" / "app.json").exists()
     assert (project_dir / ".obsidian" / "core-plugins.json").exists()
+
+
+def test_markdown_exporter_writes_sectorbreaker_state_bundle(tmp_path: Path) -> None:
+    project = ResearchProject(
+        id="project-living-vault",
+        title="Living Vault Demo",
+        domain="Living Vault Demo",
+        market_scope=MarketScope.MIXED,
+        depth=ResearchDepth.QUICK,
+    )
+    artifact = Artifact(
+        id="ART-FOLLOWUP-1",
+        project_id=project.id,
+        artifact_type=ArtifactType.FOLLOW_UP_NOTE,
+        title="追问：反向代理是什么",
+        content_path="followups/20260707-reverse-proxy.md",
+        content="# 反向代理是什么\n\n基于项目资料的补库回答。",
+        source_evidence_ids=["EV-LIVING-1"],
+        schema_version="living-vault-followup-v1",
+    )
+    evidence = [
+        EvidenceItem(
+            id="EV-LIVING-1",
+            project_id=project.id,
+            source_title="Living source",
+            source_url="https://example.com/living",
+            source_type="web",
+            source_channel=SourceChannel.SEARCH,
+            snippet="Reverse proxy context.",
+            source_quality=SourceQuality.MEDIUM,
+            claim_strength=ClaimStrength.FACT,
+            confidence=0.7,
+            verification_status=VerificationStatus.PARTIALLY_VERIFIED,
+        )
+    ]
+
+    manifest = MarkdownExporter(tmp_path).export_project(
+        project,
+        [artifact],
+        evidence,
+        run_events=[RunEvent(event_type="artifact_created", gate="human_feedback", message="已根据追问补库")],
+    )
+
+    project_dir = tmp_path / "living-vault-demo"
+    assert ".sectorbreaker/project.json" in manifest.artifact_paths
+    assert ".sectorbreaker/agent_state.json" in manifest.artifact_paths
+    assert ".sectorbreaker/evidence_ledger.json" in manifest.artifact_paths
+    assert ".sectorbreaker/artifact_manifest.json" in manifest.artifact_paths
+    assert ".sectorbreaker/trace_summary.json" in manifest.artifact_paths
+    state = (project_dir / ".sectorbreaker" / "agent_state.json").read_text(encoding="utf-8")
+    assert '"followup_count": 1' in state
+    trace = (project_dir / ".sectorbreaker" / "trace_summary.json").read_text(encoding="utf-8")
+    assert "已根据追问补库" in trace

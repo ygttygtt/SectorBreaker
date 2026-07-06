@@ -48,7 +48,7 @@ metadata:
 - 当前真实 Agent Kernel 验收：项目 `api中转站-v2-agent-kernel验收5`，导出目录 `E:\QianFengStudy\PythonProject\SectorBreaker\exports\api中转站-v2-agent-kernel验收5`。导出包含 5 篇 V2 Markdown（约 17KB-22KB），使用 `schema_version: "v2-agent-kernel"` 和 `EV-KERNEL-*`，无旧 V1/fallback 标记。
 - V2 长调试失败复盘已写入 `docs/19-agent-kernel-debugging-retrospective.md`。后续工具接手 Agent Kernel 任务时必须先读：它记录了旧 workflow 泄漏、伪 Agent 命名、Markdown 走 JSON 解析、模板兜底掩盖失败、前端图与后端执行漂移、fake/unit test 误判可用等失败链路，以及真实导出验收门槛。
 - 版本隔离治理已写入 `docs/20-version-isolation-and-cutover-rules.md` 和 `.claude/memory/version-isolation-governance.md`。后续工具接手 Agent/Workflow/路由任务时必须先读：新架构不能继续在旧 workflow 可执行骨架上打补丁；旧代码必须删除或隔离到生产不可 import 的位置；runtime guard 只是 smoke alarm，不是根治。
-- 可持续知识库 / 第二大脑路线已写入 `docs/21-living-knowledge-base-roadmap.md`。后续不要把 SectorBreaker 只讲成 Deep Search 报告生成器；核心差异是结构化留存、证据连续性、Obsidian 双链和未来 human-in-the-loop 增长。当前 saved-vault reopen / follow-up growth loop 仍是路线图，不要做空壳宣传。
+- 可持续知识库 / 第二大脑路线已写入 `docs/21-living-knowledge-base-roadmap.md`。后续不要把 SectorBreaker 只讲成 Deep Search 报告生成器；核心差异是结构化留存、证据连续性、Obsidian 双链和 human-in-the-loop 增长。当前已实现第一步真实增长环：追问会调用项目 RAG，并持久化为 `followups/*.md` artifact，导出会写入 `.sectorbreaker/` 状态包。完整可视化 reopen/resume 仍是后续工作。
 - V2 Agent Kernel 的失败语义包含 partial-write 场景：如果前一篇文档已生成、后一篇写作失败，失败 run 不能持久化任何半成品 artifact。
 - V2 运行页 UX 已调整：中间区域显示 Agent 实时汇报卡片，右侧完整日志可折叠并换行；前端证据指标已兼容 V2 `State Update: sources+N`，不是只数旧 `evidence_collected`。
 - 根目录 `.obsidian/` 是默认 Obsidian Vault 配置模板，导出器会复制到每个生成的知识库目录；它不是 generated artifact 或 evidence。

@@ -56,6 +56,7 @@ from backend.app.providers.source_verification import HeuristicSourceVerificatio
 from backend.app.rag import ProjectRetriever
 from backend.app.schemas import (
     Artifact,
+    ArtifactType,
     ProjectMode,
     ProjectDocumentCreate,
     ResearchProjectCreate,
@@ -116,6 +117,12 @@ class ChatResponse(BaseModel):
     answer: str
     citations: list[str]
     citation_details: list[dict] = Field(default_factory=list)
+
+
+class FollowUpResponse(ChatResponse):
+    artifact_id: str | None = None
+    artifact_path: str | None = None
+    updated_artifact_count: int = 0
 
 
 class RagAnswerPayload(BaseModel):
@@ -511,6 +518,61 @@ def _fallback_rag_answer(question: str, citation_details: list[dict]) -> str:
         lines.append(f"- {item['title']}：{item['snippet']} [{item['source_id']}]")
     lines.append("如果需要更严格的结论，建议继续补充高质量来源或重新运行研究。")
     return "\n".join(lines)
+
+
+def _safe_followup_slug(value: str, max_length: int = 48) -> str:
+    cleaned = "".join(char if char.isalnum() or "\u4e00" <= char <= "\u9fff" else "-" for char in value)
+    cleaned = "-".join(part for part in cleaned.split("-") if part)
+    return (cleaned[:max_length].strip("-") or "follow-up").lower()
+
+
+def _followup_title(question: str) -> str:
+    question = " ".join(question.split())
+    return question[:42] + ("..." if len(question) > 42 else "")
+
+
+def _render_followup_artifact_content(
+    *,
+    project_title: str,
+    question: str,
+    answer: str,
+    citation_details: list[dict],
+) -> str:
+    citation_lines = []
+    for item in citation_details:
+        source = item.get("source_id", "")
+        title = item.get("title", source)
+        source_type = item.get("source_type", "source")
+        snippet = str(item.get("snippet") or "").strip()
+        citation_lines.append(f"- **{title}** `{source_type}` `{source}`")
+        if snippet:
+            citation_lines.append(f"  - 摘要：{snippet[:260]}")
+    if not citation_lines:
+        citation_lines.append("- 当前项目资料未检索到足够相关引用，本页应作为待补证问题保留。")
+
+    return "\n".join([
+        f"# {_followup_title(question)}",
+        "",
+        "> 本页由 SectorBreaker 的项目 RAG / Living Vault 增长功能生成，表示用户在已有知识库上的一次追问与补库。",
+        "",
+        "## 用户追问",
+        "",
+        question,
+        "",
+        "## Agent 回答",
+        "",
+        answer,
+        "",
+        "## 引用与上下文",
+        "",
+        *citation_lines,
+        "",
+        "## 建议写回知识库的位置",
+        "",
+        f"- 回到 `[[{project_title} 知识库首页]]` 或主文档，判断是否需要把本页链接到相关概念、工具、风险或待验证问题。",
+        "- 如果本页解释了一个新概念，建议后续拆成 `concepts/` 下的独立卡片。",
+        "- 如果本页仍缺证据，下一轮应优先补充高可信来源，再更新本页。",
+    ])
 
 
 def _open_local_folder(path: Path) -> None:
@@ -1204,7 +1266,9 @@ def create_app(
             raise HTTPException(status_code=404, detail="project not found") from exc
         evidence = repository.list_evidence(project_id)
         artifacts = repository.list_artifacts(project_id)
-        return exporter.export_project(project, artifacts, evidence).model_dump(mode="json")
+        latest_run = repository.get_latest_run(project_id)
+        run_events = repository.list_run_events(latest_run.id) if latest_run is not None else []
+        return exporter.export_project(project, artifacts, evidence, run_events=run_events).model_dump(mode="json")
 
     @app.post("/api/exports/open-folder")
     def open_export_folder(payload: OpenExportFolderRequest):
@@ -1222,14 +1286,8 @@ def create_app(
 
     # ── Chat ──────────────────────────────────────────────────────
 
-    @app.post("/api/projects/{project_id}/chat")
-    async def chat(project_id: str, payload: ChatRequest):
-        try:
-            repository.get_project(project_id)
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail="project not found") from exc
-
-        citations = project_retriever.retrieve(project_id, payload.question, limit=6)
+    async def _answer_project_question(project_id: str, question: str) -> ChatResponse:
+        citations = project_retriever.retrieve(project_id, question, limit=6)
         citation_ids = [item.source_id for item in citations]
         citation_details = [
             {
@@ -1247,15 +1305,15 @@ def create_app(
                 answer="当前项目资料中没有检索到足够相关的内容。建议先补充 JD、外部报告或重新运行研究。",
                 citations=[],
                 citation_details=[],
-            ).model_dump(mode="json")
+            )
 
-        fallback_answer = _fallback_rag_answer(payload.question, citation_details)
+        fallback_answer = _fallback_rag_answer(question, citation_details)
         if active_llm_provider is None:
             return ChatResponse(
                 answer=fallback_answer,
                 citations=citation_ids,
                 citation_details=citation_details,
-            ).model_dump(mode="json")
+            )
 
         context = "\n\n".join(
             f"[{item['source_id']}] {item['title']} ({item['source_type']})\n{item['snippet']}"
@@ -1264,7 +1322,7 @@ def create_app(
         prompt = (
             "你是 SectorBreaker 的项目 RAG 问答 Agent。只能基于给定项目资料回答；"
             "如果资料不足，要明确说不足。回答要结构化、具体，并在关键句后标注引用 ID。\n\n"
-            f"问题：{payload.question}\n\n项目资料：\n{context}"
+            f"问题：{question}\n\n项目资料：\n{context}"
         )
         try:
             generated = await active_llm_provider.complete_structured(
@@ -1277,13 +1335,77 @@ def create_app(
                 answer=answer,
                 citations=generated_citations or citation_ids,
                 citation_details=citation_details,
-            ).model_dump(mode="json")
+            )
         except Exception:
             return ChatResponse(
                 answer=fallback_answer,
                 citations=citation_ids,
                 citation_details=citation_details,
-            ).model_dump(mode="json")
+            )
+
+    @app.post("/api/projects/{project_id}/chat")
+    async def chat(project_id: str, payload: ChatRequest):
+        try:
+            repository.get_project(project_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="project not found") from exc
+
+        return (await _answer_project_question(project_id, payload.question)).model_dump(mode="json")
+
+    @app.post("/api/projects/{project_id}/follow-up")
+    async def follow_up(project_id: str, payload: ChatRequest):
+        try:
+            project = repository.get_project(project_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="project not found") from exc
+
+        question = payload.question.strip()
+        if not question:
+            raise HTTPException(status_code=400, detail="question is required")
+
+        answer = await _answer_project_question(project_id, question)
+        now = datetime.now(UTC)
+        title = f"追问：{_followup_title(question)}"
+        slug = _safe_followup_slug(question)
+        artifact = Artifact(
+            id=f"ART-FOLLOWUP-{uuid4().hex[:12]}",
+            project_id=project.id,
+            artifact_type=ArtifactType.FOLLOW_UP_NOTE,
+            title=title,
+            content_path=f"followups/{now.strftime('%Y%m%d-%H%M%S')}-{slug}.md",
+            content=_render_followup_artifact_content(
+                project_title=project.title,
+                question=question,
+                answer=answer.answer,
+                citation_details=answer.citation_details,
+            ),
+            source_evidence_ids=answer.citations,
+            schema_version="living-vault-followup-v1",
+            created_at=now,
+        )
+        repository.add_artifact(artifact)
+
+        latest_run = repository.get_latest_run(project_id)
+        if latest_run is not None:
+            repository.add_run_event(
+                RunEvent(
+                    event_type="artifact_created",
+                    gate="human_feedback",
+                    agent="Living Vault Agent",
+                    message=f"已根据追问补库：{title}",
+                    data={"artifact_id": artifact.id, "content_path": artifact.content_path},
+                ),
+                latest_run.id,
+            )
+
+        return FollowUpResponse(
+            answer=answer.answer,
+            citations=answer.citations,
+            citation_details=answer.citation_details,
+            artifact_id=artifact.id,
+            artifact_path=artifact.content_path,
+            updated_artifact_count=len(repository.list_artifacts(project_id)),
+        ).model_dump(mode="json")
 
     # ── LLM Config ────────────────────────────────────────────────
 

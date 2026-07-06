@@ -41,6 +41,8 @@ class ArtifactType(StrEnum):
     TALENT_CAPABILITY_MODEL = "talent_capability_model"
     TALENT_PORTFOLIO_REQUIREMENTS = "talent_portfolio_requirements"
     TALENT_UNRESOLVED_QUESTIONS = "talent_unresolved_questions"
+    # Living knowledge-base growth
+    FOLLOW_UP_NOTE = "follow_up_note"
 
 
 class Artifact(BaseModel):

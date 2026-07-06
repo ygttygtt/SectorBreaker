@@ -99,7 +99,7 @@ metadata:
 - 当前真实 Agent Kernel 验收：项目 `api中转站-v2-agent-kernel验收5` 已用真实 Mimo + Tavily 跑通，导出目录 `E:\QianFengStudy\PythonProject\SectorBreaker\exports\api中转站-v2-agent-kernel验收5`。导出包含 5 篇 V2 Markdown（约 17KB-22KB），使用 `schema_version: "v2-agent-kernel"` 和 `EV-KERNEL-*`，未发现 `EV-V1-*`、`ART-V1-*`、`Knowledge Builder`、`Document Writer`、`specialist_react_loop`、`已使用保底`。
 - V2 长调试失败复盘已写入 `docs/19-agent-kernel-debugging-retrospective.md`，并加入 AGENTS 必读顺序。后续 Agent Kernel 相关修改必须先读该文档。核心教训：不要把固定 L1-L5 workflow 包装成 Agent；不要让旧 V1/V2 路径留在生产命名空间；不要用 JSON structured parsing 写 Markdown；不要把 LLM 失败保存成模板假产物；不要只跑 fake/unit test 就宣称可用，必须真实端到端跑并检查导出文件。
 - 版本隔离治理已写入 `docs/20-version-isolation-and-cutover-rules.md` 和 `.claude/memory/version-isolation-governance.md`，并加入 AGENTS / CLAUDE 必读入口。核心铁律：新 Agent 架构不能在旧 workflow 可执行骨架上打补丁；旧代码必须删除或隔离到生产不可 import 的历史区；runtime guard 只是烟雾报警器，不是根治方案；未来 Agent/workflow readiness 前必须跑 `python tools/check_version_isolation.py`。
-- 可持续知识库 / 第二大脑路线已写入 `docs/21-living-knowledge-base-roadmap.md`。展示版应强调结构化留存、证据连续性、Obsidian 双链和未来 human-in-the-loop 增长；当前尚未实现 saved-vault reopen / follow-up growth loop，不能假装已经完成。
+- 可持续知识库 / 第二大脑路线已写入 `docs/21-living-knowledge-base-roadmap.md`。展示版应强调结构化留存、证据连续性、Obsidian 双链和 human-in-the-loop 增长；当前已实现第一步真实增长环：结果页追问会调用项目 RAG，并持久化为 `followups/*.md` artifact，导出会写入 `.sectorbreaker/` 状态包。完整可视化 reopen/resume 仍是后续工作。
 - QA Critic artifact prose unsupported-claim 检测与 retry 建议。
 - LangGraph interrupt/resume 与 checkpoint 策略。
 - Agent contract/schema 变更。

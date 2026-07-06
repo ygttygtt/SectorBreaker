@@ -155,6 +155,15 @@ export interface ChatResponse {
   answer: string;
   citations: string[];
   citation_details?: ChatCitationDetail[];
+  artifact_id?: string | null;
+  artifact_path?: string | null;
+  updated_artifact_count?: number;
+}
+
+export interface FollowUpResponse extends ChatResponse {
+  artifact_id?: string | null;
+  artifact_path?: string | null;
+  updated_artifact_count?: number;
 }
 
 export interface ChatCitationDetail {
@@ -435,6 +444,13 @@ export const api = {
   // Chat
   askQuestion(projectId: string, question: string) {
     return requestJson<ChatResponse>(`/api/projects/${projectId}/chat`, {
+      method: "POST",
+      body: JSON.stringify({ question }),
+    });
+  },
+
+  growKnowledge(projectId: string, question: string) {
+    return requestJson<FollowUpResponse>(`/api/projects/${projectId}/follow-up`, {
       method: "POST",
       body: JSON.stringify({ question }),
     });

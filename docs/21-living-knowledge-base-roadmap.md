@@ -31,22 +31,30 @@ SectorBreaker should emphasize a different outcome:
 4. **Knowledge graph feel**: Obsidian backlinks, indexes, concepts, and related
    pages should make the vault browsable by humans and retrievable by Agents.
 
-## Demo-Version Promise
+## Current Demo Capability
 
-For the current staged demo, do not overclaim unfinished persistence features.
-The demo can honestly say:
+For the current staged demo, SectorBreaker now has a first usable living-vault
+growth loop:
 
 - the current run uses an Agent Kernel path with State, Tools, Decisions,
   Observations, and State Updates;
 - the frontend shows the Agent's short user-facing summaries while it works;
 - exported Markdown is structured for Obsidian instead of being one flat report;
 - `.obsidian/` workspace configuration is copied into the generated vault;
-- the roadmap is to reopen the saved vault for follow-up questions and growth.
+- export writes a `.sectorbreaker/` state bundle containing project metadata,
+  evidence, artifact manifest, trace summary, and open questions;
+- the result page can ask a follow-up question against the existing project RAG
+  context and save the answer as a new `followups/*.md` artifact;
+- re-exporting the project includes the new follow-up document and updated
+  `.sectorbreaker` state.
 
-## Required Future Capability: Living Vault State
+This is intentionally the smallest real growth loop: ask on existing context,
+persist a new Obsidian page, and export the updated vault. It is not yet a full
+visual reopen/resume workspace.
 
-The next major product capability should save a replayable project state bundle
-beside the Obsidian vault:
+## Implemented Capability: Living Vault State Bundle
+
+Exports save a replayable project state bundle beside the Obsidian vault:
 
 ```text
 vault/
@@ -65,7 +73,8 @@ vault/
     open_questions.json
 ```
 
-This bundle lets the workbench reopen a previous knowledge base and restore:
+This bundle prepares the workbench to reopen a previous knowledge base and
+restore:
 
 - project mode and source policy;
 - current knowledge schema;
@@ -74,7 +83,20 @@ This bundle lets the workbench reopen a previous knowledge base and restore:
 - open questions and missing concept gaps;
 - Agent trace summaries useful for follow-up planning.
 
-## Required Future Capability: Follow-Up Growth Loop
+## Implemented Capability: First Follow-Up Growth Loop
+
+The result page now supports a real first-step growth loop:
+
+1. user asks a follow-up question inside the finished project;
+2. backend retrieves relevant existing evidence, uploaded document segments, and
+   generated artifacts;
+3. the configured LLM answers when available, otherwise the deterministic RAG
+   fallback answers from citations;
+4. backend persists the result as a `followups/*.md` artifact;
+5. frontend refreshes the artifact list;
+6. export includes the new follow-up page and updated `.sectorbreaker` state.
+
+## Required Future Capability: Full Reopen And Continue Loop
 
 When a user asks a question inside an existing vault, the Agent should:
 
@@ -114,4 +136,3 @@ load saved state
 
 This is the same Agent philosophy as the V2 Kernel: State + Tools + Decision +
 Observation + StateDelta, not a fixed follow-up workflow.
-

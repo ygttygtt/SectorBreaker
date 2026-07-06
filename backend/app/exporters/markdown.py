@@ -12,7 +12,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from backend.app.schemas import Artifact, EvidenceItem, ResearchProject
+from backend.app.schemas import Artifact, EvidenceItem, ResearchProject, RunEvent
 
 
 class ExportManifest(BaseModel):
@@ -34,6 +34,7 @@ class MarkdownExporter:
         project: ResearchProject,
         artifacts: list[Artifact],
         evidence: list[EvidenceItem],
+        run_events: list[RunEvent] | None = None,
     ) -> ExportManifest:
         project_dir = self.export_root / self._slugify(project.title)
         project_dir.mkdir(parents=True, exist_ok=True)
@@ -70,6 +71,9 @@ class MarkdownExporter:
         if learning_path:
             artifact_paths.append(learning_path)
 
+        state_paths = self._generate_sectorbreaker_state_bundle(project, artifacts, evidence, run_events or [], project_dir)
+        artifact_paths.extend(state_paths)
+
         # Write manifest
         manifest = ExportManifest(
             export_version="1",
@@ -90,6 +94,83 @@ class MarkdownExporter:
                 encoding="utf-8",
             )
         return manifest
+
+    def _generate_sectorbreaker_state_bundle(
+        self,
+        project: ResearchProject,
+        artifacts: list[Artifact],
+        evidence: list[EvidenceItem],
+        run_events: list[RunEvent],
+        project_dir: Path,
+    ) -> list[str]:
+        """Write replayable project state for future follow-up growth."""
+        state_dir = project_dir / ".sectorbreaker"
+        state_dir.mkdir(parents=True, exist_ok=True)
+
+        followups = [artifact for artifact in artifacts if artifact.content_path.startswith("followups/")]
+        open_questions = [
+            {
+                "artifact_id": artifact.id,
+                "title": artifact.title,
+                "content_path": artifact.content_path,
+                "source_evidence_ids": artifact.source_evidence_ids,
+            }
+            for artifact in artifacts
+            if artifact.content_path.startswith("questions/") or artifact.artifact_type.value == "unresolved_questions"
+        ]
+        trace_summary = [
+            {
+                "event_type": event.event_type,
+                "gate": event.gate,
+                "step": event.step,
+                "agent": event.agent,
+                "message": event.message,
+                "severity": event.severity,
+                "timestamp": (
+                    event.timestamp.isoformat()
+                    if hasattr(event.timestamp, "isoformat")
+                    else datetime.fromtimestamp(float(event.timestamp), tz=UTC).isoformat()
+                ),
+                "data": event.data,
+            }
+            for event in run_events[-120:]
+        ]
+        files = {
+            "project.json": project.model_dump(mode="json"),
+            "agent_state.json": {
+                "schema_version": "living-vault-state-v1",
+                "project_id": project.id,
+                "project_mode": project.project_mode.value,
+                "generated_at": datetime.now(UTC).isoformat(),
+                "artifact_count": len(artifacts),
+                "evidence_count": len(evidence),
+                "followup_count": len(followups),
+                "open_question_count": len(open_questions),
+                "state_note": "This bundle lets SectorBreaker reopen the vault, retrieve prior context, and plan follow-up growth.",
+            },
+            "evidence_ledger.json": [item.model_dump(mode="json") for item in evidence],
+            "artifact_manifest.json": [
+                {
+                    "id": artifact.id,
+                    "artifact_type": artifact.artifact_type.value,
+                    "title": artifact.title,
+                    "content_path": artifact.content_path,
+                    "schema_version": artifact.schema_version,
+                    "source_evidence_ids": artifact.source_evidence_ids,
+                    "created_at": artifact.created_at.isoformat(),
+                }
+                for artifact in artifacts
+            ],
+            "trace_summary.json": trace_summary,
+            "open_questions.json": open_questions,
+        }
+
+        written: list[str] = []
+        for filename, payload in files.items():
+            path = state_dir / filename
+            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            written.append(f".sectorbreaker/{filename}")
+        return written
 
     def _copy_default_obsidian_config(self, project_dir: Path) -> None:
         """Copy the repository's preferred Obsidian vault settings into exports."""

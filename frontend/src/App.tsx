@@ -1129,6 +1129,7 @@ function ReviewView({
 function ResultView({
   project,
   artifacts,
+  setArtifacts,
   evidence,
   events,
   chat,
@@ -1141,6 +1142,7 @@ function ResultView({
 }: {
   project: Project;
   artifacts: Artifact[];
+  setArtifacts: (items: Artifact[]) => void;
   evidence: Evidence[];
   events: RunEvent[];
   chat: ChatResponse | null;
@@ -1153,6 +1155,7 @@ function ResultView({
 }) {
   const [question, setQuestion] = useState("");
   const [isExporting, setIsExporting] = useState(false);
+  const [isGrowing, setIsGrowing] = useState(false);
   const [qualityFilter, setQualityFilter] = useState("all");
   const [verificationFilter, setVerificationFilter] = useState("all");
   const [attentionOnly, setAttentionOnly] = useState(false);
@@ -1180,10 +1183,17 @@ function ResultView({
 
   async function askQuestion() {
     if (!question.trim()) return;
+    setIsGrowing(true);
     try {
-      setChat(await api.askQuestion(project.id, question));
+      const response = await api.growKnowledge(project.id, question);
+      setChat(response);
+      setArtifacts(await api.listArtifacts(project.id));
+      setQuestion("");
+      toastSuccess(response.artifact_path ? `已补库：${response.artifact_path}` : "已生成补库回答");
     } catch (err) {
-      toastError(err instanceof Error ? err.message : "问答请求失败");
+      toastError(err instanceof Error ? err.message : "补库请求失败");
+    } finally {
+      setIsGrowing(false);
     }
   }
 
@@ -1250,7 +1260,7 @@ function ResultView({
             <div><strong>{qualityMetrics.unresolvedQuestionCount}</strong><span>待验证问题</span></div>
             <div><strong>{qualityMetrics.exportFileCount || "未导出"}</strong><span>导出文件</span></div>
           </div>
-          {!exportManifest && <p className="result-empty">点击导出生成 Obsidian Vault，导出后会写入 README、证据账本、主文档和知识卡片。</p>}
+          {!exportManifest && <p className="result-empty">点击导出生成 Obsidian Vault，导出后会写入 README、证据账本、主文档、知识卡片和 `.sectorbreaker` 流档状态包。</p>}
         </section>
         {sourceCoverage && (
           <section className="result-card result-card--wide source-coverage-card">
@@ -1345,10 +1355,14 @@ function ResultView({
           {filteredEvidence.length === 0 && <p className="result-empty">当前筛选条件下没有证据。</p>}
         </section>
         <section className="result-card result-card--wide">
-          <h3><Search size={16} />项目问答</h3>
+          <h3><Search size={16} />继续提问并补库</h3>
+          <p className="result-empty">基于现有证据、文档和知识库回答问题，并把回答写成 `followups/` 下的新 Obsidian 页面。</p>
           <div className="result-chat-row">
             <input value={question} onChange={(e) => setQuestion(e.target.value)} onKeyDown={(e) => e.key === "Enter" && askQuestion()} placeholder="基于证据账本继续追问" />
-            <button className="primary btn-sm" onClick={askQuestion} disabled={!question.trim()} type="button">询问</button>
+            <button className="primary btn-sm" onClick={askQuestion} disabled={!question.trim() || isGrowing} type="button">
+              {isGrowing ? <Loader2 size={14} className="spinner" /> : <Sparkles size={14} />}
+              追问并补库
+            </button>
             <button className="secondary btn-sm" onClick={exportProject} disabled={isExporting} type="button">
               {isExporting ? <Loader2 size={14} className="spinner" /> : <Download size={14} />}
               导出
@@ -1364,6 +1378,7 @@ function ResultView({
             <div className="chat-answer">
               <p>{chat.answer}</p>
               <span>引用：{chat.citations.join(", ") || "无"}</span>
+              {chat.artifact_path && <span>新增文档：{chat.artifact_path}</span>}
               {chat.citation_details && chat.citation_details.length > 0 && (
                 <ul className="rag-citation-list">
                   {chat.citation_details.map((item) => (
@@ -1673,6 +1688,7 @@ export function App() {
         <ResultView
           project={project}
           artifacts={artifacts}
+          setArtifacts={setArtifacts}
           evidence={evidence}
           events={effectiveEvents}
           chat={chat}

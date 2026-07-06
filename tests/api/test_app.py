@@ -303,6 +303,44 @@ def test_api_runs_research_and_exports_markdown(tmp_path: Path) -> None:
     assert detail_response.json()["project_mode"] == "domain_knowledge"
 
 
+def test_api_follow_up_creates_living_vault_artifact(tmp_path: Path) -> None:
+    client = TestClient(
+        create_app(
+            database_path=tmp_path / "sectorbreaker.sqlite3",
+            export_root=tmp_path / "exports",
+            llm_provider=_default_fake_llm(),
+        )
+    )
+
+    project_response = client.post(
+        "/api/projects",
+        json={
+            "title": "API 中转站",
+            "domain": "API 中转站",
+            "market_scope": "mixed",
+            "depth": "quick",
+        },
+    )
+    assert project_response.status_code == 200
+    project_id = project_response.json()["id"]
+
+    response = client.post(
+        f"/api/projects/{project_id}/follow-up",
+        json={"question": "反向代理是什么，为什么 API 中转站需要它？"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["artifact_id"].startswith("ART-FOLLOWUP-")
+    assert payload["artifact_path"].startswith("followups/")
+    assert payload["updated_artifact_count"] == 1
+
+    artifacts = client.get(f"/api/projects/{project_id}/artifacts").json()
+    assert len(artifacts) == 1
+    assert artifacts[0]["schema_version"] == "living-vault-followup-v1"
+    assert "反向代理" in artifacts[0]["content"]
+
+
 def test_api_rejects_legacy_events_in_personal_auto_run(tmp_path: Path) -> None:
     class LegacyLeakLLM(FakeLLMProvider):
         async def complete_structured(self, messages, response_schema):
