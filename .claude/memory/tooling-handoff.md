@@ -40,7 +40,8 @@ metadata:
 - V1.6 已实现个人版 bounded Master Agent loop：`RunWorkingMemory`、外部报告/材料/引用证据入库、Master 多意图搜索计划、`SearchProvider` 工具调用诊断、`CoverageReport` 覆盖判断、`MasterAgentDecision` 继续/补搜/降级/中断。0 证据会阻塞，薄证据会 degraded，不再被标记为充分。
 - V1.6 个人版 workflow-definition 和前端流程图已对齐真实事件节点：`master_agent`、`external_report_intake`、`source_collection`、`evidence_ledger`、`coverage_evaluation`、`knowledge_structuring`、`document_writing`、`artifact_review`、`export`。
 - 已新增 `docs/17-agent-state-memory-architecture.md` 和 `docs/superpowers/plans/2026-07-06-agent-state-memory-react-rebuild.md`。下一阶段主线是状态/记忆/知识架构：`SectorBreakerState`、动态 L0-L5 Schema、ContextPack 过滤、外部报告内化、specialist ReAct loops、安全冰山/风险探测、人类反馈 reopening。
-- V2 Agent Kernel 已接入个人版生产 auto-run：`backend/app/agent_kernel/pipeline.py` 初始化 `SectorBreakerState`、内化上传报告/用户材料、让 LLM policy 从 State 和 Tools 中选择下一步、执行工具、应用 StateDelta，并只持久化 completed artifacts。旧 V1/V2 workflow 已移动到 `backend/app/legacy/`，生产代码不得 import。`write_layer_document` 使用普通文本 LLM completion 写 Markdown，不再把正文当 JSON 解析；失败会重试 3 次，仍失败或输出过薄时 run failed / `artifact_writing_failed`，不会导出模板假产物。
+- V2 Agent Kernel 已接入个人版生产 auto-run：`backend/app/agent_kernel/pipeline.py` 初始化 `SectorBreakerState`、内化上传报告/用户材料、让 LLM policy 从 State 和 Tools 中选择下一步、执行工具、应用 StateDelta，并只持久化 completed artifacts。旧 V1/V2 workflow 可执行代码已物理删除，不再只是移动归档。`write_layer_document` 使用普通文本 LLM completion 写 Markdown，不再把正文当 JSON 解析；失败会重试 3 次，仍失败或输出过薄时 run failed / `artifact_writing_failed`，不会导出模板假产物。
+- 生产个人版 auto-run 已加 fail-closed 旧事件守卫：旧固定 workflow 标记进入事件 payload 时，run 直接 failed，且不会把旧标记再次展示给用户。
 - Agent Kernel 验收必须包含真实 Mimo + Tavily 端到端运行和导出 Markdown 检查；fake/unit test 不能单独作为用户可测结论。
 - 当前真实 Agent Kernel 验收：项目 `api中转站-v2-agent-kernel验收5`，导出目录 `E:\QianFengStudy\PythonProject\SectorBreaker\exports\api中转站-v2-agent-kernel验收5`。导出包含 5 篇 V2 Markdown（约 17KB-22KB），使用 `schema_version: "v2-agent-kernel"` 和 `EV-KERNEL-*`，无旧 V1/fallback 标记。
 - V2 长调试失败复盘已写入 `docs/19-agent-kernel-debugging-retrospective.md`。后续工具接手 Agent Kernel 任务时必须先读：它记录了旧 workflow 泄漏、伪 Agent 命名、Markdown 走 JSON 解析、模板兜底掩盖失败、前端图与后端执行漂移、fake/unit test 误判可用等失败链路，以及真实导出验收门槛。
@@ -50,7 +51,7 @@ metadata:
 - 前端设置页已展示 Tavily / Serper / Brave / Exa provider mode；Tavily 仍是推荐默认。人才需求模式明确不默认抓取登录型招聘网站。
 - 后端：FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + 可解释选择轨迹
 - 前端：Vite + React + TypeScript，可解释研究工作台，真实 workflow graph，纵向布局与活动节点居中
-- 前端默认 `/api` 代理到 `http://127.0.0.1:8030`。如果 UI 误报 LLM/搜索未配置，优先排查旧 `uvicorn` 进程和 Vite 是否需要重启。
+- 前端默认 `/api` 代理到 `http://127.0.0.1:8030`。如果 UI 误报 LLM/搜索未配置，优先排查旧 `uvicorn` 进程和 Vite 是否需要重启。优先用 `scripts/start_clean_dev.ps1` 启动，它会清理端口后再启动后端/前端。
 - 当前会显式展示“搜索未配置”提示，避免把无联网检索误当成正常研究能力
 - 后端搜索 provider 已扩展为 Tavily / Serper / Brave / Exa；V1 前端配置面板暂时只暴露 Tavily
 - 保存 Tavily runtime 配置后，前端会立即刷新 landing 页搜索状态，不需要手动刷新
@@ -83,6 +84,7 @@ metadata:
 - 最新真实验收：`api中转站-v2-agent-kernel验收5` 导出 5 篇 V2 Markdown，文件大小约 17KB-22KB，抽查内容为非模板正文，且没有旧 V1/fallback 标记。
 - 最新切换收口验证：provider/kernel/API/export/planner 编译通过；focused Python suite 4 passed；frontend App suite 18 passed；生产 legacy import 扫描无匹配；验收导出只命中 5 个 `schema_version: "v2-agent-kernel"`，无旧 V1/fallback 标记。
 - 最新 V2 运行页 UX 验证：frontend App suite 20 passed；frontend build passed，仅 Vite chunk-size warning。
+- 最新硬删除旧链路验证：旧事件守卫和 workflow-definition API 测试 2 passed；后端关键文件 py_compile passed；Agent Kernel 单测 4 passed；frontend App 19 passed；frontend build passed；backend/tests 旧 pipeline import 扫描无匹配。
 
 最高风险任务：
 

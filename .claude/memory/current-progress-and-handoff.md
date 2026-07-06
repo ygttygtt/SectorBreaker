@@ -38,8 +38,9 @@ metadata:
 - V1.6 已实现个人版 `domain_knowledge` 的第一版 bounded Master Agent 调研循环：运行期 `RunWorkingMemory` 记录目标、上传材料、搜索尝试、工具结果、覆盖报告和决策；外部 AI 报告/用户材料/引用会先转为 V1 evidence；`SearchPlan` / `SearchIntent` 驱动多意图搜索；`CoverageReport` 按概念、现状、趋势、政策/风险、案例/玩家、用户需求、信源质量判断；`MasterAgentDecision` 决定继续、补搜、降级或中断。0 证据硬中断，薄证据只能以 degraded 继续，不再显示“充分”。
 - V1.6 前后端运行图已对齐真实 gate：个人版 workflow-definition 和前端 event mapping 使用 `master_agent`、`external_report_intake`、`source_collection`、`evidence_ledger`、`coverage_evaluation`、`knowledge_structuring`、`document_writing`、`artifact_review`、`export`。
 - 已新增 `docs/17-agent-state-memory-architecture.md` 和 `docs/superpowers/plans/2026-07-06-agent-state-memory-react-rebuild.md`，正式记录下一阶段核心：知识库设计、状态设计、Agent 记忆设计、上下文筛选、外部 DeepSearch 报告内化、动态 L0-L5 实战认知 Schema、子 Agent ReAct、可选安全冰山/风险探测、人类反馈后重新打开图。
-- 旧 V1/V2 workflow 代码已隔离到 `backend/app/legacy/`：`legacy_v1_pipeline.py` 与 `legacy_fixed_v2_pipeline.py` 只允许作为历史对照和 legacy 单测使用，生产代码不得 import `backend.app.legacy`。
-- 重要排障记忆：旧 `uvicorn` 进程和 Vite 代理端口不一致会造成“后端配置好了但 UI 仍显示未配置/像没修”的假象。验收前先确认只有一个目标后端，当前默认是 `uvicorn backend.app.api.app:app --port 8030`，并在 `vite.config.ts` 或 `VITE_API_PROXY_TARGET` 变更后重启 Vite。
+- 旧 V1/V2 workflow 可执行代码已物理删除：`backend/app/legacy/`、旧 V1 pipeline、旧 fixed V2 pipeline、`backend/app/graph/v2_react_graph.py` 和对应旧测试都已移除，历史只保留在 docs/复盘里。生产个人版不能再导入旧 pipeline。
+- 生产个人版 auto-run 已加 fail-closed 旧事件守卫：如果事件 payload 出现 `specialist_react_loop`、`Knowledge Builder`、`Document Writer`、`EV-V1-*`、`ART-V1-*` 或保底模板标记，run 直接 failed，且旧标记不会被重新写进用户事件流。
+- 重要排障记忆：旧 `uvicorn` 进程和 Vite 代理端口不一致会造成“后端配置好了但 UI 仍显示未配置/像没修”的假象。验收前先确认只有一个目标后端，当前默认是 `uvicorn backend.app.api.app:app --port 8030`，并在 `vite.config.ts` 或 `VITE_API_PROXY_TARGET` 变更后重启 Vite。优先用 `scripts/start_clean_dev.ps1` 启动，它会先清理后端/前端端口监听。
 - V2 Agent Kernel 失败处理已有 partial-write 回归保护：如果前一篇文档写作成功、后一篇写作失败，run 必须 failed，且不能把前序半成品 artifact 持久化到仓库。
 - V2 运行页 UX 已调整：中间区域成为用户主要看的 Agent 实时汇报面板，把 Thought Summary / Action / Observation / State Update 转成简短卡片；运行图降为辅助监控；右侧完整日志改为可折叠并支持换行。前端证据指标已兼容 V2 `State Update: sources+N`，不要再因 `证据事件 0` 直接误判 Kernel 没搜索。
 - 根目录 `.obsidian/` 是默认 Obsidian Vault 配置模板，包含用户常用插件/设置/工作区。Markdown 导出必须把它复制到每个生成的知识库目录；它不是 evidence，也不是 Agent artifact。
@@ -136,6 +137,7 @@ metadata:
 - 当前真实 Agent Kernel 验收：`api中转站-v2-agent-kernel验收5` 导出 5 篇 V2 Markdown，文件大小约 17KB-22KB，抽查内容为非模板正文，且没有旧 V1/fallback 标记。
 - 当前切换收口验证：provider/kernel/API/export/planner 编译通过；`python -m pytest tests/unit/test_agent_kernel_tools.py tests/unit/test_openai_provider.py tests/unit/test_markdown_exporter.py::test_markdown_exporter_copies_default_obsidian_config -q` => 4 passed；`cd frontend && npm test -- --run App.test.tsx` => 18 passed；生产 legacy import 扫描无匹配；验收导出只命中 5 个 `schema_version: "v2-agent-kernel"`，无旧 V1/fallback 标记。
 - 当前 V2 运行页 UX 验证：`cd frontend && npm test -- --run App.test.tsx` => 20 passed；`cd frontend && npm run build` => 通过，仅 Vite chunk-size warning。
+- 当前硬删除旧链路验证：旧事件守卫和 workflow-definition API 测试 2 passed；后端关键文件 py_compile passed；Agent Kernel 单测 4 passed；frontend App 19 passed；frontend build passed；backend/tests 旧 pipeline import 扫描无匹配。
 - `cd frontend && npm test -- --run`：3 passed。
 - `cd frontend && npm run build`：通过。
 

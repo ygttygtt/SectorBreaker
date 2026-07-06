@@ -303,6 +303,55 @@ def test_api_runs_research_and_exports_markdown(tmp_path: Path) -> None:
     assert detail_response.json()["project_mode"] == "domain_knowledge"
 
 
+def test_api_rejects_legacy_events_in_personal_auto_run(tmp_path: Path) -> None:
+    class LegacyLeakLLM(FakeLLMProvider):
+        async def complete_structured(self, messages, response_schema):
+            if getattr(response_schema, "__name__", "") == "AgentDecision":
+                return response_schema.model_validate({
+                    "thought_summary": "故意触发旧链路标记。",
+                    "action_type": "call_tool",
+                    "tool_call": {
+                        "tool_name": "emit_test_event",
+                        "args": {
+                            "gate": "specialist_react_loop",
+                            "agent": "Document Writer",
+                            "message": "Knowledge Builder / Document Writer legacy leak",
+                        },
+                        "reason": "测试生产守卫必须阻断旧事件。",
+                    },
+                    "expected_observation": "旧事件应被拒绝。",
+                })
+            return await super().complete_structured(messages, response_schema)
+
+    client = TestClient(
+        create_app(
+            database_path=tmp_path / "sectorbreaker.sqlite3",
+            export_root=tmp_path / "exports",
+            llm_provider=LegacyLeakLLM(response={}),
+        )
+    )
+    project_response = client.post(
+        "/api/projects",
+        json={
+            "title": "旧链路泄漏测试",
+            "domain": "API中转站",
+            "market_scope": "mixed",
+            "depth": "quick",
+        },
+    )
+    project_id = project_response.json()["id"]
+
+    run_response = client.post(f"/api/projects/{project_id}/runs", params={"auto_run": "true"})
+    run_result = _wait_for_run(client, run_response.json()["id"])
+
+    assert run_result["status"] == "failed"
+    events_text = client.get(f"/api/runs/{run_response.json()['id']}/events").text
+    assert "legacy event blocked" in events_text
+    assert "Document Writer" not in events_text
+    assert "Knowledge Builder" not in events_text
+    assert "specialist_react_loop" not in events_text
+
+
 def test_api_agent_kernel_writer_failure_marks_run_failed_without_artifacts(tmp_path: Path) -> None:
     llm = _failing_kernel_writer_llm()
     client = TestClient(

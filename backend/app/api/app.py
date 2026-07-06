@@ -73,6 +73,36 @@ from backend.app.storage.sqlite import SQLiteRepository, init_database
 from backend.app.talent_demand.pipeline import run_talent_demand_pipeline
 from backend.app.agent_kernel import run_v2_agent_kernel_pipeline
 
+LEGACY_PERSONAL_RUN_MARKERS = (
+    "specialist_react_loop",
+    "Knowledge Builder",
+    "Document Writer",
+    "L1 本源与需求 Agent",
+    "L2 角色与玩家 Agent",
+    "L3 原理与实操 Agent",
+    "L4 商业与激励 Agent",
+    "L5 风险与边界 Agent",
+    "EV-V1-",
+    "ART-V1-",
+    "已使用保底",
+)
+
+
+def assert_no_legacy_personal_run_event(event: RunEvent) -> None:
+    """Fail closed if archived V1/fixed-V2 workflow markers reach personal runs."""
+
+    fields = [
+        event.gate or "",
+        event.step or "",
+        event.agent or "",
+        event.message or "",
+        json.dumps(event.data, ensure_ascii=False) if event.data else "",
+    ]
+    payload = "\n".join(fields)
+    for marker in LEGACY_PERSONAL_RUN_MARKERS:
+        if marker in payload:
+            raise RuntimeError(f"legacy event blocked: {marker}")
+
 
 class ChatRequest(BaseModel):
     question: str
@@ -650,6 +680,8 @@ def create_app(
         )
 
         async def emit_event(event: RunEvent) -> None:
+            if project.project_mode == ProjectMode.DOMAIN_KNOWLEDGE and auto_run:
+                assert_no_legacy_personal_run_event(event)
             repository.add_run_event(event, run.id)
             repository.update_run(
                 run.id,
@@ -727,10 +759,19 @@ def create_app(
                         message=f"等待人工审阅：{paused_gate}",
                     ))
             except Exception as exc:
-                await emit_event(RunEvent(
-                    event_type="error", gate="unknown",
-                    message=f"工作流执行失败：{exc}",
-                ))
+                error_message = str(exc)
+                safe_message = (
+                    "legacy event blocked: archived personal workflow event was rejected"
+                    if error_message.startswith("legacy event blocked:")
+                    else f"工作流执行失败：{error_message}"
+                )
+                repository.add_run_event(RunEvent(
+                    event_type="error",
+                    gate="agent_decide" if error_message.startswith("legacy event blocked:") else "unknown",
+                    agent="V2 Agent Kernel",
+                    message=safe_message,
+                    severity="error",
+                ), run.id)
                 repository.update_run(run.id, status=RunStatus.FAILED, completed_at=datetime.now(UTC))
 
         background_tasks.add_task(run_in_background)
