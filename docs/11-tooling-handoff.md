@@ -13,9 +13,11 @@ source of truth.
 3. `docs/10-current-status-and-handoff.md`
 4. This file
 5. `docs/19-agent-kernel-debugging-retrospective.md`
-6. The subsystem document for the task:
+6. `docs/20-version-isolation-and-cutover-rules.md`
+7. `docs/21-living-knowledge-base-roadmap.md` for knowledge-base persistence, follow-up Q&A, or Obsidian growth work.
+8. The subsystem document for the task:
    - Backend API: `docs/05-api-contract.md`
-   - Graph or Agent logic: `docs/01-architecture.md` and `docs/02-agent-contracts.md`
+- Graph or Agent logic: `docs/01-architecture.md` and `docs/02-agent-contracts.md`
    - State or database: `docs/03-state-and-storage.md`
    - Providers: `docs/04-provider-interfaces.md`
    - Export: `docs/06-export-spec.md`
@@ -58,6 +60,8 @@ The latest completed implementation milestone is:
 - V2 running-page UX now shows Agent activity in a center live brief panel rather than forcing users to read the narrow raw event stream. Existing Kernel events are rendered as concise cards for Agent judgment, action, tool result, state update, writing, and warning. The raw log is still available, but it is a collapsible right panel with wrapping. Frontend evidence metrics count `State Update: sources+N` from V2 traces, not only legacy `evidence_collected`.
 - Markdown/Obsidian export copies the repository-root `.obsidian/` folder into each generated project vault. Treat `.obsidian/` as the default vault configuration template for preferred Obsidian plugins/settings/workspace, not as generated research output.
 - V2 debugging retrospective is now `docs/19-agent-kernel-debugging-retrospective.md`. It is required reading because it documents the exact failure chain that caused repeated template output: old workflow leakage, fake Agent naming without real control, Markdown routed through JSON parsing, fallback artifacts hiding failure, frontend graph drift, and fake-test overconfidence.
+- Version isolation governance is now `docs/20-version-isolation-and-cutover-rules.md`. It is required reading before changing Agent entrypoints, product-mode routing, workflow definitions, or anything that could make archived workflow code reachable again. New architecture work must isolate or delete old executable paths first; runtime guards are smoke alarms only.
+- Living knowledge-base roadmap is now `docs/21-living-knowledge-base-roadmap.md`. It captures the product distinction from one-shot Deep Search reports: structured retention, evidence continuity, Obsidian links, and future human-in-the-loop vault growth. Do not present the reopen/growth loop as implemented until it is real.
 - The frontend now exposes a mode selector and multi-provider search settings (Tavily recommended, Serper/Brave/Exa visible). It also carries explicit guardrails: do not scrape login-gated job boards by default; use uploads and configured search providers first.
 - Backend: FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + explainable agent selection traces.
 - Frontend: Vite + React + TypeScript explainable research workbench with real workflow graph, vertical layout, and active-node centering.
@@ -165,6 +169,15 @@ cd frontend && npm run build
 
 Expected result: App suite reports 20 passed, and frontend build passes with
 only the existing Vite chunk-size warning.
+
+Latest version-isolation verification:
+
+```bash
+python tools/check_version_isolation.py
+```
+
+Expected result: production paths do not reference legacy workflow modules or
+forbidden runtime markers outside the explicit fail-closed smoke alarm.
 
 ## Local Run
 

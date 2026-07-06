@@ -78,6 +78,8 @@ For Cursor, Windsurf, Gemini, Codex, Claude Code, or other tools, also read `doc
 - Important local debugging note: stale `uvicorn` processes on another port can make the frontend hit old code. The default Vite proxy now targets `127.0.0.1:8030`; before UI acceptance, ensure only one intended `uvicorn backend.app.api.app:app --port 8030` process is running and restart Vite after config changes.
 - Use `scripts/start_clean_dev.ps1` for local demos when possible. It clears existing listeners on the backend/frontend ports before starting the dev stack, preventing multiple stale `uvicorn` instances from serving different code on the same port.
 - V2 debugging retrospective is now documented at `docs/19-agent-kernel-debugging-retrospective.md`. Future Agent Kernel work must read it before changes. It records the failure chain that caused repeated unusable outputs: old workflow leakage, L1-L5 hard-coded traversal, external reports not clearly entering State, Markdown writing through JSON parsing, fake fallback artifacts, UI graph drift, and over-reliance on fake/unit tests instead of real exported-output acceptance.
+- Version isolation governance is now documented at `docs/20-version-isolation-and-cutover-rules.md` and `.claude/memory/version-isolation-governance.md`. Future architecture cutovers must delete or isolate old executable paths before claiming the new path is production. Runtime guards are smoke alarms, not the primary fix. Use `python tools/check_version_isolation.py` as the lightweight production-path scan before Agent/workflow readiness claims.
+- Living knowledge-base positioning is now documented at `docs/21-living-knowledge-base-roadmap.md`. The demo should position SectorBreaker as a structured, Obsidian-friendly, evidence-linked knowledge base rather than a one-shot Deep Search report. The saved-vault reopen and follow-up growth loop are roadmap items and must not be faked in the current demo.
 - LangGraph workflow now includes Scope, Supervisor Plan, Source Strategy, Source Intake, Claim Extractor, Counterevidence, Evidence Ledger, Market, Player, Transaction, Synthesis, Knowledge Map, QA Critic, Export, and RAG Indexer gates.
 - Runs pause at `supervisor_plan` for user confirmation unless `auto_run=true`.
 - Assistant briefs are optional manual Markdown/text inputs and are treated as low-trust lead material.
@@ -161,6 +163,7 @@ Current known baseline:
 - Current cutover closeout verification: Python compile for provider/kernel/API/export/planner files passed; `python -m pytest tests/unit/test_agent_kernel_tools.py tests/unit/test_openai_provider.py tests/unit/test_markdown_exporter.py::test_markdown_exporter_copies_default_obsidian_config -q` => 4 passed; `cd frontend && npm test -- --run App.test.tsx` => 18 passed; production legacy import scan returned no matches; exported acceptance Markdown has five `schema_version: "v2-agent-kernel"` files and no legacy/fallback marker hits.
 - Current V2 running-page UX verification: `cd frontend && npm test -- --run App.test.tsx` => 20 passed; `cd frontend && npm run build` passed with only the existing Vite chunk-size warning.
 - Current hard legacy-kill verification: `python -m pytest tests/api/test_app.py::test_api_rejects_legacy_events_in_personal_auto_run tests/api/test_app.py::test_api_exposes_workflow_definition_and_source_policy -q` => 2 passed, 1 warning; `python -m py_compile backend/app/api/app.py backend/app/agent_kernel/pipeline.py backend/app/agent_kernel/runtime.py backend/app/graph/planner.py` passed; `python -m pytest tests/unit/test_agent_kernel_models.py tests/unit/test_agent_kernel_tools.py tests/unit/test_agent_kernel_runtime.py -q` => 4 passed; `cd frontend && npm test -- --run App.test.tsx` => 19 passed; `cd frontend && npm run build` passed with only the existing Vite chunk-size warning; production legacy import scan returned no matches.
+- Current version-isolation rule: before future Agent/workflow readiness claims, run `python tools/check_version_isolation.py` and inspect the real export for V2 schema/evidence markers. If the scan fails, do not patch around it; remove the production reference or move history into docs-only archive.
 - npm audit high severity: 0 vulnerabilities.
 
 ## What Is Easy
@@ -284,7 +287,8 @@ When meaningful progress happens, update memory in the same commit:
 5. Update `.claude/memory/MEMORY.md` if a new memory file is added.
 6. Update `CLAUDE.md` if Claude Code onboarding changes.
 7. Update `AGENTS.md` if cross-agent rules change.
-8. Commit and push both remotes:
+8. Update `docs/20-version-isolation-and-cutover-rules.md` and `.claude/memory/version-isolation-governance.md` if the version-isolation rule changes.
+9. Commit and push both remotes:
 
    ```bash
    git push origin main && git push gitee main

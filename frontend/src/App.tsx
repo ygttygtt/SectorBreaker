@@ -256,6 +256,14 @@ export function buildAgentBriefCards(events: RunEvent[], limit = 8): AgentBriefC
         tone: "state",
         timestamp: event.timestamp,
       };
+    } else if (raw.startsWith("Decision:") || raw.startsWith("Agent Decision:")) {
+      card = {
+        id: `${event.timestamp}-${index}-decision`,
+        label: "下一步决策",
+        summary: compactMessage(stripKernelPrefix(stripKernelPrefix(raw, "Decision:"), "Agent Decision:")),
+        tone: "thinking",
+        timestamp: event.timestamp,
+      };
     } else if (event.gate === "artifact_writing" || event.agent === "V2 Artifact Writer") {
       card = {
         id: `${event.timestamp}-${index}-writing`,
@@ -538,6 +546,22 @@ function LandingView({
           <h2>{mode.title}</h2>
           <p>{mode.subtitle}</p>
         </div>
+        {projectMode === "domain_knowledge" && (
+          <div className="knowledge-value-grid">
+            <div>
+              <strong>结构化留存</strong>
+              <span>不是一次性报告，而是可导入 Obsidian 的层级化知识库。</span>
+            </div>
+            <div>
+              <strong>证据驱动</strong>
+              <span>搜索、上传材料与 Agent 判断会进入状态与证据链。</span>
+            </div>
+            <div>
+              <strong>可持续增长</strong>
+              <span>后续可围绕已有知识库继续提问、补证和扩展。</span>
+            </div>
+          </div>
+        )}
         {!llmConfigured && (
           <button className="landing-warning" onClick={onOpenSettings} type="button">
             <Settings size={16} />
@@ -906,6 +930,14 @@ function ResearchView({
 
 function AgentLiveBrief({ cards, latest }: { cards: AgentBriefCard[]; latest?: RunEvent }) {
   const headline = cards[cards.length - 1];
+  const timelineCards = [...cards].reverse();
+  const headlineBadge = headline?.tone === "action"
+    ? "执行前通知"
+    : headline?.tone === "result" || headline?.tone === "state"
+      ? "执行后总结"
+      : headline?.tone === "writing"
+        ? "写作同步"
+        : "Agent 思考";
 
   return (
     <section className="agent-live-panel">
@@ -922,8 +954,18 @@ function AgentLiveBrief({ cards, latest }: { cards: AgentBriefCard[]; latest?: R
           <span>Agent 启动后，这里会用简短卡片说明它为什么行动、调用了什么工具、拿到了什么结果。</span>
         </div>
       ) : (
-        <div className="agent-brief-list">
-          {cards.map((card) => (
+        <>
+          <article className={`agent-current-card agent-current-card--${headline?.tone ?? "thinking"}`}>
+            <div className="agent-current-badge">
+              <Sparkles size={14} />
+              <span>{headlineBadge}</span>
+            </div>
+            <h3>{headline?.label}</h3>
+            <p>{headline?.summary}</p>
+            {headline?.detail && <small>{headline.detail}</small>}
+          </article>
+          <div className="agent-brief-list">
+          {timelineCards.map((card) => (
             <article className={`agent-brief-card agent-brief-card--${card.tone}`} key={card.id}>
               <div className="agent-brief-meta">
                 <span>{card.label}</span>
@@ -933,7 +975,8 @@ function AgentLiveBrief({ cards, latest }: { cards: AgentBriefCard[]; latest?: R
               {card.detail && <small>{card.detail}</small>}
             </article>
           ))}
-        </div>
+          </div>
+        </>
       )}
     </section>
   );

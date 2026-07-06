@@ -106,6 +106,12 @@ build_context_pack(state)
 The implementation plan is
 `docs/superpowers/plans/2026-07-06-v2-agent-kernel-rebuild.md`.
 
+Architecture cutovers must follow
+`docs/20-version-isolation-and-cutover-rules.md`. A new Agent architecture is
+not considered production until old executable workflow paths are deleted or
+isolated from production imports, backend workflow definitions expose the new
+truth, and a real end-to-end export has been inspected.
+
 ## V1.3 Talent Demand Branch
 
 `ResearchProject.project_mode` now selects the product-facing auto-run branch:

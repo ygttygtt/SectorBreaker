@@ -13,7 +13,9 @@ metadata:
 2. `README.md`
 3. `docs/10-current-status-and-handoff.md`
 4. `docs/11-tooling-handoff.md`
-5. 当前任务相关的 `docs/0x-*.md`
+5. `docs/20-version-isolation-and-cutover-rules.md`
+6. `docs/21-living-knowledge-base-roadmap.md`
+7. 当前任务相关的 `docs/0x-*.md`
 
 当前基线：
 
@@ -45,6 +47,8 @@ metadata:
 - Agent Kernel 验收必须包含真实 Mimo + Tavily 端到端运行和导出 Markdown 检查；fake/unit test 不能单独作为用户可测结论。
 - 当前真实 Agent Kernel 验收：项目 `api中转站-v2-agent-kernel验收5`，导出目录 `E:\QianFengStudy\PythonProject\SectorBreaker\exports\api中转站-v2-agent-kernel验收5`。导出包含 5 篇 V2 Markdown（约 17KB-22KB），使用 `schema_version: "v2-agent-kernel"` 和 `EV-KERNEL-*`，无旧 V1/fallback 标记。
 - V2 长调试失败复盘已写入 `docs/19-agent-kernel-debugging-retrospective.md`。后续工具接手 Agent Kernel 任务时必须先读：它记录了旧 workflow 泄漏、伪 Agent 命名、Markdown 走 JSON 解析、模板兜底掩盖失败、前端图与后端执行漂移、fake/unit test 误判可用等失败链路，以及真实导出验收门槛。
+- 版本隔离治理已写入 `docs/20-version-isolation-and-cutover-rules.md` 和 `.claude/memory/version-isolation-governance.md`。后续工具接手 Agent/Workflow/路由任务时必须先读：新架构不能继续在旧 workflow 可执行骨架上打补丁；旧代码必须删除或隔离到生产不可 import 的位置；runtime guard 只是 smoke alarm，不是根治。
+- 可持续知识库 / 第二大脑路线已写入 `docs/21-living-knowledge-base-roadmap.md`。后续不要把 SectorBreaker 只讲成 Deep Search 报告生成器；核心差异是结构化留存、证据连续性、Obsidian 双链和未来 human-in-the-loop 增长。当前 saved-vault reopen / follow-up growth loop 仍是路线图，不要做空壳宣传。
 - V2 Agent Kernel 的失败语义包含 partial-write 场景：如果前一篇文档已生成、后一篇写作失败，失败 run 不能持久化任何半成品 artifact。
 - V2 运行页 UX 已调整：中间区域显示 Agent 实时汇报卡片，右侧完整日志可折叠并换行；前端证据指标已兼容 V2 `State Update: sources+N`，不是只数旧 `evidence_collected`。
 - 根目录 `.obsidian/` 是默认 Obsidian Vault 配置模板，导出器会复制到每个生成的知识库目录；它不是 generated artifact 或 evidence。
@@ -85,6 +89,7 @@ metadata:
 - 最新切换收口验证：provider/kernel/API/export/planner 编译通过；focused Python suite 4 passed；frontend App suite 18 passed；生产 legacy import 扫描无匹配；验收导出只命中 5 个 `schema_version: "v2-agent-kernel"`，无旧 V1/fallback 标记。
 - 最新 V2 运行页 UX 验证：frontend App suite 20 passed；frontend build passed，仅 Vite chunk-size warning。
 - 最新硬删除旧链路验证：旧事件守卫和 workflow-definition API 测试 2 passed；后端关键文件 py_compile passed；Agent Kernel 单测 4 passed；frontend App 19 passed；frontend build passed；backend/tests 旧 pipeline import 扫描无匹配。
+- 最新版本隔离验证入口：`python tools/check_version_isolation.py`。如果失败，优先移除生产引用或隔离历史代码，不允许继续补丁式防御。
 
 最高风险任务：
 
@@ -92,6 +97,7 @@ metadata:
 - 可靠信源包、真实 Counterevidence 搜索、Evidence Curator 可信度/冲突规则
 - 多搜索 provider 编排、爬虫/抓取层扩展与 provider routing
 - Master Agent Research Core 后续：V1.6 bounded loop 已落地；V2 durable state/memory models、ContextPackBuilder、外部报告 internalizer、bounded ReAct runner、specialist contracts、冰山风险 Agent、graph skeleton 和真实个人版 auto-run V2 pipeline 已落地；剩余重点是持久化 V2 state、让 specialist loop 使用更强 LLM/tool policy、full `ask_user` 人在回路中断、更强来源验证、RAG/vector 检索进入主管上下文和更严格 artifact claim audit
+- Agent/workflow 架构切换必须先做版本隔离审查；这是最高优先级风险，不是普通测试项。
 - 报告文件上传、引用来源提取、营销来源识别与验证链路
 - `needs_counterevidence` 到 verification task / 搜索回路 还未自动打通，是下一核心缺口
 - 下一核心缺口已从“是否自动打通”变成“如何把 verification task 做得更准、并补正文抽取与证据链接”
@@ -116,4 +122,5 @@ metadata:
 - `docs/11-tooling-handoff.md`
 - `.claude/memory/current-progress-and-handoff.md`
 - `.claude/memory/tooling-handoff.md`
+- `.claude/memory/version-isolation-governance.md`
 - 必要时更新 `README.md`、`AGENTS.md`、`CLAUDE.md`

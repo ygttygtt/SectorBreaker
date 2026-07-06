@@ -11,6 +11,11 @@ The important lesson is not only "one bug was fixed." The deeper lesson is that
 SectorBreaker repeatedly produced poor results because architecture, verification
 and acceptance drifted away from the product goal.
 
+The follow-up governance rule lives in
+`docs/20-version-isolation-and-cutover-rules.md`. Future cutovers must read that
+document and treat version isolation as an architecture requirement, not a test
+cleanup task.
+
 ## What The User Observed
 
 During repeated local runs, especially with topics such as `API中转站`,
@@ -258,6 +263,12 @@ not reflect actual execution, it is worse than no graph.
 
 Versioned experiments must live under clear namespaces. Legacy tests may import
 legacy modules, but production code must not.
+
+### Rule 6A: Cut over by isolation, not by guard-only patches
+
+Runtime guards may remain as smoke alarms, but they are never the primary fix.
+If old workflow code can still be imported by production code, the cutover is
+not complete.
 
 ### Rule 7: Record failures as product knowledge
 

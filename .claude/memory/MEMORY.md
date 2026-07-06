@@ -2,3 +2,5 @@
 - [项目安全协作架构](project-safety-architecture.md) — 文档优先、接口优先、schema 优先、证据优先的多人/多 Agent 协作规范
 - [当前进度与交接说明](current-progress-and-handoff.md) — 后续 Agent/成员接手前必须阅读，包含剩余任务、风险点、记忆同步方式
 - [跨工具接手说明](tooling-handoff.md) — Cursor、Windsurf、Gemini、Claude Code、Codex 等工具接手时的统一入口
+- [版本隔离治理](version-isolation-governance.md) — V2 Agent Kernel 切换事故后的硬规则：新架构必须隔离旧可执行路径，不能靠补丁或守卫掩盖旧 workflow 泄漏
+- [可持续知识库路线](../../docs/21-living-knowledge-base-roadmap.md) — SectorBreaker 区别于一次性 Deep Search 报告的核心定位：结构化留存、Obsidian 双链、证据连续性和未来人在回路增长

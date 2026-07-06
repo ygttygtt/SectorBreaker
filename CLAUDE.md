@@ -45,6 +45,13 @@ For Agent Kernel work, also read `docs/19-agent-kernel-debugging-retrospective.m
 before changing code. It records the V2 cutover failure chain: old workflow
 leakage, Markdown-vs-JSON writer failure, fake fallback artifacts, insufficient
 real-output acceptance, and the resulting non-negotiable debugging rules.
+Also read `docs/20-version-isolation-and-cutover-rules.md` before changing
+Agent entrypoints, workflow definitions, product-mode routing, or any code that
+could make old workflow paths reachable. SectorBreaker must not implement new
+Agent architecture by patching the old executable spine.
+For persisted knowledge-base growth, follow-up Q&A, Obsidian vault structure,
+or "second brain" positioning, read
+`docs/21-living-knowledge-base-roadmap.md`.
 
 That document records:
 
@@ -55,6 +62,8 @@ That document records:
 - how to sync project memory after progress changes.
 
 Claude Code should also read `.claude/memory/MEMORY.md` before making changes.
+For the V2 cutover isolation rule, also read
+`.claude/memory/version-isolation-governance.md`.
 
 ## Git: Dual Remote Push
 

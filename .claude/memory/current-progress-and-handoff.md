@@ -10,7 +10,9 @@ metadata:
 1. `AGENTS.md`
 2. `CLAUDE.md`
 3. `docs/10-current-status-and-handoff.md`
-4. 与任务相关的 `docs/0x-*.md`
+4. `docs/20-version-isolation-and-cutover-rules.md`
+5. `docs/21-living-knowledge-base-roadmap.md`
+6. 与任务相关的 `docs/0x-*.md`
 
 当前状态：
 
@@ -96,6 +98,8 @@ metadata:
 - Agent Kernel 验收规则：不能只看 fake/unit test。必须用真实 Mimo + Tavily 跑一轮端到端，并打开导出 Markdown 检查是否为 `schema_version: "v2-agent-kernel"`、内容非模板、没有 `EV-V1-*` / `ART-V1-*`。
 - 当前真实 Agent Kernel 验收：项目 `api中转站-v2-agent-kernel验收5` 已用真实 Mimo + Tavily 跑通，导出目录 `E:\QianFengStudy\PythonProject\SectorBreaker\exports\api中转站-v2-agent-kernel验收5`。导出包含 5 篇 V2 Markdown（约 17KB-22KB），使用 `schema_version: "v2-agent-kernel"` 和 `EV-KERNEL-*`，未发现 `EV-V1-*`、`ART-V1-*`、`Knowledge Builder`、`Document Writer`、`specialist_react_loop`、`已使用保底`。
 - V2 长调试失败复盘已写入 `docs/19-agent-kernel-debugging-retrospective.md`，并加入 AGENTS 必读顺序。后续 Agent Kernel 相关修改必须先读该文档。核心教训：不要把固定 L1-L5 workflow 包装成 Agent；不要让旧 V1/V2 路径留在生产命名空间；不要用 JSON structured parsing 写 Markdown；不要把 LLM 失败保存成模板假产物；不要只跑 fake/unit test 就宣称可用，必须真实端到端跑并检查导出文件。
+- 版本隔离治理已写入 `docs/20-version-isolation-and-cutover-rules.md` 和 `.claude/memory/version-isolation-governance.md`，并加入 AGENTS / CLAUDE 必读入口。核心铁律：新 Agent 架构不能在旧 workflow 可执行骨架上打补丁；旧代码必须删除或隔离到生产不可 import 的历史区；runtime guard 只是烟雾报警器，不是根治方案；未来 Agent/workflow readiness 前必须跑 `python tools/check_version_isolation.py`。
+- 可持续知识库 / 第二大脑路线已写入 `docs/21-living-knowledge-base-roadmap.md`。展示版应强调结构化留存、证据连续性、Obsidian 双链和未来 human-in-the-loop 增长；当前尚未实现 saved-vault reopen / follow-up growth loop，不能假装已经完成。
 - QA Critic artifact prose unsupported-claim 检测与 retry 建议。
 - LangGraph interrupt/resume 与 checkpoint 策略。
 - Agent contract/schema 变更。
@@ -138,6 +142,7 @@ metadata:
 - 当前切换收口验证：provider/kernel/API/export/planner 编译通过；`python -m pytest tests/unit/test_agent_kernel_tools.py tests/unit/test_openai_provider.py tests/unit/test_markdown_exporter.py::test_markdown_exporter_copies_default_obsidian_config -q` => 4 passed；`cd frontend && npm test -- --run App.test.tsx` => 18 passed；生产 legacy import 扫描无匹配；验收导出只命中 5 个 `schema_version: "v2-agent-kernel"`，无旧 V1/fallback 标记。
 - 当前 V2 运行页 UX 验证：`cd frontend && npm test -- --run App.test.tsx` => 20 passed；`cd frontend && npm run build` => 通过，仅 Vite chunk-size warning。
 - 当前硬删除旧链路验证：旧事件守卫和 workflow-definition API 测试 2 passed；后端关键文件 py_compile passed；Agent Kernel 单测 4 passed；frontend App 19 passed；frontend build passed；backend/tests 旧 pipeline import 扫描无匹配。
+- 当前版本隔离验证入口：`python tools/check_version_isolation.py`。如果该扫描失败，禁止继续在旧路径上补丁式修复，必须移除生产引用或把历史代码迁出生产可 import 区域。
 - `cd frontend && npm test -- --run`：3 passed。
 - `cd frontend && npm run build`：通过。
 
@@ -146,6 +151,7 @@ metadata:
 - 状态变化更新 `docs/10-current-status-and-handoff.md`。
 - 跨工具接手信息变化更新 `docs/11-tooling-handoff.md`。
 - Claude Code 记忆变化更新 `.claude/memory/MEMORY.md` 和对应 memory 文件。
+- 版本隔离规则变化更新 `.claude/memory/version-isolation-governance.md`。
 - 跨工具接手记忆变化更新 `.claude/memory/tooling-handoff.md`。
 - 协作规则变化更新 `AGENTS.md`。
 - Claude 入口说明变化更新 `CLAUDE.md`。
