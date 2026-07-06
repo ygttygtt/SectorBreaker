@@ -40,6 +40,7 @@ metadata:
 - V1.6 已实现个人版 bounded Master Agent loop：`RunWorkingMemory`、外部报告/材料/引用证据入库、Master 多意图搜索计划、`SearchProvider` 工具调用诊断、`CoverageReport` 覆盖判断、`MasterAgentDecision` 继续/补搜/降级/中断。0 证据会阻塞，薄证据会 degraded，不再被标记为充分。
 - V1.6 个人版 workflow-definition 和前端流程图已对齐真实事件节点：`master_agent`、`external_report_intake`、`source_collection`、`evidence_ledger`、`coverage_evaluation`、`knowledge_structuring`、`document_writing`、`artifact_review`、`export`。
 - 已新增 `docs/17-agent-state-memory-architecture.md` 和 `docs/superpowers/plans/2026-07-06-agent-state-memory-react-rebuild.md`。下一阶段主线是状态/记忆/知识架构：`SectorBreakerState`、动态 L0-L5 Schema、ContextPack 过滤、外部报告内化、specialist ReAct loops、安全冰山/风险探测、人类反馈 reopening。
+- V2 foundation 已开始落地但尚未切换生产 run：新增 `backend/app/agent_state/`（状态/记忆模型、ContextPackBuilder、ReportInternalizer），新增 `backend/app/agents/`（bounded ReAct runner、L1-L5 specialist contracts、follow-up task planner、安全冰山/风险探测），新增 `backend/app/graph/v2_react_graph.py`（side-by-side LangGraph skeleton 和条件路由）。
 - 前端设置页已展示 Tavily / Serper / Brave / Exa provider mode；Tavily 仍是推荐默认。人才需求模式明确不默认抓取登录型招聘网站。
 - 后端：FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + 可解释选择轨迹
 - 前端：Vite + React + TypeScript，可解释研究工作台，真实 workflow graph，纵向布局与活动节点居中
@@ -71,13 +72,14 @@ metadata:
 - 最新自动化验收：V1.4 focused backend 13 passed，1 warning；`frontend App.test.tsx` 17 passed；`frontend npm run build` passed，仅 Vite chunk-size warning。
 - 最新自动化验收：V1.5 pipeline 单测 15 passed；上传/导出 API 子集 6 passed，1 warning；`frontend App.test.tsx` 17 passed；`frontend npm run build` passed，仅 Vite chunk-size warning。
 - 最新自动化验收：V1.6 pipeline 单测 16 passed；workflow-definition API 单测 1 passed，1 warning；`frontend App.test.tsx` 17 passed；`frontend npm run build` passed，仅 Vite chunk-size warning。
+- 最新自动化验收：V2 foundation 14 passed；V1.6 regression 16 passed。
 
 最高风险任务：
 
 - 剩余业务 Agent Pydantic 输出 schema 和 prompt
 - 可靠信源包、真实 Counterevidence 搜索、Evidence Curator 可信度/冲突规则
 - 多搜索 provider 编排、爬虫/抓取层扩展与 provider routing
-- Master Agent Research Core 后续：V1.6 bounded loop 已落地；剩余重点是 durable state/memory models、ContextPackBuilder、外部报告 internalizer、full `ask_user` 人在回路中断、更强来源验证、RAG/vector 检索进入主管上下文、specialist ReAct loops 和更严格 artifact claim audit
+- Master Agent Research Core 后续：V1.6 bounded loop 已落地；V2 foundation 的 durable state/memory models、ContextPackBuilder、外部报告 internalizer、bounded ReAct runner、specialist contracts、冰山风险 Agent 和 graph skeleton 已落地；剩余重点是接入真实 run API、持久化 V2 state、让 specialist loop 使用真实 LLM/tool policy、full `ask_user` 人在回路中断、更强来源验证、RAG/vector 检索进入主管上下文和更严格 artifact claim audit
 - 报告文件上传、引用来源提取、营销来源识别与验证链路
 - `needs_counterevidence` 到 verification task / 搜索回路 还未自动打通，是下一核心缺口
 - 下一核心缺口已从“是否自动打通”变成“如何把 verification task 做得更准、并补正文抽取与证据链接”

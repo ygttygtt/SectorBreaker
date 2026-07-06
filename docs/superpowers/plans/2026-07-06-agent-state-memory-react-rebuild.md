@@ -18,11 +18,11 @@
 - Modify: `docs/02-agent-contracts.md`
 - Test: `tests/unit/test_agent_state_models.py`
 
-- [ ] Add `KnowledgeSchema` with dynamic layers (`L0` optional, `L1` What/Why, `L2` Who, `L3` How, `L4` Money/Incentives, `L5` Risks/Boundaries).
-- [ ] Add `KnowledgeLayer` with goal, questions, completion criteria, required evidence types, generated cards, open questions, and coverage status.
-- [ ] Add `EntityRecord`, `KnowledgeClaim`, `RelationshipRecord`, `OpenQuestion`, `SourceMemory`, `TaskMemory`, `ContextPack`, and `AgentDecision`.
-- [ ] Add `SectorBreakerState` with `meta_context`, `knowledge_schema`, `shared_knowledge`, `evidence_refs`, `working_memory`, `decision_log`, and `human_feedback`.
-- [ ] Unit-test serialization, enum values, evidence-id requirements, and safe defaults.
+- [x] Add `KnowledgeSchema` with dynamic layers (`L0` optional, `L1` What/Why, `L2` Who, `L3` How, `L4` Money/Incentives, `L5` Risks/Boundaries).
+- [x] Add `KnowledgeLayer` with goal, questions, completion criteria, required evidence types, generated cards, open questions, and coverage status.
+- [x] Add `EntityRecord`, `KnowledgeClaim`, `RelationshipRecord`, `OpenQuestion`, `SourceMemory`, `TaskMemory`, `ContextPack`, and `AgentDecision`.
+- [x] Add `SectorBreakerState` with `meta_context`, `knowledge_schema`, `shared_knowledge`, `evidence_refs`, `working_memory`, `decision_log`, and `human_feedback`.
+- [x] Unit-test serialization, enum values, evidence-id requirements, and safe defaults.
 
 ### Task 2: Build ContextPackBuilder
 
@@ -30,11 +30,11 @@
 - Create: `backend/app/agent_state/context_pack.py`
 - Test: `tests/unit/test_context_pack_builder.py`
 
-- [ ] Implement context selection rules: always include goal, active layer/task, coverage gaps, relevant accepted entities/claims, and top evidence snippets.
-- [ ] Exclude raw HTML, duplicate snippets, unrelated layers, noisy logs, and long reports unless explicitly requested.
-- [ ] Compress failed tool attempts into short reflections.
-- [ ] Enforce token/character budgets and deterministic ordering.
-- [ ] Test that important claims are retained while rejected/noisy material is filtered.
+- [x] Implement context selection rules: always include goal, active layer/task, coverage gaps, relevant accepted entities/claims, and top evidence snippets.
+- [x] Exclude raw HTML, duplicate snippets, unrelated layers, noisy logs, and long reports unless explicitly requested.
+- [x] Compress failed tool attempts into short reflections.
+- [x] Enforce token/character budgets and deterministic ordering.
+- [x] Test that important claims are retained while rejected/noisy material is filtered.
 
 ### Task 3: Upgrade External Report Internalization
 
@@ -44,11 +44,11 @@
 - Modify: `backend/app/v1_pipeline.py` or new V1.7 graph entrypoint
 - Test: `tests/unit/test_report_internalizer.py`
 
-- [ ] Convert uploaded DeepSearch reports into segments, citations, claims, entities, open questions, and source leads.
-- [ ] Store raw report separately from curated memory.
-- [ ] Mark assistant-report claims as low trust until verified.
+- [x] Convert uploaded DeepSearch reports into segments, citations, claims, entities, open questions, and source leads.
+- [x] Store raw report separately from curated memory.
+- [x] Mark assistant-report claims as low trust until verified.
 - [ ] Feed extracted report memory into Master planning and coverage judgment.
-- [ ] Test that report claims affect search planning and final context without being treated as verified facts.
+- [x] Test that report claims affect search planning and final context without being treated as verified facts.
 
 ### Task 4: Convert Personal V1 Into LangGraph StateGraph
 
@@ -58,8 +58,8 @@
 - Modify: `backend/app/graph/planner.py`
 - Test: `tests/graph/test_v1_react_graph.py`
 
-- [ ] Define nodes: `initialize_context`, `ingest_external_reports`, `master_plan`, `dispatch_task`, `specialist_react_loop`, `integrate_state`, `coverage_judge`, `write_knowledge_base`, `artifact_review`, `export_obsidian`, `wait_for_human_feedback`.
-- [ ] Add conditional edges for search again, dispatch next task, ask user, degrade, block, write, export, and reopen after feedback.
+- [x] Define nodes: `initialize_context`, `ingest_external_reports`, `master_plan`, `dispatch_task`, `specialist_react_loop`, `integrate_state`, `coverage_judge`, `write_knowledge_base`, `artifact_review`, `export_obsidian`, `wait_for_human_feedback`.
+- [x] Add conditional edges for search again, dispatch next task, ask user, degrade, block, write, export, and reopen after feedback.
 - [ ] Keep existing V1.6 path behind a fallback flag until the graph path is stable.
 - [ ] Test 0 evidence block, thin evidence degrade, external report first run, and missing layer retry.
 
@@ -70,11 +70,11 @@
 - Create: `backend/app/agents/react_loop.py`
 - Test: `tests/unit/test_specialist_react_loop.py`
 
-- [ ] Implement a generic bounded ReAct runner with `ThoughtSummary`, `ToolCallRequest`, `Observation`, `StateDelta`, and `StopReason`.
-- [ ] Add L1 Concept Agent, L2 Player Agent, L3 How Agent, L4 Incentive Agent, and L5 Risk Agent contracts.
-- [ ] Each specialist must read a `ContextPack`, call tools through provider interfaces, write only structured `StateDelta`, and summarize local working memory.
-- [ ] Completion must be judged by layer criteria, not source count.
-- [ ] Test recursive term discovery: when L3 finds an unknown important term, it creates a follow-up task instead of ignoring it.
+- [x] Implement a generic bounded ReAct runner with `ThoughtSummary`, `ToolCallRequest`, `Observation`, `StateDelta`, and `StopReason`.
+- [x] Add L1 Concept Agent, L2 Player Agent, L3 How Agent, L4 Incentive Agent, and L5 Risk Agent contracts.
+- [x] Each specialist must read a `ContextPack`, call tools through provider interfaces, write only structured `StateDelta`, and summarize local working memory.
+- [x] Completion must be judged by layer criteria, not source count.
+- [x] Test recursive term discovery: when L3 finds an unknown important term, it creates a follow-up task instead of ignoring it.
 
 ### Task 6: Add Iceberg / Shadow Investigation With Safety Guardrails
 
@@ -83,11 +83,11 @@
 - Modify: `docs/02-agent-contracts.md`
 - Test: `tests/unit/test_iceberg_agent.py`
 
-- [ ] Implement optional risk-surface discovery as SOP-guided ReAct, not fixed queries.
-- [ ] Let the Agent choose safer seed terms such as risk, scam, grey market, hidden chain, fraud warning, and industry pitfalls.
-- [ ] Extract jargon and suspicious service names as risk intelligence.
-- [ ] Route accepted findings into L4 incentives and L5 risks.
-- [ ] Block or redact operational wrongdoing instructions while preserving high-level risk understanding.
+- [x] Implement optional risk-surface discovery as SOP-guided ReAct, not fixed queries.
+- [x] Let the Agent choose safer seed terms such as risk, scam, grey market, hidden chain, fraud warning, and industry pitfalls.
+- [x] Extract jargon and suspicious service names as risk intelligence.
+- [x] Route accepted findings into L4 incentives and L5 risks.
+- [x] Block or redact operational wrongdoing instructions while preserving high-level risk understanding.
 
 ### Task 7: Add Human Feedback Reopen Flow
 

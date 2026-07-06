@@ -98,6 +98,33 @@ collected through the enterprise talent-demand job-source provider.
 - human review decisions;
 - export manifest.
 
+## V2 Agent State And Memory
+
+V2 introduces a separate Agent cognition state under
+`backend/app/agent_state/`. This does not replace the older `ResearchState`
+immediately; it provides the durable models needed for the next LangGraph-native
+ReAct rebuild.
+
+Core models:
+
+- `SectorBreakerState`: top-level task state with `meta_context`,
+  `knowledge_schema`, `shared_knowledge`, `evidence_refs`, `working_memory`,
+  `decision_log`, and `human_feedback`.
+- `KnowledgeSchema` / `KnowledgeLayer`: dynamic L0-L5 practical cognition
+  schema, including optional prerequisite basics, What/Why, Who, How,
+  Money/Incentives, and Risks/Boundaries.
+- `SharedKnowledge`: curated entities, claims, relationships, open questions,
+  and source memories that are safe to reuse across nodes.
+- `TaskMemory`: short-lived local ReAct working memory for one task or
+  specialist Agent. It stores attempts and reflections, then compresses them
+  before crossing node boundaries.
+- `ContextPack`: the curated prompt payload created by `ContextPackBuilder`;
+  it includes relevant goals, layer criteria, claims, evidence snippets, open
+  questions, and compressed working memory while excluding raw dumps and noise.
+
+Design rule: long documents, raw pages, rejected sources, and event logs stay in
+storage/audit surfaces. LLM calls receive `ContextPack`, not the whole state.
+
 ## Source Policy
 
 `source_policy` values:

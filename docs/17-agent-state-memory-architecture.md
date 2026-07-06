@@ -314,6 +314,38 @@ Conditional edges should be responsible for:
 6. Add human feedback reopening and schema expansion.
 7. Strengthen RAG retrieval over evidence, documents, cards, and decisions.
 
+## Current Implementation Status
+
+The first V2 foundation slice is implemented side-by-side with V1.6:
+
+- `backend/app/agent_state/models.py`: durable state and memory models,
+  including `SectorBreakerState`, dynamic L0-L5 `KnowledgeSchema`,
+  `TaskMemory`, `ContextPack`, source memories, claims, entities, relationships,
+  open questions, and decisions.
+- `backend/app/agent_state/context_pack.py`: deterministic `ContextPackBuilder`
+  that keeps relevant goals, layer criteria, claims, evidence snippets, open
+  questions, and compressed working memory while filtering noise, duplicates,
+  unrelated layers, and rejected sources.
+- `backend/app/agent_state/report_internalizer.py`: first-pass DeepSearch report
+  internalizer that extracts low-trust claims, entities, open questions, citation
+  URLs, and source memory.
+- `backend/app/agents/react_loop.py`: generic bounded ReAct runner with
+  `ThoughtSummary`, `ToolCallRequest`, `Observation`, `StateDelta`, and max-step
+  stop reasons.
+- `backend/app/agents/specialists.py`: L1-L5 specialist contracts and recursive
+  follow-up task discovery for important unknown terms.
+- `backend/app/agents/iceberg_agent.py`: safe iceberg/risk signal extraction,
+  operational-detail redaction, and conversion into L4/L5 low-trust state
+  objects.
+- `backend/app/graph/v2_react_graph.py`: side-by-side LangGraph skeleton with
+  initialization, report ingestion placeholder, master planning, specialist
+  loop placeholder, integration, coverage judgment, conditional routing,
+  export, and human feedback wait node.
+
+This is not yet the production run path. The next step is wiring these modules
+into the API run flow, persisting V2 state, executing specialist ReAct loops
+with real LLM/tool policies, and adding human-feedback reopening.
+
 ## Non-Negotiable Rules
 
 - Do not pass raw web dumps between nodes.

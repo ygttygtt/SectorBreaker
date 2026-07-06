@@ -65,6 +65,52 @@ All Agent outputs that include factual claims must support:
   source rounds, degrade visibly when thin evidence remains, and block on zero
   evidence. `ask_user` remains a documented decision target for a later
   human-in-the-loop upgrade.
+- V2 state/memory note: the next implementation uses `SectorBreakerState`,
+  `KnowledgeSchema`, `TaskMemory`, `ContextPack`, and `AgentDecision` from
+  `backend/app/agent_state/`. The Master Agent should not pass the whole state
+  to the LLM; it should request a task-specific `ContextPack`.
+
+### Context Pack Builder
+
+- Input: `SectorBreakerState`, active layer/task, optional `TaskMemory`.
+- Output: `ContextPack` containing goal, active layer, coverage gaps, selected
+  entity/claim summaries, selected evidence/source snippets, open questions,
+  compressed working-memory reflection, included source ids, excluded source
+  ids, and filter notes.
+- Must not: include raw HTML, duplicate snippets, unrelated layers, noisy logs,
+  long reports, or rejected sources by default.
+- Failure mode: trim lower-priority evidence/claims to fit the configured
+  context budget and record filter notes.
+
+### External Report Internalizer
+
+- Input: uploaded external AI report or user document.
+- Output: low/medium-trust `SourceMemory`, `KnowledgeClaim`, `EntityRecord`,
+  `OpenQuestion`, citation URLs, and state deltas.
+- Must not: treat external AI report claims as verified facts.
+- Failure mode: keep the raw report as source memory and mark extracted claims
+  as unverified search leads.
+
+### Specialist ReAct Agents
+
+- Input: `ContextPack`, layer-specific mission, allowed tools, completion
+  criteria, and local `TaskMemory`.
+- Output: structured `StateDelta` with entity ids, claim ids, source memory ids,
+  open question ids, notes, and stop reason.
+- Must not: hand off only free-form prose, ignore discovered unknown terms, or
+  judge completion by source count alone.
+- Failure mode: stop by `max_steps`, summarize failed attempts, and ask the
+  Master Agent to retry, degrade, or ask the user.
+
+### Iceberg Risk Agent
+
+- Input: domain, risk-surface text/search observations, source policy.
+- Output: risk terms, warning signals, safe related queries, and L5 risk
+  findings.
+- Must not: output operational wrongdoing instructions, evasion steps, fraud
+  playbooks, or abuse tutorials.
+- Failure mode: redact operational details and keep only high-level risk,
+  incentive, warning, and boundary information.
 
 ### Source Strategy Agent
 

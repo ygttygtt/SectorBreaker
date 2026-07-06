@@ -49,6 +49,7 @@ The latest completed implementation milestone is:
 - V1.6 implements the first bounded Master Agent loop in the personal `domain_knowledge` path. It records run-local memory, ingests uploaded reports/user materials/citations as evidence before search, creates multi-intent search plans, calls the configured `SearchProvider`, records tool diagnostics, evaluates coverage with `CoverageReport`, and decides continue/search-again/degrade/block. Zero evidence blocks before writing; thin evidence is shown as degraded instead of sufficient.
 - V1.6 workflow graphs now match actual personal run events: `master_agent`, `external_report_intake`, `source_collection`, `evidence_ledger`, `coverage_evaluation`, `knowledge_structuring`, `document_writing`, `artifact_review`, and `export`.
 - State/memory architecture direction is now documented in `docs/17-agent-state-memory-architecture.md`. The next rebuild plan is `docs/superpowers/plans/2026-07-06-agent-state-memory-react-rebuild.md`: explicit `SectorBreakerState`, dynamic practical cognition schema, context-pack filtering, report internalization, specialist ReAct loops, safe iceberg/risk investigation, and human-feedback reopen.
+- V2 foundation code now exists side-by-side with V1.6: `backend/app/agent_state/` contains state/memory models, context-pack selection, and report internalization; `backend/app/agents/` contains bounded ReAct primitives, L1-L5 specialist contracts, recursive follow-up task discovery, and safe iceberg/risk extraction; `backend/app/graph/v2_react_graph.py` contains the first LangGraph skeleton. The production run path is not switched yet.
 - The frontend now exposes a mode selector and multi-provider search settings (Tavily recommended, Serper/Brave/Exa visible). It also carries explicit guardrails: do not scrape login-gated job boards by default; use uploads and configured search providers first.
 - Backend: FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + explainable agent selection traces.
 - Frontend: Vite + React + TypeScript explainable research workbench with real workflow graph, vertical layout, and active-node centering.
@@ -95,6 +96,15 @@ cd frontend && npm test -- --run App.test.tsx
 Expected result: 16 V1 pipeline tests pass, workflow-definition API test passes
 with the known TestClient warning, 17 frontend App tests pass, and frontend
 build passes with the existing Vite chunk-size warning.
+
+Latest V2 foundation verification:
+
+```bash
+python -m pytest tests/unit/test_agent_state_models.py tests/unit/test_context_pack_builder.py tests/unit/test_report_internalizer.py tests/unit/test_react_loop.py tests/unit/test_specialists_and_iceberg_agent.py tests/graph/test_v2_react_graph.py -q
+python -m pytest tests/unit/test_v1_pipeline.py -q
+```
+
+Expected result: 14 V2 foundation tests pass and 16 V1.6 regression tests pass.
 
 ## Local Run
 
@@ -168,7 +178,7 @@ Architecture review is required before implementing:
 - Multi-provider search routing and crawler expansion, because search quality directly affects evidence integrity.
 - Better counterevidence query planning, extractor failure/domain controls, and stronger uploaded report citation verification beyond first-pass heuristics.
 - Full API test runtime profiling: `tests/api/test_app.py` may exceed 3 minutes locally even though focused API workflow tests pass.
-- Master Agent Research Core follow-up from `docs/16-master-agent-research-core.md` and `docs/17-agent-state-memory-architecture.md`: V1.6 has the bounded source loop; remaining high-risk work is durable state/memory models, context-pack selection, full `ask_user` interruption, stronger source verification, richer tool routing, specialist ReAct loops, and vector/hybrid RAG inside the Master Agent context.
+- Master Agent Research Core follow-up from `docs/16-master-agent-research-core.md` and `docs/17-agent-state-memory-architecture.md`: V1.6 has the bounded source loop and the V2 foundation now has durable state/memory models, context-pack selection, report internalization, specialist contracts, ReAct primitives, safe iceberg/risk extraction, and graph skeleton. Remaining high-risk work is wiring the V2 graph into the real run API, executing specialist loops with real LLM/tool policies, persistence/migration, full `ask_user` interruption, stronger source verification, and vector/hybrid RAG inside the Master Agent context.
 
 ## Safe Delegation Candidates
 
