@@ -1,6 +1,7 @@
 import asyncio
 from datetime import UTC, datetime
 
+from backend.app.agent_kernel.context import KernelContextBuilder
 from backend.app.agent_kernel.models import AgentActionType, AgentDecision, KernelObservation, KernelRunStatus, KernelStateDelta, ToolCall
 from backend.app.agent_kernel.runtime import AgentKernelRuntime
 from backend.app.agent_kernel.tool_registry import KernelRuntimeContext, ToolRegistry
@@ -279,3 +280,29 @@ def test_agent_kernel_runtime_executes_ordered_tool_calls_and_updates_state_betw
         if event.gate == "tool_execution" and event.message.startswith("Action:")
     ] == ["V2 Tool Executor", "V2 Tool Executor"]
     assert any("coverage_updates+1" in event.message for event in events)
+
+
+def test_kernel_context_includes_artifact_memory() -> None:
+    state = SectorBreakerState.initialize(project_id="project-kernel", domain="API中转站", user_goal="建库")
+    artifact = Artifact(
+        id="ART-KERNEL-L1-1",
+        project_id="project-kernel",
+        artifact_type=ArtifactType.DOMAIN_OVERVIEW,
+        title="API 中转站本源",
+        content_path="01-api.md",
+        content="# API 中转站本源\n\n## 核心结论\n\n这是测试正文。",
+        source_evidence_ids=["EV-KERNEL-1"],
+        schema_version="v2-agent-kernel",
+        created_at=datetime.now(UTC),
+    )
+
+    context = KernelContextBuilder().build_prompt_context(
+        state=state,
+        tools=[],
+        trace_tail=[],
+        artifacts=[artifact],
+    )
+
+    assert "## Artifact Memory" in context
+    assert '"artifact_count": 1' in context
+    assert "API 中转站本源" in context

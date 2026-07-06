@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Awaitable, Callable
 
 from backend.app.agent_kernel.models import KernelLoopConfig, KernelRunStatus
@@ -77,7 +78,7 @@ async def run_v2_agent_kernel_pipeline(
     runtime = AgentKernelRuntime(
         policy=LLMAgentPolicy(llm_provider),
         registry=registry,
-        config=KernelLoopConfig(),
+        config=_kernel_config_for_project(project),
     )
     result = await runtime.run(runtime_context)
     await emit_event(RunEvent(
@@ -93,6 +94,35 @@ async def run_v2_agent_kernel_pipeline(
     for artifact in runtime_context.artifacts:
         repository.add_artifact(artifact)
     return runtime_context.artifacts
+
+
+def _kernel_config_for_project(project: ResearchProject) -> KernelLoopConfig:
+    env_config = _kernel_config_from_env()
+    if env_config is not None:
+        return env_config
+    if project.depth.value == "deep":
+        return KernelLoopConfig(max_iterations=40, max_search_calls=16, max_writer_calls=8)
+    if project.depth.value == "standard":
+        return KernelLoopConfig(max_iterations=32, max_search_calls=12, max_writer_calls=6)
+    return KernelLoopConfig(max_iterations=24, max_search_calls=10, max_writer_calls=5)
+
+
+def _kernel_config_from_env() -> KernelLoopConfig | None:
+    keys = {
+        "max_iterations": "SECTORBREAKER_KERNEL_MAX_ITERATIONS",
+        "max_search_calls": "SECTORBREAKER_KERNEL_MAX_SEARCH_CALLS",
+        "max_writer_calls": "SECTORBREAKER_KERNEL_MAX_WRITER_CALLS",
+    }
+    values = {}
+    for field, key in keys.items():
+        raw = os.getenv(key)
+        if raw is None:
+            continue
+        try:
+            values[field] = int(raw)
+        except ValueError:
+            continue
+    return KernelLoopConfig(**values) if values else None
 
 
 async def _internalize_uploaded_documents(

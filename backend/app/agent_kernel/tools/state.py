@@ -209,9 +209,12 @@ async def evaluate_coverage(tool_call, context: KernelRuntimeContext) -> KernelO
     verification_score = min(1.0, verified_claim_count / max(claim_count, 1)) if claim_count else 0.0
     question_penalty = min(0.35, len(open_questions) * 0.08)
     score = max(0.0, min(1.0, evidence_score * 0.35 + claim_score * 0.3 + verification_score * 0.25 + min(1.0, source_count / 4) * 0.1 - question_penalty))
-    if score >= 0.72 and not open_questions:
+    source_policy = context.project.source_policy.value
+    enough_partial_material = len(evidence_ids) >= 5 and claim_count >= 5 and source_count >= 4
+    partial_threshold = 0.32 if source_policy == "open_web" else 0.35
+    if score >= 0.72 and len(open_questions) <= 1:
         status = CoverageStatus.SUFFICIENT
-    elif score >= 0.48:
+    elif score >= 0.48 or (score >= partial_threshold and enough_partial_material):
         status = CoverageStatus.DEGRADED
     else:
         status = CoverageStatus.NEEDS_MORE
@@ -220,6 +223,7 @@ async def evaluate_coverage(tool_call, context: KernelRuntimeContext) -> KernelO
     coverage_notes = (
         f"score={score:.2f}; evidence={len(evidence_ids)}; claims={claim_count}; "
         f"verified_or_partial={verified_claim_count}; open_questions={len(open_questions)}. "
+        f"source_policy={source_policy}; partial_material_ready={enough_partial_material}; "
         f"{notes}"
     ).strip()
     delta = KernelStateDelta(

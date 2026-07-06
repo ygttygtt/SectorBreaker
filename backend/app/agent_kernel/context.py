@@ -6,6 +6,7 @@ import json
 
 from backend.app.agent_kernel.models import KernelTraceEvent, ToolSpec
 from backend.app.agent_state import ContextPackBuilder, SectorBreakerState
+from backend.app.schemas import Artifact
 
 
 class KernelContextBuilder:
@@ -20,6 +21,7 @@ class KernelContextBuilder:
         state: SectorBreakerState,
         tools: list[ToolSpec],
         trace_tail: list[KernelTraceEvent],
+        artifacts: list[Artifact] | None = None,
     ) -> str:
         pack = self._context_pack_builder.build(
             state,
@@ -52,6 +54,17 @@ class KernelContextBuilder:
             for event in trace_tail[-10:]
         ]
         tool_specs = [tool.model_dump(mode="json") for tool in tools]
+        artifact_summaries = [
+            {
+                "id": artifact.id,
+                "title": artifact.title,
+                "content_path": artifact.content_path,
+                "schema_version": artifact.schema_version,
+                "chars": len(artifact.content),
+                "source_evidence_ids": artifact.source_evidence_ids[:12],
+            }
+            for artifact in (artifacts or [])
+        ]
         return (
             "## Meta Context\n"
             f"{json.dumps(state.meta_context.model_dump(mode='json'), ensure_ascii=False, indent=2)}\n\n"
@@ -59,6 +72,8 @@ class KernelContextBuilder:
             f"{json.dumps(layers, ensure_ascii=False, indent=2)}\n\n"
             "## Curated ContextPack\n"
             f"{pack.to_prompt_text()}\n\n"
+            "## Artifact Memory\n"
+            f"{json.dumps({'artifact_count': len(artifact_summaries), 'artifacts': artifact_summaries}, ensure_ascii=False, indent=2)}\n\n"
             "## Available Tools\n"
             f"{json.dumps(tool_specs, ensure_ascii=False, indent=2)}\n\n"
             "## Recent Agent Trace\n"

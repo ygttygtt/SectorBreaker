@@ -52,6 +52,7 @@ metadata:
 - V2 Agent Kernel 的失败语义包含 partial-write 场景：如果前一篇文档已生成、后一篇写作失败，失败 run 不能持久化任何半成品 artifact。
 - V2 运行页 UX 已调整：中间区域显示 Agent 实时汇报卡片，右侧完整日志可折叠并换行；前端证据指标已兼容 V2 `State Update: sources+N`，不是只数旧 `evidence_collected`。
 - V2 Agent Kernel 状态治理升级已按 `docs/22-agent-kernel-architecture-review.md` 落地：支持 LLM 自适应 `KnowledgeSchema`、动态 layer id、覆盖评分与状态更新、顺序 `tool_calls`、反思/覆盖评估/记忆治理工具、下钻 OpenQuestion、隐藏/删除/取代 source/claim delta，以及 ContextPack 排除 hidden/superseded 记忆。展示前仍要跑新的真实 provider 端到端验收。
+- V2 录制前修正：硬预算限制已撤掉，避免把 Agent 重新变成 workflow；当前依靠决策心跳、Artifact Memory、open_web partial 证据容忍和更快的一次性 Markdown 写作改善体验。DeepSeek 下短验收能看到真实推理/工具/覆盖/写作过程，但完整自动完成仍可能偏慢，录制前优先使用更快 LLM 或把演示重点放在实时 Agent 行动流。
 - 根目录 `.obsidian/` 是默认 Obsidian Vault 配置模板，导出器会复制到每个生成的知识库目录；它不是 generated artifact 或 evidence。
 - 前端设置页已展示 Tavily / Serper / Brave / Exa provider mode；Tavily 仍是推荐默认。人才需求模式明确不默认抓取登录型招聘网站。
 - 后端：FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + 可解释选择轨迹

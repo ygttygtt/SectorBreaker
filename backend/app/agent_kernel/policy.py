@@ -16,6 +16,7 @@ from backend.app.agent_kernel.models import (
 )
 from backend.app.agent_state.models import SectorBreakerState
 from backend.app.providers.interfaces import ChatMessage, LLMProvider
+from backend.app.schemas import Artifact
 
 
 class LLMAgentPolicy:
@@ -32,6 +33,7 @@ class LLMAgentPolicy:
         available_tools: list[ToolSpec],
         trace_tail: list[KernelTraceEvent],
         loop_config: KernelLoopConfig,
+        artifacts: list[Artifact] | None = None,
     ) -> AgentDecision:
         if self.llm_provider is None:
             return AgentDecision(
@@ -44,6 +46,7 @@ class LLMAgentPolicy:
             available_tools=available_tools,
             trace_tail=trace_tail,
             loop_config=loop_config,
+            artifacts=artifacts,
         )
         try:
             decision = await self.llm_provider.complete_structured(
@@ -100,11 +103,13 @@ class LLMAgentPolicy:
         available_tools: list[ToolSpec],
         trace_tail: list[KernelTraceEvent],
         loop_config: KernelLoopConfig,
+        artifacts: list[Artifact] | None = None,
     ) -> str:
         context = self.context_builder.build_prompt_context(
             state=state,
             tools=available_tools,
             trace_tail=trace_tail,
+            artifacts=artifacts,
         )
         prompt_parts = [
             load_prompt("master_agent_system.md"),
@@ -117,6 +122,7 @@ class LLMAgentPolicy:
             f"- max_search_calls: {loop_config.max_search_calls}\n"
             f"- max_writer_calls: {loop_config.max_writer_calls}\n"
             f"- max_consecutive_failed_tools: {loop_config.max_consecutive_failed_tools}\n",
+            "这些预算是搜索/思考强度提示，不是固定 workflow。你可以多调用工具，但每次都必须说明目的、缺口和预期观察；当 open_web 下已有足够 partial 证据时，应写成带待验证任务的初版，而不是无限等待 verified 来源。\n",
             "# Current State And Tools\n" + context,
             "# Required Output\n"
             "只返回一个 JSON 对象，必须符合 AgentDecision schema。"
@@ -124,6 +130,7 @@ class LLMAgentPolicy:
             "必须填写 current_goal、plan_steps、progress_check，让用户能看到 Agent 的阶段性判断。"
             "可以使用 tool_calls 输出多个顺序工具调用；运行时会按顺序执行并逐个更新 State。"
             "不确定某层是否可写时，优先调用 evaluate_coverage；连续低价值搜索后，优先调用 reflect_on_progress。"
+            "如果 Artifact Memory 中已经有 3 个以上详实 artifact，且核心本源/玩家/机制或风险已覆盖，应优先 review_artifact 或 finish_run，不要为了写满所有动态层级而拖长演示。"
             "如果要写文档，action_type 使用 write_artifact，tool_call 或 tool_calls 中的 tool_name 使用 write_layer_document。"
             "如果要审查文档，action_type 使用 review_artifact，tool_call 或 tool_calls 中的 tool_name 使用 review_artifact。"
             "如果认为完成，action_type 使用 finish 且给出 stop_reason。"

@@ -15,7 +15,7 @@ from backend.app.providers.interfaces import ChatMessage
 from backend.app.schemas import Artifact, ArtifactType, RunEvent
 
 
-_LAYER_ARTIFACT_TYPES: dict[KnowledgeLayerId, ArtifactType] = {
+_LAYER_ARTIFACT_TYPES: dict[str, ArtifactType] = {
     KnowledgeLayerId.PREREQUISITE: ArtifactType.LEARNING_PATH,
     KnowledgeLayerId.WHAT_WHY: ArtifactType.DOMAIN_OVERVIEW,
     KnowledgeLayerId.WHO: ArtifactType.PLAYER_MAP,
@@ -74,8 +74,9 @@ async def write_layer_document(tool_call, context: KernelRuntimeContext) -> Kern
             summary="写作失败：缺少有效 layer_id。",
             error="invalid layer_id",
         )
-    layer = context.state.knowledge_schema.layer(layer_id)
-    title = str(tool_call.args.get("title") or (layer.title if layer else layer_id.value)).strip()
+    layer_key = _layer_value(layer_id)
+    layer = context.state.knowledge_schema.layer(layer_key)
+    title = str(tool_call.args.get("title") or (layer.title if layer else layer_key)).strip()
     writing_goal = str(tool_call.args.get("writing_goal") or (layer.goal if layer else "")).strip()
     context_text = _build_writer_context(context, layer_id=layer_id, title=title)
     cleaned, errors = await _write_document_in_sections(
@@ -101,9 +102,9 @@ async def write_layer_document(tool_call, context: KernelRuntimeContext) -> Kern
         )
 
     artifact = Artifact(
-        id=f"ART-KERNEL-{layer_id.value.upper()}-{uuid4().hex[:8]}",
+        id=f"ART-KERNEL-{layer_key.upper()}-{uuid4().hex[:8]}",
         project_id=context.project.id,
-        artifact_type=_LAYER_ARTIFACT_TYPES.get(layer_id, ArtifactType.CORE_CONCEPTS),
+        artifact_type=_LAYER_ARTIFACT_TYPES.get(layer_key, ArtifactType.CORE_CONCEPTS),
         title=title,
         content_path=f"{_artifact_index(layer_id)}-{_safe_filename(title)}.md",
         content=cleaned,
@@ -164,7 +165,7 @@ async def _write_document_in_sections(
     context: KernelRuntimeContext,
     *,
     title: str,
-    layer_id: KnowledgeLayerId,
+    layer_id: KnowledgeLayerId | str,
     writing_goal: str,
     required_questions,
     context_text: str,
@@ -175,6 +176,22 @@ async def _write_document_in_sections(
         "必须具体、详实、引用 evidence id；资料不足时标注 partial/unverified 和待补证任务。"
         "不要输出 JSON，不要输出代码块，不要编造无证据事实。"
     )
+    frontmatter = _frontmatter(title=title, layer_id=layer_id, context=context)
+    full_document, full_errors = await _write_full_document(
+        context,
+        base_instruction=base_instruction,
+        title=title,
+        layer_id=layer_id,
+        writing_goal=writing_goal,
+        required_questions=required_questions,
+        context_text=context_text,
+        frontmatter=frontmatter,
+    )
+    if _usable_markdown(full_document):
+        return full_document, full_errors
+    if full_errors:
+        return full_document, full_errors
+
     section_specs = [
         ("本页解决什么问题", "解释本页目标、适合谁读、当前证据覆盖到什么程度。"),
         ("核心结论", "写 3-5 条有解释的核心结论，每条说明证据状态和限制。"),
@@ -182,7 +199,6 @@ async def _write_document_in_sections(
         ("证据与可信度", "列出主要 evidence id、来源质量、哪些只是 search snippet 或外部报告线索。"),
         ("待验证问题与补库任务", "列出后续需要搜索、验证、询问用户或生成卡片的任务。"),
     ]
-    frontmatter = _frontmatter(title=title, layer_id=layer_id, context=context)
     sections: list[str] = []
     errors: list[str] = []
     for index, (heading, goal) in enumerate(section_specs, start=1):
@@ -204,6 +220,65 @@ async def _write_document_in_sections(
             return "\n\n".join([frontmatter, f"# {title}", *sections]), errors
     markdown = "\n\n".join([frontmatter, f"# {title}", *sections]).strip()
     return markdown, errors
+
+
+async def _write_full_document(
+    context: KernelRuntimeContext,
+    *,
+    base_instruction: str,
+    title: str,
+    layer_id: KnowledgeLayerId | str,
+    writing_goal: str,
+    required_questions,
+    context_text: str,
+    frontmatter: str,
+) -> tuple[str, list[str]]:
+    errors: list[str] = []
+    layer_key = _layer_value(layer_id)
+    prompt = (
+        f"{base_instruction}\n\n"
+        "# 完整文档写作任务\n"
+        f"文档标题：{title}\n"
+        f"layer_id：{layer_key}\n"
+        f"文档目标：{writing_goal}\n"
+        f"必须回答：{required_questions}\n\n"
+        f"# 写作上下文\n{context_text}\n\n"
+        "# 输出要求\n"
+        "请一次性输出完整 Obsidian Markdown 正文，不要输出 JSON，不要代码块包裹。\n"
+        "必须从一级标题开始，不要输出 YAML front matter。\n"
+        "建议结构：本页解决什么问题、核心结论、机制与结构、证据与可信度、待验证问题与补库任务。\n"
+        "正文目标 1200-2200 中文字；至少 5 个二级标题；引用 evidence id 或明确标注待补证。\n"
+        "如果证据薄弱，不要编造，写成 partial/unverified 并列出下一轮补库任务。\n"
+    )
+    for attempt in range(1, 3):
+        attempt_prompt = prompt
+        if attempt > 1:
+            attempt_prompt += (
+                "\n\n# Retry Instruction\n"
+                f"上一轮失败原因：{errors[-1] if errors else '未知'}。\n"
+                "请重新输出更完整的 Markdown，保持结构清楚、证据关联明确。"
+            )
+        try:
+            output = await _complete_text_with_heartbeat(
+                context,
+                [ChatMessage(role="user", content=attempt_prompt)],
+                title=f"{title} / 完整文档",
+                attempt=attempt,
+            )
+        except Exception as exc:
+            errors.append(f"full document attempt {attempt}: {type(exc).__name__}: {str(exc)[:260]}")
+            continue
+        cleaned = _clean_markdown(str(output))
+        if not cleaned.startswith("# "):
+            cleaned = f"# {title}\n\n{cleaned}"
+        markdown = "\n\n".join([frontmatter, cleaned]).strip()
+        if _usable_markdown(markdown):
+            return markdown, errors
+        errors.append(
+            f"full document attempt {attempt}: unusable "
+            f"(chars={len(markdown)}, heading_count={markdown.count(chr(10) + '## ') + markdown.count(chr(10) + '### ')})"
+        )
+    return "\n\n".join([frontmatter, f"# {title}"]).strip(), errors
 
 
 async def _write_section(
@@ -263,13 +338,14 @@ async def _write_section(
     return "", errors
 
 
-def _frontmatter(*, title: str, layer_id: KnowledgeLayerId, context: KernelRuntimeContext) -> str:
+def _frontmatter(*, title: str, layer_id: KnowledgeLayerId | str, context: KernelRuntimeContext) -> str:
     evidence_lines = "\n".join(f'  - "{item}"' for item in list(dict.fromkeys(context.state.evidence_refs))[:20])
+    layer_key = _layer_value(layer_id)
     return (
         "---\n"
         'schema_version: "v2-agent-kernel"\n'
         'type: "layer_artifact"\n'
-        f'layer_id: "{layer_id.value}"\n'
+        f'layer_id: "{layer_key}"\n'
         'status: "draft"\n'
         'confidence: "partial"\n'
         "evidence_ids:\n"
@@ -289,22 +365,23 @@ def _load_prompt(name: str) -> str:
     )
 
 
-def _build_writer_context(context: KernelRuntimeContext, *, layer_id: KnowledgeLayerId, title: str) -> str:
+def _build_writer_context(context: KernelRuntimeContext, *, layer_id: KnowledgeLayerId | str, title: str) -> str:
     """Build a compact writer-only context so text generation does not drown in tool specs."""
 
     state = context.state
-    layer = state.knowledge_schema.layer(layer_id)
+    layer_key = _layer_value(layer_id)
+    layer = state.knowledge_schema.layer(layer_key)
     relevant_sources = [
         source for source in state.shared_knowledge.source_memories
-        if not source.related_layer_ids or layer_id in source.related_layer_ids
+        if not source.related_layer_ids or layer_key in {_layer_value(item) for item in source.related_layer_ids}
     ][-10:]
     relevant_claims = [
         claim for claim in state.shared_knowledge.claims
-        if not claim.layer_ids or layer_id in claim.layer_ids
+        if not claim.layer_ids or layer_key in {_layer_value(item) for item in claim.layer_ids}
     ][-16:]
     open_questions = [
         question for question in state.shared_knowledge.open_questions
-        if not question.layer_ids or layer_id in question.layer_ids
+        if not question.layer_ids or layer_key in {_layer_value(item) for item in question.layer_ids}
     ][-10:]
     evidence_rows = []
     for evidence_id in state.evidence_refs[-14:]:
@@ -338,7 +415,7 @@ def _build_writer_context(context: KernelRuntimeContext, *, layer_id: KnowledgeL
         f"- source_policy: {context.project.source_policy.value}\n"
         f"- user_goal: {state.meta_context.user_goal}\n\n"
         "## Current Writing Layer\n"
-        f"- layer_id: {layer_id.value}\n"
+        f"- layer_id: {layer_key}\n"
         f"- title: {title}\n"
         f"- layer_goal: {(layer.goal if layer else '')}\n"
         f"- guiding_questions:\n{layer_questions or '- 未指定'}\n"
@@ -406,27 +483,31 @@ def _usable_markdown(value: str) -> bool:
     return len(value) >= 600 and (value.count("\n## ") + value.count("\n### ")) >= 1
 
 
-def _layer_id(value, fallback) -> KnowledgeLayerId | None:
+def _layer_id(value, fallback) -> KnowledgeLayerId | str | None:
     raw = str(value or "").strip()
     if raw:
         try:
             return KnowledgeLayerId(raw)
         except ValueError:
-            return None
+            return raw
     return fallback
 
 
-def _artifact_index(layer_id: KnowledgeLayerId) -> str:
+def _artifact_index(layer_id: KnowledgeLayerId | str) -> str:
     mapping = {
-        KnowledgeLayerId.PREREQUISITE: "00",
-        KnowledgeLayerId.WHAT_WHY: "01",
-        KnowledgeLayerId.WHO: "02",
-        KnowledgeLayerId.HOW: "03",
-        KnowledgeLayerId.MONEY: "04",
-        KnowledgeLayerId.RISKS: "05",
+        KnowledgeLayerId.PREREQUISITE.value: "00",
+        KnowledgeLayerId.WHAT_WHY.value: "01",
+        KnowledgeLayerId.WHO.value: "02",
+        KnowledgeLayerId.HOW.value: "03",
+        KnowledgeLayerId.MONEY.value: "04",
+        KnowledgeLayerId.RISKS.value: "05",
     }
-    return mapping.get(layer_id, "50")
+    return mapping.get(_layer_value(layer_id), "50")
 
 
 def _safe_filename(title: str) -> str:
     return re.sub(r"[\\/:*?\"<>|\\s]+", "-", title).strip("-") or "artifact"
+
+
+def _layer_value(layer_id) -> str:
+    return layer_id.value if hasattr(layer_id, "value") else str(layer_id)

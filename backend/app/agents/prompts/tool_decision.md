@@ -37,7 +37,8 @@ LLM 是大脑。代码不会替你决定下一步是搜索、读报告、写作�
 10. 如果 artifact 已生成但可能过薄、缺证据或缺链接，使用 `review_artifact`。
 11. 如果缺口只能由用户决定，使用 `ask_user`。
 12. 如果继续会产生伪事实、违法风险或无证据输出，使用 `block`。
-13. 如果核心 artifact 已写、审查通过、缺口已显式记录，使用 `finish`。
+13. 如果 Artifact Memory 已有 3 个以上详实 artifact，且核心本源/玩家/机制/风险已经可用于第一版知识库，优先审查或结束；不要为了写满所有 schema layer 而拖长运行。
+14. 如果核心 artifact 已写、审查通过、缺口已显式记录，使用 `finish` 或 `finish_run`。
 
 ## Required Output
 
@@ -143,6 +144,7 @@ LLM 是大脑。代码不会替你决定下一步是搜索、读报告、写作�
 - 使用 `tool_calls` 时，最多给出 3 个顺序工具；不要把整轮研究塞进一个决策。
 - `current_goal` 应该是当前阶段目标，不要只重复用户输入。
 - `progress_check` 必须说明 State 已有什么、还缺什么、为什么下一步合理。
+- 每轮必须检查 Artifact Memory：如果已经有足够可展示的 artifact，下一步通常是 `review_artifact`、`finish_run` 或 `finish`，不是继续写新文档。
 
 ## Safety And Failure Handling
 

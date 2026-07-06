@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from backend.app.agent_kernel.models import (
     AgentActionType,
     AgentDecision,
@@ -36,11 +38,13 @@ class AgentKernelRuntime:
         trace: list[KernelTraceEvent] = []
         consecutive_failed_tools = 0
         for iteration in range(1, self.config.max_iterations + 1):
-            decision = await self.policy.decide(
+            decision = await self._decide_with_heartbeat(
+                context=context,
                 state=context.state,
                 available_tools=self.registry.specs(),
                 trace_tail=trace[-10:],
                 loop_config=self.config,
+                artifacts=context.artifacts,
             )
             thought = KernelTraceEvent(
                 kind=TraceEventKind.THOUGHT,
@@ -110,7 +114,7 @@ class AgentKernelRuntime:
                 )
                 trace.append(action_event)
                 await self._emit(context, action_event, gate="tool_execution", agent="V2 Tool Executor")
-                budget_observation = self._budget_check(tool_call)
+                budget_observation = self._budget_check(tool_call, context)
                 observation = budget_observation or await self.registry.dispatch(tool_call, context)
                 consecutive_failed_tools, early_result = await self._handle_observation(
                     context,
@@ -132,9 +136,32 @@ class AgentKernelRuntime:
             return [decision.tool_call]
         return []
 
-    def _budget_check(self, tool_call) -> KernelObservation | None:
+    def _budget_check(self, tool_call, context: KernelRuntimeContext) -> KernelObservation | None:
         name = tool_call.tool_name
         return None
+
+    async def _decide_with_heartbeat(self, context: KernelRuntimeContext, **kwargs) -> AgentDecision:
+        task = asyncio.create_task(self.policy.decide(**kwargs))
+        waited = 0
+        while not task.done():
+            await asyncio.sleep(10)
+            waited += 10
+            if task.done():
+                break
+            await self._emit(
+                context,
+                KernelTraceEvent(
+                    kind=TraceEventKind.THOUGHT,
+                    message=(
+                        "Thought Summary: Master Agent 正在阅读当前 State、Artifact Memory "
+                        f"和工具结果，判断下一步行动（已等待约 {waited} 秒）。"
+                    ),
+                    data={"heartbeat": True, "waited_seconds": waited},
+                ),
+                gate="agent_decide",
+                agent="V2 Master Agent",
+            )
+        return await task
 
     async def _handle_observation(
         self,
