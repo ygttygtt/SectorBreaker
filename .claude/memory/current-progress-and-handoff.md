@@ -93,6 +93,7 @@ metadata:
 - V2 Agent Kernel 已接入个人版生产 auto-run：`backend/app/agent_kernel/pipeline.py` 初始化 `SectorBreakerState`、内化上传报告/用户材料、让 LLM policy 从 State 和 Tools 中选择下一步、执行工具、应用 StateDelta，并只持久化 completed artifacts。运行事件可见 Thought Summary / Action / Observation / State Update / Decision。`write_layer_document` 使用普通文本 LLM completion 写 Markdown，不再把正文当 JSON 解析；会重试 3 次，仍失败或过薄则 run failed / `artifact_writing_failed`，不保存模板假产物。
 - Agent Kernel 验收规则：不能只看 fake/unit test。必须用真实 Mimo + Tavily 跑一轮端到端，并打开导出 Markdown 检查是否为 `schema_version: "v2-agent-kernel"`、内容非模板、没有 `EV-V1-*` / `ART-V1-*`。
 - 当前真实 Agent Kernel 验收：项目 `api中转站-v2-agent-kernel验收5` 已用真实 Mimo + Tavily 跑通，导出目录 `E:\QianFengStudy\PythonProject\SectorBreaker\exports\api中转站-v2-agent-kernel验收5`。导出包含 5 篇 V2 Markdown（约 17KB-22KB），使用 `schema_version: "v2-agent-kernel"` 和 `EV-KERNEL-*`，未发现 `EV-V1-*`、`ART-V1-*`、`Knowledge Builder`、`Document Writer`、`specialist_react_loop`、`已使用保底`。
+- V2 长调试失败复盘已写入 `docs/19-agent-kernel-debugging-retrospective.md`，并加入 AGENTS 必读顺序。后续 Agent Kernel 相关修改必须先读该文档。核心教训：不要把固定 L1-L5 workflow 包装成 Agent；不要让旧 V1/V2 路径留在生产命名空间；不要用 JSON structured parsing 写 Markdown；不要把 LLM 失败保存成模板假产物；不要只跑 fake/unit test 就宣称可用，必须真实端到端跑并检查导出文件。
 - QA Critic artifact prose unsupported-claim 检测与 retry 建议。
 - LangGraph interrupt/resume 与 checkpoint 策略。
 - Agent contract/schema 变更。

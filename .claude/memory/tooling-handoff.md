@@ -43,6 +43,7 @@ metadata:
 - V2 Agent Kernel 已接入个人版生产 auto-run：`backend/app/agent_kernel/pipeline.py` 初始化 `SectorBreakerState`、内化上传报告/用户材料、让 LLM policy 从 State 和 Tools 中选择下一步、执行工具、应用 StateDelta，并只持久化 completed artifacts。旧 V1/V2 workflow 已移动到 `backend/app/legacy/`，生产代码不得 import。`write_layer_document` 使用普通文本 LLM completion 写 Markdown，不再把正文当 JSON 解析；失败会重试 3 次，仍失败或输出过薄时 run failed / `artifact_writing_failed`，不会导出模板假产物。
 - Agent Kernel 验收必须包含真实 Mimo + Tavily 端到端运行和导出 Markdown 检查；fake/unit test 不能单独作为用户可测结论。
 - 当前真实 Agent Kernel 验收：项目 `api中转站-v2-agent-kernel验收5`，导出目录 `E:\QianFengStudy\PythonProject\SectorBreaker\exports\api中转站-v2-agent-kernel验收5`。导出包含 5 篇 V2 Markdown（约 17KB-22KB），使用 `schema_version: "v2-agent-kernel"` 和 `EV-KERNEL-*`，无旧 V1/fallback 标记。
+- V2 长调试失败复盘已写入 `docs/19-agent-kernel-debugging-retrospective.md`。后续工具接手 Agent Kernel 任务时必须先读：它记录了旧 workflow 泄漏、伪 Agent 命名、Markdown 走 JSON 解析、模板兜底掩盖失败、前端图与后端执行漂移、fake/unit test 误判可用等失败链路，以及真实导出验收门槛。
 - V2 Agent Kernel 的失败语义包含 partial-write 场景：如果前一篇文档已生成、后一篇写作失败，失败 run 不能持久化任何半成品 artifact。
 - 根目录 `.obsidian/` 是默认 Obsidian Vault 配置模板，导出器会复制到每个生成的知识库目录；它不是 generated artifact 或 evidence。
 - 前端设置页已展示 Tavily / Serper / Brave / Exa provider mode；Tavily 仍是推荐默认。人才需求模式明确不默认抓取登录型招聘网站。

@@ -6,6 +6,12 @@ SectorBreaker 的 V2 重构不能再继续把“智能体”实现成固定 work
 
 本文件记录新的最高架构原则：SectorBreaker 的核心必须是 `LLM + State + Tools + ReAct Loop`。LangGraph 可以继续使用，但它不是大脑。LangGraph 只负责状态承载、循环路由、中断恢复、checkpoint 和事件流。真正的判断必须交给 LLM。
 
+The debugging history that forced this principle is recorded in
+`docs/19-agent-kernel-debugging-retrospective.md`. Read that retrospective
+before changing Agent Kernel behavior; it explains how old workflow leakage,
+Markdown/JSON mismatch, fallback artifacts and weak acceptance checks produced
+repeated unusable output.
+
 ## Non-Negotiable Principle
 
 SectorBreaker must be an Agent Kernel, not a fixed research workflow.

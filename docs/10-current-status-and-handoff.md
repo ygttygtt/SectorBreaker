@@ -74,6 +74,7 @@ For Cursor, Windsurf, Gemini, Codex, Claude Code, or other tools, also read `doc
 - V2 Agent Kernel failure handling now has a regression guard for partial writes: if an early `write_layer_document` succeeds but a later write fails, the run is marked failed and no partial artifacts are persisted to the repository.
 - Markdown/Obsidian export now copies the repository-root `.obsidian/` folder into every generated project vault. This folder is the default Obsidian configuration template for the user's preferred plugins/settings/workspace and is not treated as research evidence or an Agent artifact.
 - Important local debugging note: stale `uvicorn` processes on another port can make the frontend hit old code. The default Vite proxy now targets `127.0.0.1:8030`; before UI acceptance, ensure only one intended `uvicorn backend.app.api.app:app --port 8030` process is running and restart Vite after config changes.
+- V2 debugging retrospective is now documented at `docs/19-agent-kernel-debugging-retrospective.md`. Future Agent Kernel work must read it before changes. It records the failure chain that caused repeated unusable outputs: old workflow leakage, L1-L5 hard-coded traversal, external reports not clearly entering State, Markdown writing through JSON parsing, fake fallback artifacts, UI graph drift, and over-reliance on fake/unit tests instead of real exported-output acceptance.
 - LangGraph workflow now includes Scope, Supervisor Plan, Source Strategy, Source Intake, Claim Extractor, Counterevidence, Evidence Ledger, Market, Player, Transaction, Synthesis, Knowledge Map, QA Critic, Export, and RAG Indexer gates.
 - Runs pause at `supervisor_plan` for user confirmation unless `auto_run=true`.
 - Assistant briefs are optional manual Markdown/text inputs and are treated as low-trust lead material.
@@ -173,6 +174,9 @@ These are suitable for regular teammates or lower-capability coding agents if th
 
 Do not hand these off without a clear task contract and review:
 
+- Any Agent Kernel change that could reintroduce fixed-workflow behavior. Read
+  `docs/19-agent-kernel-debugging-retrospective.md` first and verify against its
+  failure checklist.
 - Real `LLMProvider` implementation and structured output parsing.
 - Research Planner prompts and output schemas.
 - Tavily Search Scout query planning.

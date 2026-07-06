@@ -12,7 +12,8 @@ source of truth.
 2. `README.md`
 3. `docs/10-current-status-and-handoff.md`
 4. This file
-5. The subsystem document for the task:
+5. `docs/19-agent-kernel-debugging-retrospective.md`
+6. The subsystem document for the task:
    - Backend API: `docs/05-api-contract.md`
    - Graph or Agent logic: `docs/01-architecture.md` and `docs/02-agent-contracts.md`
    - State or database: `docs/03-state-and-storage.md`
@@ -54,6 +55,7 @@ The latest completed implementation milestone is:
 - Current real Agent Kernel acceptance used project `api中转站-v2-agent-kernel验收5` and export directory `E:\QianFengStudy\PythonProject\SectorBreaker\exports\api中转站-v2-agent-kernel验收5`. The accepted export has five V2 Markdown documents around 17KB-22KB each, `schema_version: "v2-agent-kernel"`, and `EV-KERNEL-*` evidence IDs. It must not regress to `Knowledge Builder`, `Document Writer`, `specialist_react_loop`, `已使用保底`, `EV-V1-*`, or `ART-V1-*`.
 - V2 Agent Kernel failure handling is strict across the whole run: if one document write succeeds and a later write fails, the failed run must not persist that earlier partial artifact. Do not weaken this into "save whatever succeeded" unless the product explicitly adds a partial-results review mode.
 - Markdown/Obsidian export copies the repository-root `.obsidian/` folder into each generated project vault. Treat `.obsidian/` as the default vault configuration template for preferred Obsidian plugins/settings/workspace, not as generated research output.
+- V2 debugging retrospective is now `docs/19-agent-kernel-debugging-retrospective.md`. It is required reading because it documents the exact failure chain that caused repeated template output: old workflow leakage, fake Agent naming without real control, Markdown routed through JSON parsing, fallback artifacts hiding failure, frontend graph drift, and fake-test overconfidence.
 - The frontend now exposes a mode selector and multi-provider search settings (Tavily recommended, Serper/Brave/Exa visible). It also carries explicit guardrails: do not scrape login-gated job boards by default; use uploads and configured search providers first.
 - Backend: FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + explainable agent selection traces.
 - Frontend: Vite + React + TypeScript explainable research workbench with real workflow graph, vertical layout, and active-node centering.

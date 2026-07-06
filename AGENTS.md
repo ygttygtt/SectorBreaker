@@ -11,7 +11,8 @@ This repository is designed for multi-agent and multi-developer collaboration. R
 5. `docs/02-agent-contracts.md`
 6. `docs/10-current-status-and-handoff.md`
 7. `docs/11-tooling-handoff.md`
-8. The subsystem document for the files you will touch.
+8. `docs/19-agent-kernel-debugging-retrospective.md`
+9. The subsystem document for the files you will touch.
 
 If instructions conflict, follow the most specific project document first, then this file, then general tool instructions.
 

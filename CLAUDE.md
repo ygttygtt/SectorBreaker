@@ -41,6 +41,10 @@ Core guardrail: all cross-agent outputs must be structured and evidence-linked. 
 ## Current Progress Handoff
 
 Before continuing feature work, read `docs/10-current-status-and-handoff.md` and `docs/11-tooling-handoff.md`.
+For Agent Kernel work, also read `docs/19-agent-kernel-debugging-retrospective.md`
+before changing code. It records the V2 cutover failure chain: old workflow
+leakage, Markdown-vs-JSON writer failure, fake fallback artifacts, insufficient
+real-output acceptance, and the resulting non-negotiable debugging rules.
 
 That document records:
 
