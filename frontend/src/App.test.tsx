@@ -266,6 +266,7 @@ test("maps V1 run events to visible workflow graph nodes", () => {
   expect(nodeIdForEvent({ gate: "master_agent", step: null, agent: "Master Agent" })).toBe("master_agent");
   expect(nodeIdForEvent({ gate: "external_report_intake", step: null, agent: "External Report Agent" })).toBe("external_report_intake");
   expect(nodeIdForEvent({ gate: "source_collection", step: null, agent: "Search Scout" })).toBe("source_collection");
+  expect(nodeIdForEvent({ gate: "specialist_react_loop", step: null, agent: "V2 Specialist Agent" })).toBe("specialist_react_loop");
   expect(nodeIdForEvent({ gate: "coverage_evaluation", step: null, agent: "Master Agent" })).toBe("coverage_evaluation");
   expect(nodeIdForEvent({ gate: "knowledge_structuring", step: null, agent: "Knowledge Builder" })).toBe("knowledge_structuring");
   expect(nodeIdForEvent({ gate: "document_writing", step: null, agent: "Document Writer" })).toBe("document_writing");

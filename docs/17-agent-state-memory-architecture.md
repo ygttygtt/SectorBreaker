@@ -341,10 +341,14 @@ The first V2 foundation slice is implemented side-by-side with V1.6:
   initialization, report ingestion placeholder, master planning, specialist
   loop placeholder, integration, coverage judgment, conditional routing,
   export, and human feedback wait node.
+- `backend/app/v2_pipeline.py`: production personal auto-run path that
+  initializes V2 state, internalizes uploaded reports, runs L0-L5 layered
+  specialist search, updates shared memory/coverage decisions, and then reuses
+  the stable V1 artifact writer for Markdown output.
 
-This is not yet the production run path. The next step is wiring these modules
-into the API run flow, persisting V2 state, executing specialist ReAct loops
-with real LLM/tool policies, and adding human-feedback reopening.
+The personal `domain_knowledge` auto-run path now calls V2. Remaining work:
+persist V2 state, execute specialist ReAct loops with richer LLM/tool policies,
+deepen source verification/RAG, and add human-feedback reopening.
 
 ## Non-Negotiable Rules
 

@@ -56,6 +56,7 @@ const eventNodeMap: Record<string, string> = {
   source_strategy: "source_strategy",
   external_report_intake: "external_report_intake",
   source_collection: "source_collection",
+  specialist_react_loop: "specialist_react_loop",
   evidence: "source_collection",
   claim_extractor: "claim_extractor",
   counterevidence: "counterevidence",

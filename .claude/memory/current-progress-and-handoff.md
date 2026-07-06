@@ -38,7 +38,7 @@ metadata:
 - V1.6 已实现个人版 `domain_knowledge` 的第一版 bounded Master Agent 调研循环：运行期 `RunWorkingMemory` 记录目标、上传材料、搜索尝试、工具结果、覆盖报告和决策；外部 AI 报告/用户材料/引用会先转为 V1 evidence；`SearchPlan` / `SearchIntent` 驱动多意图搜索；`CoverageReport` 按概念、现状、趋势、政策/风险、案例/玩家、用户需求、信源质量判断；`MasterAgentDecision` 决定继续、补搜、降级或中断。0 证据硬中断，薄证据只能以 degraded 继续，不再显示“充分”。
 - V1.6 前后端运行图已对齐真实 gate：个人版 workflow-definition 和前端 event mapping 使用 `master_agent`、`external_report_intake`、`source_collection`、`evidence_ledger`、`coverage_evaluation`、`knowledge_structuring`、`document_writing`、`artifact_review`、`export`。
 - 已新增 `docs/17-agent-state-memory-architecture.md` 和 `docs/superpowers/plans/2026-07-06-agent-state-memory-react-rebuild.md`，正式记录下一阶段核心：知识库设计、状态设计、Agent 记忆设计、上下文筛选、外部 DeepSearch 报告内化、动态 L0-L5 实战认知 Schema、子 Agent ReAct、可选安全冰山/风险探测、人类反馈后重新打开图。
-- V2 foundation 已开始落地但尚未切换生产 run：新增 `backend/app/agent_state/`（`SectorBreakerState`、动态 L0-L5 `KnowledgeSchema`、`TaskMemory`、`ContextPack`、ContextPackBuilder、ReportInternalizer），新增 `backend/app/agents/`（bounded ReAct runner、L1-L5 specialist contracts、recursive follow-up task planner、安全冰山/风险探测），新增 `backend/app/graph/v2_react_graph.py`（side-by-side LangGraph skeleton 和条件路由）。
+- V2 foundation 已接入个人版生产 auto-run：新增 `backend/app/agent_state/`（`SectorBreakerState`、动态 L0-L5 `KnowledgeSchema`、`TaskMemory`、`ContextPack`、ContextPackBuilder、ReportInternalizer），新增 `backend/app/agents/`（bounded ReAct runner、L1-L5 specialist contracts、recursive follow-up task planner、安全冰山/风险探测），新增 `backend/app/graph/v2_react_graph.py`（side-by-side LangGraph skeleton 和条件路由），新增 `backend/app/v2_pipeline.py`（真实个人版 auto-run V2 分层调研入口，最终 Markdown 写作暂复用稳定 V1 artifact builder）。
 - 重要排障记忆：旧 `uvicorn` 进程和 Vite 代理端口不一致会造成“后端配置好了但 UI 仍显示未配置/像没修”的假象。验收前先确认只有一个目标后端，当前默认是 `uvicorn backend.app.api.app:app --port 8030`，并在 `vite.config.ts` 或 `VITE_API_PROXY_TARGET` 变更后重启 Vite。
 - 文档与协作规范已建立。
 - 核心 schema、provider interfaces、provider factory、SQLite migration/repository 已建立。
@@ -87,7 +87,7 @@ metadata:
 - 下一大版本优先级应转向 `docs/16-master-agent-research-core.md`：结构化 run memory、外部报告进入 V1 主上下文、Master Agent 生成工具/搜索计划、LLM CoverageReport 取代硬编码证据条数、bounded ReAct/search loop、运行图与真实节点对齐。
 - Master Agent 后续优先级：V1.6 bounded loop 已落地，下一步应补 full `ask_user` 人在回路中断、更强来源验证、RAG/vector 检索进入主管上下文、更多工具路由，而不是继续写死搜索 heuristic。
 - 状态/记忆后续优先级：先定义 `SectorBreakerState`、`KnowledgeSchema`、`ContextPack`、`TaskMemory`、`AgentDecision` 等 Pydantic 契约，再做 ContextPackBuilder 和外部报告 internalizer，最后迁移到 LangGraph StateGraph 与 specialist ReAct loops。
-- V2 后续优先级：上述 Pydantic 契约、ContextPackBuilder、ReportInternalizer、ReAct runner、specialist contracts、冰山风险 Agent、V2 graph skeleton 已实现并测试；下一步要把 V2 graph 接入真实 run API、持久化 V2 state、让 specialist loop 使用真实 LLM/tool policy、接 human feedback reopening。
+- V2 后续优先级：Pydantic 契约、ContextPackBuilder、ReportInternalizer、ReAct runner、specialist contracts、冰山风险 Agent、V2 graph skeleton 和真实个人版 auto-run V2 pipeline 已实现并测试；下一步要持久化 V2 state、让 specialist loop 使用更强 LLM/tool policy、接 human feedback reopening、深化 source verification/RAG。
 - QA Critic artifact prose unsupported-claim 检测与 retry 建议。
 - LangGraph interrupt/resume 与 checkpoint 策略。
 - Agent contract/schema 变更。
@@ -124,7 +124,7 @@ metadata:
 - 当前本轮已新增验证：`python -m pytest tests/unit/test_job_source_provider.py tests/unit/test_project_retriever.py tests/unit/test_talent_demand_pipeline.py tests/unit/test_talent_demand_source_coverage.py tests/api/test_app.py::test_api_talent_demand_run_uses_uploaded_jd_and_creates_talent_artifacts tests/api/test_app.py::test_api_chat_uses_project_retrieval tests/api/test_app.py::test_api_talent_demand_run_uses_boss_job_source_when_enabled -q` => 13 passed，1 warning；`cd frontend && npm test -- --run App.test.tsx` => 17 passed；`cd frontend && npm run build` => 通过，仅 Vite chunk-size warning。
 - 当前本轮已新增验证：`python -m pytest tests/unit/test_v1_pipeline.py -q` => 15 passed；上传/导出 API 子集 => 6 passed，1 warning；`cd frontend && npm test -- --run App.test.tsx` => 17 passed；`cd frontend && npm run build` => 通过，仅 Vite chunk-size warning。
 - 当前本轮已新增验证：`python -m pytest tests/unit/test_v1_pipeline.py -q` => 16 passed；`python -m pytest tests/api/test_app.py::test_api_exposes_workflow_definition_and_source_policy -q` => 1 passed，1 warning；`cd frontend && npm test -- --run App.test.tsx` => 17 passed；`cd frontend && npm run build` => 通过，仅 Vite chunk-size warning。
-- 当前本轮已新增验证：V2 foundation `python -m pytest tests/unit/test_agent_state_models.py tests/unit/test_context_pack_builder.py tests/unit/test_report_internalizer.py tests/unit/test_react_loop.py tests/unit/test_specialists_and_iceberg_agent.py tests/graph/test_v2_react_graph.py -q` => 14 passed；V1.6 regression `python -m pytest tests/unit/test_v1_pipeline.py -q` => 16 passed。
+- 当前本轮已新增验证：V2 `python -m pytest tests/unit/test_agent_state_models.py tests/unit/test_context_pack_builder.py tests/unit/test_report_internalizer.py tests/unit/test_react_loop.py tests/unit/test_specialists_and_iceberg_agent.py tests/graph/test_v2_react_graph.py tests/unit/test_v2_pipeline.py -q` => 15 passed；V1.6/API regression `python -m pytest tests/unit/test_v1_pipeline.py tests/api/test_app.py::test_api_v1_run_creates_knowledge_system_artifacts -q` => 17 passed，1 warning；`cd frontend && npm test -- --run App.test.tsx` => 17 passed。
 - `cd frontend && npm test -- --run`：3 passed。
 - `cd frontend && npm run build`：通过。
 

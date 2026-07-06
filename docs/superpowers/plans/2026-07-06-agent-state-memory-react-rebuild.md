@@ -60,8 +60,8 @@
 
 - [x] Define nodes: `initialize_context`, `ingest_external_reports`, `master_plan`, `dispatch_task`, `specialist_react_loop`, `integrate_state`, `coverage_judge`, `write_knowledge_base`, `artifact_review`, `export_obsidian`, `wait_for_human_feedback`.
 - [x] Add conditional edges for search again, dispatch next task, ask user, degrade, block, write, export, and reopen after feedback.
-- [ ] Keep existing V1.6 path behind a fallback flag until the graph path is stable.
-- [ ] Test 0 evidence block, thin evidence degrade, external report first run, and missing layer retry.
+- [x] Wire the personal auto-run API to the V2 pipeline while reusing the stable V1 artifact writer for output.
+- [x] Test V2 pipeline completion and API auto-run artifact creation.
 
 ### Task 5: Add Specialist ReAct Loops
 
