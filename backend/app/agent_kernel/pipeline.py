@@ -81,6 +81,17 @@ async def run_v2_agent_kernel_pipeline(
         config=_kernel_config_for_project(project),
     )
     result = await runtime.run(runtime_context)
+    # 保存 checkpoint（无论成功与否，供恢复或二次运行使用）
+    try:
+        repository.save_run_state_checkpoint(
+            run_id=project.id,
+            project_id=project.id,
+            state=runtime_context.state,
+            checkpoint_type="run_end",
+            iteration=result.iterations,
+        )
+    except Exception:
+        pass  # checkpoint 失败不能阻断主流程
     await emit_event(RunEvent(
         event_type="node_completed" if result.status == KernelRunStatus.COMPLETED else "node_degraded",
         gate="export" if result.status == KernelRunStatus.COMPLETED else "agent_decide",

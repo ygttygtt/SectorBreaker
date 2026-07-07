@@ -627,26 +627,45 @@ class SQLiteRepository:
                 ),
             )
 
-    def list_user_inputs(self, run_id: str, gate: str | None = None) -> list[UserInput]:
+    # ── Run State Checkpoints ─────────────────────────────────────
+
+    def save_run_state_checkpoint(
+        self,
+        *,
+        run_id: str,
+        project_id: str,
+        state: "SectorBreakerState",  # type: ignore[name-defined]
+        checkpoint_type: str = "artifact_write",
+        artifact_id: str | None = None,
+        iteration: int = 0,
+    ) -> None:
+        """Persist the full SectorBreakerState as a JSON checkpoint for later resume."""
+        checkpoint_id = f"ckpt-{uuid4().hex}"
+        state_json = state.model_dump_json()
+        now = datetime.now(UTC).isoformat()
         with self._connect() as connection:
-            if gate:
-                rows = connection.execute(
-                    "SELECT * FROM user_inputs WHERE run_id = ? AND gate = ? ORDER BY rowid",
-                    (run_id, gate),
-                ).fetchall()
-            else:
-                rows = connection.execute(
-                    "SELECT * FROM user_inputs WHERE run_id = ? ORDER BY rowid",
-                    (run_id,),
-                ).fetchall()
-        return [
-            UserInput(
-                id=row["id"],
-                run_id=row["run_id"],
-                gate=row["gate"],
-                input_type=row["input_type"],
-                content=row["content"],
-                created_at=datetime.fromisoformat(row["created_at"]),
+            connection.execute(
+                """
+                INSERT INTO run_state_checkpoints
+                    (id, run_id, project_id, state_json, checkpoint_type, artifact_id, iteration, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (checkpoint_id, run_id, project_id, state_json, checkpoint_type, artifact_id, iteration, now),
             )
-            for row in rows
-        ]
+
+    def load_run_state_checkpoint(self, *, run_id: str) -> "SectorBreakerState | None":  # type: ignore[name-defined]
+        """Load the most recent checkpoint for a run. Returns None if none exists."""
+        from backend.app.agent_state.models import SectorBreakerState
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT state_json FROM run_state_checkpoints
+                WHERE run_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return SectorBreakerState.model_validate_json(row[0])
