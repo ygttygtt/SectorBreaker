@@ -839,6 +839,54 @@ def create_app(
         background_tasks.add_task(run_in_background)
         return repository.get_run(run.id).model_dump(mode="json")
 
+    @app.post("/api/projects/{project_id}/continue")
+    async def continue_project_run(project_id: str, background_tasks: BackgroundTasks):
+        """Resume Agent Kernel from latest checkpoint for a second knowledge-base expansion run."""
+        try:
+            project = repository.get_project(project_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="project not found") from exc
+        if project.project_mode != ProjectMode.DOMAIN_KNOWLEDGE:
+            raise HTTPException(status_code=400, detail="continue only supported for domain_knowledge mode")
+        resumed_state = repository.load_run_state_checkpoint(run_id=project_id)
+        if resumed_state is None:
+            raise HTTPException(
+                status_code=404,
+                detail="no state checkpoint found — run the project at least once first",
+            )
+        run = repository.create_run(project_id)
+        repository.update_run(run.id, status=RunStatus.RUNNING)
+
+        async def emit_event_continue(event: RunEvent) -> None:
+            assert_no_legacy_personal_run_event(event)
+            repository.add_run_event(event, run.id)
+            repository.update_run(run.id, current_gate=event.gate, current_step=event.step)
+
+        async def continue_in_background() -> None:
+            try:
+                await run_v2_agent_kernel_pipeline(
+                    project=project,
+                    repository=repository,
+                    search_provider=active_search_provider,
+                    llm_provider=active_llm_provider,
+                    emit=emit_event_continue,
+                    run_id=run.id,
+                    resume_state=resumed_state,
+                )
+                repository.update_run(run.id, status=RunStatus.COMPLETED, completed_at=datetime.now(UTC))
+            except Exception as exc:
+                repository.add_run_event(RunEvent(
+                    event_type="error",
+                    gate="agent_decide",
+                    agent="V2 Agent Kernel",
+                    message=str(exc)[:800],
+                    severity="error",
+                ), run.id)
+                repository.update_run(run.id, status=RunStatus.FAILED, completed_at=datetime.now(UTC))
+
+        background_tasks.add_task(continue_in_background)
+        return {"run_id": run.id, "status": "started", "resumed_from_checkpoint": True}
+
     @app.get("/api/runs/{run_id}")
     def get_run(run_id: str):
         try:

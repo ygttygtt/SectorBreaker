@@ -28,6 +28,8 @@ class KernelRuntimeContext:
     artifacts: list[Artifact] = field(default_factory=list)
     search_call_count: int = 0
     writer_call_count: int = 0
+    # Optional callback: called after each successful artifact write for checkpointing
+    on_artifact_written: Callable[[str, int], Awaitable[None]] | None = None
 
 
 class ToolRegistry:

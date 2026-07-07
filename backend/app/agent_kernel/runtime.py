@@ -213,6 +213,14 @@ class AgentKernelRuntime:
         trace.append(state_event)
         await self._emit(context, state_event, gate="state_update", agent="V2 State Reducer")
 
+        # Fire checkpoint callback after successful artifact write
+        if observation.success and observation.artifact_ids and context.on_artifact_written is not None:
+            for artifact_id in observation.artifact_ids:
+                try:
+                    await context.on_artifact_written(artifact_id, iteration)
+                except Exception:
+                    pass  # checkpoint errors must not abort the Agent loop
+
         if observation.tool_name in {"write_layer_document", "write_explainer_card", "write_vault_index"} and not observation.success:
             failed = KernelTraceEvent(
                 kind=TraceEventKind.BLOCKED,

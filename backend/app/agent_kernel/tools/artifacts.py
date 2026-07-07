@@ -81,6 +81,21 @@ def register_artifact_tools(registry: ToolRegistry) -> None:
     )
     registry.register(
         ToolSpec(
+            name="revise_layer_document",
+            description=(
+                "Revise an existing main layer document using new State knowledge. "
+                "The old artifact is marked superseded; a new improved version is saved."
+            ),
+            args_schema=schema({
+                "artifact_id": {"type": "string", "description": "ID of the artifact to revise"},
+                "layer_id": {"type": "string"},
+                "revision_goal": {"type": "string", "description": "What to improve or add"},
+            }, required=["artifact_id", "revision_goal"]),
+        ),
+        revise_layer_document,
+    )
+    registry.register(
+        ToolSpec(
             name="finish_run",
             description="Finish the Agent run after enough artifacts have been written and reviewed.",
             args_schema=schema({"reason": {"type": "string"}}, required=["reason"]),
@@ -277,6 +292,88 @@ async def review_artifact(tool_call, context: KernelRuntimeContext) -> KernelObs
         summary=summary,
         data={"artifact_id": artifact.id, "chars": len(artifact.content), "heading_count": heading_count, "has_evidence": has_evidence},
         state_delta=KernelStateDelta(task_notes=[summary], coverage_gaps=[] if detailed and has_evidence else ["artifact_too_thin_or_missing_evidence"]),
+    )
+
+
+async def revise_layer_document(tool_call, context: KernelRuntimeContext) -> KernelObservation:
+    if context.llm_provider is None:
+        return KernelObservation(
+            tool_name="revise_layer_document",
+            success=False,
+            summary="修订失败：没有配置 LLM Provider。",
+            error="llm provider not configured",
+        )
+    artifact_id = str(tool_call.args.get("artifact_id") or "").strip()
+    revision_goal = str(tool_call.args.get("revision_goal") or "").strip()
+    old_artifact = next((a for a in context.artifacts if a.id == artifact_id), None)
+    if old_artifact is None:
+        return KernelObservation(
+            tool_name="revise_layer_document",
+            success=False,
+            summary=f"修订失败：找不到 artifact_id={artifact_id}。",
+            error="artifact not found",
+        )
+    layer_id = tool_call.args.get("layer_id") or old_artifact.content_path or artifact_id
+    context_text = _build_writer_context(context, layer_id=layer_id, title=old_artifact.title)
+    revision_prompt = (
+        "你正在修订一篇已有的 Obsidian 领域知识文档。\n\n"
+        "原文档标题：" + old_artifact.title + "\n"
+        "修订目标：" + revision_goal + "\n\n"
+        "原文档内容（参考，不要完全复制）：\n"
+        + old_artifact.content[:3000]
+        + "\n\n当前 Agent State 新增的知识上下文：\n"
+        + context_text
+        + "\n\n请输出修订后的完整 Obsidian Markdown 文档。\n"
+        "要求：\n"
+        "- 保留原文档的核心结构，吸收新增知识和证据；\n"
+        "- 补充原文档薄弱的章节，使每节有 2-3 段正文；\n"
+        "- 新增的关键事实使用 [^EV-KERNEL-xxx] 脚注引用；\n"
+        "- 直接输出 Markdown，不要 JSON，不要多余解释。"
+    )
+    try:
+        from backend.app.providers.interfaces import ChatMessage
+        raw = await context.llm_provider.complete(
+            [ChatMessage(role="user", content=revision_prompt)]
+        )
+        cleaned = _clean_markdown(raw)
+    except Exception as exc:
+        return KernelObservation(
+            tool_name="revise_layer_document",
+            success=False,
+            summary=f"LLM 修订失败：{type(exc).__name__}",
+            error=str(exc)[:300],
+        )
+    if not _usable_markdown(cleaned):
+        return KernelObservation(
+            tool_name="revise_layer_document",
+            success=False,
+            summary=f"LLM 修订输出内容不足，未保存：{old_artifact.title}",
+            error="revised content too thin",
+        )
+    new_artifact = Artifact(
+        id=f"ART-KERNEL-REV-{uuid4().hex[:8]}",
+        project_id=context.project.id,
+        artifact_type=old_artifact.artifact_type,
+        title=old_artifact.title,
+        content_path=old_artifact.content_path,
+        content=cleaned,
+        source_evidence_ids=list(dict.fromkeys(context.state.evidence_refs)),
+        schema_version="v2-agent-kernel",
+        created_at=datetime.now(UTC),
+    )
+    for i, a in enumerate(context.artifacts):
+        if a.id == artifact_id:
+            context.artifacts[i] = a.model_copy(update={"superseded_by": new_artifact.id})
+            break
+    context.artifacts.append(new_artifact)
+    summary = f"已修订文档：{old_artifact.title}（{len(cleaned)} 字符），旧版 {artifact_id} 已标记 superseded。"
+    return KernelObservation(
+        tool_name="revise_layer_document",
+        success=True,
+        summary=summary,
+        data={"new_artifact_id": new_artifact.id, "old_artifact_id": artifact_id},
+        state_delta=KernelStateDelta(artifact_ids=[new_artifact.id]),
+        artifact_ids=[new_artifact.id],
     )
 
 

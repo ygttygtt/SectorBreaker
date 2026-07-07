@@ -25,6 +25,8 @@ async def run_v2_agent_kernel_pipeline(
     search_provider: SearchProvider | None,
     llm_provider: LLMProvider | None,
     emit: Callable[[RunEvent], Awaitable[None]] | None = None,
+    run_id: str | None = None,
+    resume_state: SectorBreakerState | None = None,
 ) -> list[Artifact]:
     """Run the real V2 Agent Kernel loop and persist generated artifacts."""
 
@@ -32,41 +34,85 @@ async def run_v2_agent_kernel_pipeline(
         if emit is not None:
             await emit(event)
 
-    knowledge_schema = await build_adaptive_schema(
-        domain=project.domain,
-        user_goal=f"为“{project.domain}”构建可持续扩展的 Obsidian 领域知识库",
-        market_scope=project.market_scope.value,
-        source_policy=project.source_policy.value,
-        llm_provider=llm_provider,
-    )
-    state = SectorBreakerState.initialize(
-        project_id=project.id,
-        domain=project.domain,
-        user_goal=f"为“{project.domain}”构建可持续扩展的 Obsidian 领域知识库",
-        market_scope=project.market_scope.value,
-        source_policy=project.source_policy.value,
-        knowledge_schema=knowledge_schema,
-    )
-    await emit_event(RunEvent(
-        event_type="node_started",
-        gate="initialize_state",
-        agent="V2 Agent Kernel",
-        message="Agent Kernel 已启动：本轮使用 State + Tools + ReAct 主循环，不再执行旧 L1-L5 固定 workflow。",
-        data={
-            "pipeline": "agent_kernel",
-            "schema_version": "v2-agent-kernel",
-            "knowledge_schema_strategy": state.knowledge_schema.strategy,
-            "knowledge_schema_reason": state.knowledge_schema.generated_reason,
-            "state": state.model_dump(mode="json"),
-        },
-    ))
-    await _internalize_uploaded_documents(
-        project=project,
-        repository=repository,
-        state=state,
-        emit_event=emit_event,
-    )
+    _run_id = run_id or project.id
+
+    if resume_state is not None:
+        state = resume_state
+        await emit_event(RunEvent(
+            event_type="node_started",
+            gate="initialize_state",
+            agent="V2 Agent Kernel",
+            message=(
+                "Resuming from existing State checkpoint: "
+                + str(len(state.shared_knowledge.source_memories)) + " sources, "
+                + str(len(state.shared_knowledge.claims)) + " claims, "
+                + str(len(state.evidence_refs)) + " evidence refs."
+            ),
+            data={
+                "pipeline": "agent_kernel",
+                "schema_version": "v2-agent-kernel",
+                "resumed": True,
+                "knowledge_schema_strategy": state.knowledge_schema.strategy,
+            },
+        ))
+    else:
+        _user_goal = "Build a sustainable Obsidian knowledge base for: " + project.domain
+        knowledge_schema = await build_adaptive_schema(
+            domain=project.domain,
+            user_goal=_user_goal,
+            market_scope=project.market_scope.value,
+            source_policy=project.source_policy.value,
+            llm_provider=llm_provider,
+        )
+        state = SectorBreakerState.initialize(
+            project_id=project.id,
+            domain=project.domain,
+            user_goal=_user_goal,
+            market_scope=project.market_scope.value,
+            source_policy=project.source_policy.value,
+            knowledge_schema=knowledge_schema,
+        )
+        await emit_event(RunEvent(
+            event_type="node_started",
+            gate="initialize_state",
+            agent="V2 Agent Kernel",
+            message="Agent Kernel started: using State + Tools + ReAct loop.",
+            data={
+                "pipeline": "agent_kernel",
+                "schema_version": "v2-agent-kernel",
+                "knowledge_schema_strategy": state.knowledge_schema.strategy,
+                "knowledge_schema_reason": state.knowledge_schema.generated_reason,
+                "state": state.model_dump(mode="json"),
+            },
+        ))
+        await _internalize_uploaded_documents(
+            project=project,
+            repository=repository,
+            state=state,
+            emit_event=emit_event,
+        )
+
     registry = build_default_tool_registry()
+
+    # Forward-declare so the closure can reference runtime_context after creation
+    _runtime_context_holder: list[KernelRuntimeContext] = []
+
+    async def _checkpoint_on_artifact(artifact_id: str, iteration: int) -> None:
+        ctx = _runtime_context_holder[0] if _runtime_context_holder else None
+        if ctx is None:
+            return
+        try:
+            repository.save_run_state_checkpoint(
+                run_id=_run_id,
+                project_id=project.id,
+                state=ctx.state,
+                checkpoint_type="artifact_write",
+                artifact_id=artifact_id,
+                iteration=iteration,
+            )
+        except Exception:
+            pass
+
     runtime_context = KernelRuntimeContext(
         project=project,
         repository=repository,
@@ -74,34 +120,39 @@ async def run_v2_agent_kernel_pipeline(
         search_provider=search_provider,
         llm_provider=llm_provider,
         emit_event=emit_event,
+        on_artifact_written=_checkpoint_on_artifact,
     )
+    _runtime_context_holder.append(runtime_context)
+
     runtime = AgentKernelRuntime(
         policy=LLMAgentPolicy(llm_provider),
         registry=registry,
         config=_kernel_config_for_project(project),
     )
     result = await runtime.run(runtime_context)
-    # 保存 checkpoint（无论成功与否，供恢复或二次运行使用）
+
+    # Save final checkpoint regardless of outcome
     try:
         repository.save_run_state_checkpoint(
-            run_id=project.id,
+            run_id=_run_id,
             project_id=project.id,
             state=runtime_context.state,
             checkpoint_type="run_end",
             iteration=result.iterations,
         )
     except Exception:
-        pass  # checkpoint 失败不能阻断主流程
+        pass
+
     await emit_event(RunEvent(
         event_type="node_completed" if result.status == KernelRunStatus.COMPLETED else "node_degraded",
         gate="export" if result.status == KernelRunStatus.COMPLETED else "agent_decide",
         agent="V2 Agent Kernel",
-        message=f"Agent Kernel 运行结束：{result.status.value}。{result.stop_reason}",
+        message="Agent Kernel run finished: " + result.status.value + ". " + result.stop_reason,
         severity="info" if result.status == KernelRunStatus.COMPLETED else "warning",
         data=result.model_dump(mode="json"),
     ))
     if result.status != KernelRunStatus.COMPLETED:
-        raise RuntimeError(f"V2 Agent Kernel 未能完成：{result.status.value} / {result.stop_reason}")
+        raise RuntimeError("V2 Agent Kernel did not complete: " + result.status.value + " / " + result.stop_reason)
     for artifact in runtime_context.artifacts:
         repository.add_artifact(artifact)
     return runtime_context.artifacts
@@ -149,7 +200,7 @@ async def _internalize_uploaded_documents(
             event_type="node_progress",
             gate="external_materials",
             agent="V2 Agent Kernel",
-            message="未发现上传外部材料，Agent 将从当前 State 和搜索工具开始。",
+            message="No uploaded materials found; Agent starts from current State and search tools.",
         ))
         return
     internalizer = ReportInternalizer()
@@ -157,7 +208,7 @@ async def _internalize_uploaded_documents(
         event_type="node_started",
         gate="external_materials",
         agent="V2 Report Internalizer",
-        message=f"正在把上传材料写入 Agent State：{len(documents)} 个文档。",
+        message="Writing uploaded materials into Agent State: " + str(len(documents)) + " documents.",
     ))
     for document in documents:
         report = internalizer.internalize(document, domain=project.domain)
@@ -167,12 +218,14 @@ async def _internalize_uploaded_documents(
             gate="external_materials",
             agent="V2 Report Internalizer",
             message=(
-                f"已内化上传材料：{document.file_name or document.id}，"
-                f"claims={len(report.claims)}，entities={len(report.entities)}，questions={len(report.open_questions)}"
+                "Internalized: " + (document.file_name or document.id)
+                + ", claims=" + str(len(report.claims))
+                + ", entities=" + str(len(report.entities))
+                + ", questions=" + str(len(report.open_questions))
             ),
             data=report.model_dump(mode="json"),
         ))
     state.add_decision(AgentDecision(
         action=AgentAction.CONTINUE,
-        reason="上传材料已进入 Agent Kernel State。后续搜索应作为补充、验证或下钻，而不是盲目重搜。",
+        reason="Uploaded materials have been internalized into Agent State. Subsequent searches should supplement, not blindly re-search.",
     ))
