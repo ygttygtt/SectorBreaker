@@ -41,6 +41,38 @@ def register_artifact_tools(registry: ToolRegistry) -> None:
     )
     registry.register(
         ToolSpec(
+            name="write_explainer_card",
+            description=(
+                "Write a focused Obsidian knowledge card for a concept, tool, player, risk, "
+                "process, or drill-down question discovered during the Agent run."
+            ),
+            args_schema=schema({
+                "card_kind": {
+                    "type": "string",
+                    "description": "concept | tool | player | risk | process | question | note",
+                },
+                "title": {"type": "string"},
+                "focus": {"type": "string"},
+                "layer_id": {"type": "string"},
+                "writing_goal": {"type": "string"},
+                "linked_artifact_ids": {"type": "array", "items": {"type": "string"}},
+            }, required=["title", "focus", "writing_goal"]),
+        ),
+        write_explainer_card,
+    )
+    registry.register(
+        ToolSpec(
+            name="write_vault_index",
+            description="Write an Obsidian navigation/index page that connects main documents, cards, evidence, and open questions.",
+            args_schema=schema({
+                "title": {"type": "string"},
+                "index_goal": {"type": "string"},
+            }, required=["title", "index_goal"]),
+        ),
+        write_vault_index,
+    )
+    registry.register(
+        ToolSpec(
             name="review_artifact",
             description="Review whether a generated artifact is detailed, evidence-linked, and useful enough.",
             args_schema=schema({"artifact_id": {"type": "string"}, "review_goal": {"type": "string"}}, required=["artifact_id"]),
@@ -123,6 +155,103 @@ async def write_layer_document(tool_call, context: KernelRuntimeContext) -> Kern
     )
 
 
+async def write_explainer_card(tool_call, context: KernelRuntimeContext) -> KernelObservation:
+    if context.llm_provider is None:
+        return KernelObservation(
+            tool_name="write_explainer_card",
+            success=False,
+            summary="解释卡写作失败：没有配置 LLM Provider。",
+            error="llm provider not configured",
+        )
+    title = str(tool_call.args.get("title") or "").strip()
+    focus = str(tool_call.args.get("focus") or title).strip()
+    writing_goal = str(tool_call.args.get("writing_goal") or "").strip()
+    if not title or not focus:
+        return KernelObservation(
+            tool_name="write_explainer_card",
+            success=False,
+            summary="解释卡写作失败：缺少 title 或 focus。",
+            error="missing title or focus",
+        )
+    card_kind = _card_kind(tool_call.args.get("card_kind"))
+    layer_id = _layer_id(tool_call.args.get("layer_id"), context.state.current_layer_id)
+    context_text = _build_writer_context(context, layer_id=layer_id or "dynamic_card", title=title)
+    cleaned, errors = await _write_card_document(
+        context,
+        title=title,
+        focus=focus,
+        card_kind=card_kind,
+        writing_goal=writing_goal,
+        context_text=context_text,
+    )
+    if not _usable_card_markdown(cleaned):
+        return KernelObservation(
+            tool_name="write_explainer_card",
+            success=False,
+            summary=f"解释卡写作失败，未保存模板产物：{title}",
+            error="llm card writing failed after retries",
+            data={"attempts": len(errors), "errors": errors, "generated_chars": len(cleaned)},
+        )
+
+    artifact = _build_artifact(
+        context,
+        artifact_id=f"ART-KERNEL-CARD-{uuid4().hex[:8]}",
+        artifact_type=_card_artifact_type(card_kind),
+        title=title,
+        content_path=f"{_card_folder(card_kind)}/{_safe_filename(title)}.md",
+        content=cleaned,
+        source_evidence_ids=list(dict.fromkeys(context.state.evidence_refs)),
+        schema_version="v2-agent-kernel-card",
+    )
+    context.artifacts.append(artifact)
+    summary = f"已写作解释性知识卡：{title}（{card_kind}，{len(cleaned)} 字符）。"
+    return KernelObservation(
+        tool_name="write_explainer_card",
+        success=True,
+        summary=summary,
+        data={
+            "artifact": artifact.model_dump(mode="json"),
+            "card_kind": card_kind,
+            "linked_artifact_ids": list(tool_call.args.get("linked_artifact_ids") or []),
+        },
+        state_delta=KernelStateDelta(artifact_ids=[artifact.id], task_notes=[summary]),
+        artifact_ids=[artifact.id],
+    )
+
+
+async def write_vault_index(tool_call, context: KernelRuntimeContext) -> KernelObservation:
+    title = str(tool_call.args.get("title") or f"{context.project.title} 知识库导航").strip()
+    index_goal = str(tool_call.args.get("index_goal") or "连接本轮主文档、解释卡、证据和后续补库任务。").strip()
+    if not context.artifacts:
+        return KernelObservation(
+            tool_name="write_vault_index",
+            success=False,
+            summary="知识库导航写作失败：当前没有任何 artifact 可索引。",
+            error="no artifacts to index",
+        )
+    content = _render_vault_index_markdown(context, title=title, index_goal=index_goal)
+    artifact = _build_artifact(
+        context,
+        artifact_id=f"ART-KERNEL-INDEX-{uuid4().hex[:8]}",
+        artifact_type=ArtifactType.EXPORT_MANIFEST,
+        title=title,
+        content_path="00-知识库导航.md",
+        content=content,
+        source_evidence_ids=list(dict.fromkeys(context.state.evidence_refs)),
+        schema_version="v2-agent-kernel-index",
+    )
+    context.artifacts.append(artifact)
+    summary = f"已写作知识库导航页：{title}（连接 {len(context.artifacts) - 1} 个已有产物）。"
+    return KernelObservation(
+        tool_name="write_vault_index",
+        success=True,
+        summary=summary,
+        data={"artifact": artifact.model_dump(mode="json")},
+        state_delta=KernelStateDelta(artifact_ids=[artifact.id], task_notes=[summary]),
+        artifact_ids=[artifact.id],
+    )
+
+
 async def review_artifact(tool_call, context: KernelRuntimeContext) -> KernelObservation:
     artifact_id = str(tool_call.args.get("artifact_id") or "").strip()
     artifact = next((item for item in context.artifacts if item.id == artifact_id), None)
@@ -189,8 +318,6 @@ async def _write_document_in_sections(
     )
     if _usable_markdown(full_document):
         return full_document, full_errors
-    if full_errors:
-        return full_document, full_errors
 
     section_specs = [
         ("本页解决什么问题", "解释本页目标、适合谁读、当前证据覆盖到什么程度。"),
@@ -200,7 +327,7 @@ async def _write_document_in_sections(
         ("待验证问题与补库任务", "列出后续需要搜索、验证、询问用户或生成卡片的任务。"),
     ]
     sections: list[str] = []
-    errors: list[str] = []
+    errors: list[str] = list(full_errors)
     for index, (heading, goal) in enumerate(section_specs, start=1):
         section, section_errors = await _write_section(
             context,
@@ -281,6 +408,64 @@ async def _write_full_document(
     return "\n\n".join([frontmatter, f"# {title}"]).strip(), errors
 
 
+async def _write_card_document(
+    context: KernelRuntimeContext,
+    *,
+    title: str,
+    focus: str,
+    card_kind: str,
+    writing_goal: str,
+    context_text: str,
+) -> tuple[str, list[str]]:
+    errors: list[str] = []
+    prompt = (
+        "你是 SectorBreaker V2 Explainer Card Writer。"
+        "你的任务是把主文档中读者可能不懂、但又影响理解的概念/流程/风险/工具写成独立 Obsidian 卡片。"
+        "必须基于 State 摘要和 evidence id，不要输出 JSON，不要输出代码块，不要编造无证据事实。\n\n"
+        "# 卡片任务\n"
+        f"- title: {title}\n"
+        f"- card_kind: {card_kind}\n"
+        f"- focus: {focus}\n"
+        f"- writing_goal: {writing_goal}\n\n"
+        f"# 写作上下文\n{context_text}\n\n"
+        "# 输出要求\n"
+        "请输出完整 Obsidian Markdown 正文，不要 YAML front matter。\n"
+        "必须从一级标题开始；正文 600-1400 中文字；至少 4 个二级标题。\n"
+        "建议结构：一句话解释、为什么它重要、它如何运作、和本领域主文档的关系、证据与待验证。\n"
+        "必须包含 2-5 个 `[[双向链接]]`，链接到相关概念或主文档标题；能引用 evidence id 就引用，不能则标注待补证。\n"
+    )
+    for attempt in range(1, 4):
+        attempt_prompt = prompt
+        if attempt > 1:
+            attempt_prompt += (
+                "\n\n# Retry Instruction\n"
+                f"上一轮失败原因：{errors[-1] if errors else '未知'}。\n"
+                "请重写为更完整的 Obsidian 知识卡片，避免空泛定义。"
+            )
+        try:
+            output = await _complete_text_with_heartbeat(
+                context,
+                [ChatMessage(role="user", content=attempt_prompt)],
+                title=f"{title} / 解释卡",
+                attempt=attempt,
+            )
+        except Exception as exc:
+            errors.append(f"card attempt {attempt}: {type(exc).__name__}: {str(exc)[:260]}")
+            continue
+        cleaned = _clean_markdown(str(output))
+        if not cleaned.startswith("# "):
+            cleaned = f"# {title}\n\n{cleaned}"
+        frontmatter = _card_frontmatter(title=title, card_kind=card_kind, context=context)
+        markdown = "\n\n".join([frontmatter, cleaned]).strip()
+        if _usable_card_markdown(markdown):
+            return markdown, errors
+        errors.append(
+            f"card attempt {attempt}: unusable "
+            f"(chars={len(markdown)}, heading_count={markdown.count(chr(10) + '## ') + markdown.count(chr(10) + '### ')})"
+        )
+    return "\n\n".join([_card_frontmatter(title=title, card_kind=card_kind, context=context), f"# {title}"]).strip(), errors
+
+
 async def _write_section(
     context: KernelRuntimeContext,
     *,
@@ -351,6 +536,22 @@ def _frontmatter(*, title: str, layer_id: KnowledgeLayerId | str, context: Kerne
         "evidence_ids:\n"
         f"{evidence_lines if evidence_lines else '  []'}\n"
         'tags: ["sectorbreaker", "domain-knowledge"]\n'
+        "---"
+    )
+
+
+def _card_frontmatter(*, title: str, card_kind: str, context: KernelRuntimeContext) -> str:
+    evidence_lines = "\n".join(f'  - "{item}"' for item in list(dict.fromkeys(context.state.evidence_refs))[:20])
+    return (
+        "---\n"
+        'schema_version: "v2-agent-kernel-card"\n'
+        'type: "knowledge_card"\n'
+        f'card_kind: "{card_kind}"\n'
+        'status: "draft"\n'
+        'confidence: "partial"\n'
+        "evidence_ids:\n"
+        f"{evidence_lines if evidence_lines else '  []'}\n"
+        'tags: ["sectorbreaker", "domain-knowledge", "knowledge-card"]\n'
         "---"
     )
 
@@ -436,6 +637,60 @@ def _build_writer_context(context: KernelRuntimeContext, *, layer_id: KnowledgeL
     )
 
 
+def _render_vault_index_markdown(context: KernelRuntimeContext, *, title: str, index_goal: str) -> str:
+    artifacts = list(context.artifacts)
+    generated_at = datetime.now(UTC).strftime("%Y-%m-%d")
+    main_docs = [item for item in artifacts if item.schema_version == "v2-agent-kernel"]
+    cards = [item for item in artifacts if item.schema_version == "v2-agent-kernel-card"]
+    other = [item for item in artifacts if item not in main_docs and item not in cards]
+    lines = [
+        "---",
+        'schema_version: "v2-agent-kernel-index"',
+        'type: "vault_index"',
+        'status: "draft"',
+        f'generated_at: "{generated_at}"',
+        'tags: ["sectorbreaker", "vault-index"]',
+        "---\n",
+        f"# {title}\n",
+        f"{index_goal}\n",
+        "## 推荐阅读顺序\n",
+    ]
+    for index, artifact in enumerate(main_docs, start=1):
+        lines.append(f"{index}. [[{Path(artifact.content_path).stem}]] — {artifact.title}")
+    if cards:
+        lines.extend(["", "## 解释性知识卡\n"])
+        by_folder: dict[str, list[Artifact]] = {}
+        for card in cards:
+            folder = Path(card.content_path).parts[0] if "/" in card.content_path else "cards"
+            by_folder.setdefault(folder, []).append(card)
+        for folder, folder_cards in sorted(by_folder.items()):
+            lines.append(f"### {folder}\n")
+            for card in sorted(folder_cards, key=lambda item: item.title):
+                lines.append(f"- [[{Path(card.content_path).stem}]] — {card.title}")
+            lines.append("")
+    if other:
+        lines.extend(["## 其他产物\n"])
+        for artifact in other:
+            lines.append(f"- [[{Path(artifact.content_path).stem}]] — {artifact.title}")
+    open_questions = [question for question in context.state.shared_knowledge.open_questions if question.status != "resolved"]
+    lines.extend([
+        "",
+        "## 证据与状态\n",
+        f"- 本轮证据数量：{len(context.state.evidence_refs)}",
+        f"- 当前产物数量：{len(artifacts)}",
+        f"- 未解决/下钻问题：{len(open_questions)}",
+        "- 证据账本：[[evidence-ledger]]",
+        "",
+        "## 后续补库建议\n",
+    ])
+    if open_questions:
+        for question in open_questions[:12]:
+            lines.append(f"- {question.question}（{question.reason[:80]}）")
+    else:
+        lines.append("- 暂无显式未解决问题；下一轮可从读者反馈中生成新卡片。")
+    return "\n".join(lines).strip()
+
+
 async def _complete_text_with_heartbeat(
     context: KernelRuntimeContext,
     messages: list[ChatMessage],
@@ -445,19 +700,22 @@ async def _complete_text_with_heartbeat(
 ) -> str:
     task = asyncio.create_task(context.llm_provider.complete(messages))  # type: ignore[union-attr]
     waited = 0
-    while not task.done():
-        await asyncio.sleep(15)
-        waited += 15
+    while True:
+        try:
+            return await asyncio.wait_for(asyncio.shield(task), timeout=15)
+        except TimeoutError:
+            waited += 15
+            await context.emit_event(RunEvent(
+                event_type="node_progress",
+                gate="artifact_writing",
+                agent="V2 Artifact Writer",
+                message=f"仍在写作：{title}，LLM 正在生成 Markdown 正文（第 {attempt} 次，已等待约 {waited} 秒）",
+                severity="info",
+            ))
+        except Exception:
+            raise
         if task.done():
-            break
-        await context.emit_event(RunEvent(
-            event_type="node_progress",
-            gate="artifact_writing",
-            agent="V2 Artifact Writer",
-            message=f"仍在写作：{title}，LLM 正在生成 Markdown 正文（第 {attempt} 次，已等待约 {waited} 秒）",
-            severity="info",
-        ))
-    return await task
+            return await task
 
 
 def _clean_markdown(value: str) -> str:
@@ -481,6 +739,65 @@ def _retry_prompt(base_prompt: str, *, title: str, errors: list[str], attempt: i
 
 def _usable_markdown(value: str) -> bool:
     return len(value) >= 600 and (value.count("\n## ") + value.count("\n### ")) >= 1
+
+
+def _usable_card_markdown(value: str) -> bool:
+    return len(value) >= 500 and value.lstrip().startswith("---") and (
+        value.count("\n## ") + value.count("\n### ")
+    ) >= 2
+
+
+def _build_artifact(
+    context: KernelRuntimeContext,
+    *,
+    artifact_id: str,
+    artifact_type: ArtifactType,
+    title: str,
+    content_path: str,
+    content: str,
+    source_evidence_ids: list[str],
+    schema_version: str,
+) -> Artifact:
+    return Artifact(
+        id=artifact_id,
+        project_id=context.project.id,
+        artifact_type=artifact_type,
+        title=title,
+        content_path=content_path,
+        content=content,
+        source_evidence_ids=source_evidence_ids,
+        schema_version=schema_version,
+        created_at=datetime.now(UTC),
+    )
+
+
+def _card_kind(value) -> str:
+    raw = str(value or "concept").strip().lower()
+    return raw if raw in {"concept", "tool", "player", "risk", "process", "question", "note"} else "concept"
+
+
+def _card_folder(card_kind: str) -> str:
+    return {
+        "concept": "concepts",
+        "tool": "tools",
+        "player": "players",
+        "risk": "risks",
+        "process": "processes",
+        "question": "questions",
+        "note": "notes",
+    }.get(card_kind, "concepts")
+
+
+def _card_artifact_type(card_kind: str) -> ArtifactType:
+    return {
+        "concept": ArtifactType.CORE_CONCEPTS,
+        "tool": ArtifactType.PLAYER_TOOL_MAP,
+        "player": ArtifactType.PLAYER_MAP,
+        "risk": ArtifactType.UNRESOLVED_QUESTIONS,
+        "process": ArtifactType.PLAYER_TOOL_MAP,
+        "question": ArtifactType.UNRESOLVED_QUESTIONS,
+        "note": ArtifactType.CORE_CONCEPTS,
+    }.get(card_kind, ArtifactType.CORE_CONCEPTS)
 
 
 def _layer_id(value, fallback) -> KnowledgeLayerId | str | None:

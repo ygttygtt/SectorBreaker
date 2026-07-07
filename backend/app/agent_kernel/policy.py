@@ -130,8 +130,11 @@ class LLMAgentPolicy:
             "必须填写 current_goal、plan_steps、progress_check，让用户能看到 Agent 的阶段性判断。"
             "可以使用 tool_calls 输出多个顺序工具调用；运行时会按顺序执行并逐个更新 State。"
             "不确定某层是否可写时，优先调用 evaluate_coverage；连续低价值搜索后，优先调用 reflect_on_progress。"
-            "如果 Artifact Memory 中已经有 3 个以上详实 artifact，且核心本源/玩家/机制或风险已覆盖，应优先 review_artifact 或 finish_run，不要为了写满所有动态层级而拖长演示。"
-            "如果要写文档，action_type 使用 write_artifact，tool_call 或 tool_calls 中的 tool_name 使用 write_layer_document。"
+            "如果 Artifact Memory 中只有少量主文档，不要过早 finish；你应检查是否需要解释卡、下钻卡或导航页来体现可持续知识库。"
+            "如果主文档已经覆盖核心层，但关键术语/前置概念/风险/流程仍会让新手卡住，action_type 使用 write_artifact，tool_name 使用 write_explainer_card。"
+            "如果已经有多篇主文档和卡片但缺少总入口，action_type 使用 write_artifact，tool_name 使用 write_vault_index。"
+            "如果主文档、关键解释卡、导航页和待补证任务都已经可展示，应优先 review_artifact 或 finish_run，不要继续无目标扩写。"
+            "如果要写主文档，action_type 使用 write_artifact，tool_call 或 tool_calls 中的 tool_name 使用 write_layer_document。"
             "如果要审查文档，action_type 使用 review_artifact，tool_call 或 tool_calls 中的 tool_name 使用 review_artifact。"
             "如果认为完成，action_type 使用 finish 且给出 stop_reason。"
         ]

@@ -13,7 +13,7 @@ LLM 是大脑。代码不会替你决定下一步是搜索、读报告、写作�
 只能选择以下之一：
 
 - `call_tool`: 调用一个工具，如 `search_web`、`read_uploaded_report`、`retrieve_project_memory`、`inspect_evidence`、`internalize_observation`、`update_task_state`。
-- `write_artifact`: 请求写一个 Obsidian artifact，通常映射到 `write_layer_document`。
+- `write_artifact`: 请求写一个 Obsidian artifact，可映射到 `write_layer_document`、`write_explainer_card` 或 `write_vault_index`。
 - `review_artifact`: 请求审查某个 artifact，通常映射到 `review_artifact`。
 - `ask_user`: 进入 human-in-the-loop，要求用户澄清、提供材料或确认降级。
 - `finish`: 知识库已达到可用标准，结束本轮 run。
@@ -33,12 +33,13 @@ LLM 是大脑。代码不会替你决定下一步是搜索、读报告、写作�
 6. 如果发现垃圾来源、重复来源、过时主张、被新材料取代的 claim，使用 `manage_state_memory` 隐藏、删除、标记 superseded 或更新。
 7. 如果发现复杂概念、隐藏术语或用户可能看不懂的前置知识，使用 `internalize_observation` 创建 drill_down_tasks / open_questions。
 8. 如果某条 evidence 决定关键 claim 是否可信，使用 `inspect_evidence`。
-9. 如果某层材料足够但尚未写作，使用 `write_artifact`。
-10. 如果 artifact 已生成但可能过薄、缺证据或缺链接，使用 `review_artifact`。
-11. 如果缺口只能由用户决定，使用 `ask_user`。
-12. 如果继续会产生伪事实、违法风险或无证据输出，使用 `block`。
-13. 如果 Artifact Memory 已有 3 个以上详实 artifact，且核心本源/玩家/机制/风险已经可用于第一版知识库，优先审查或结束；不要为了写满所有 schema layer 而拖长运行。
-14. 如果核心 artifact 已写、审查通过、缺口已显式记录，使用 `finish` 或 `finish_run`。
+9. 如果某层材料足够但尚未写作，使用 `write_artifact` 调用 `write_layer_document`。
+10. 如果主文档中出现读者可能不懂、但会影响理解的概念、工具、角色、流程、风险或下钻问题，使用 `write_artifact` 调用 `write_explainer_card`，把它变成独立 Obsidian 卡片；这比把所有解释塞进主文档更符合“知识库”目标。
+11. 如果已有 3 个以上主文档或卡片，且还没有导航页，使用 `write_artifact` 调用 `write_vault_index`，把主文档、解释卡、证据账本和后续补库任务连接起来。
+12. 如果 artifact 已生成但可能过薄、缺证据或缺链接，使用 `review_artifact`。
+13. 如果缺口只能由用户决定，使用 `ask_user`。
+14. 如果继续会产生伪事实、违法风险或无证据输出，使用 `block`。
+15. 如果核心 artifact 已写、关键解释卡/下钻卡已补齐、导航页已生成、缺口已显式记录，使用 `finish` 或 `finish_run`。
 
 ## Required Output
 
@@ -115,7 +116,9 @@ LLM 是大脑。代码不会替你决定下一步是搜索、读报告、写作�
 
 当 `action_type` 不是 `call_tool` 时：
 
-- `write_artifact`: `tool_call.tool_name` 应为 `write_layer_document`，args 包含 `layer_id`、`title`、`writing_goal`、`required_questions`、`evidence_policy`。
+- `write_artifact`: 如果要写主文档，`tool_call.tool_name` 应为 `write_layer_document`，args 包含 `layer_id`、`title`、`writing_goal`、`required_questions`、`evidence_policy`。
+- `write_artifact`: 如果要写解释卡，`tool_call.tool_name` 应为 `write_explainer_card`，args 包含 `card_kind`、`title`、`focus`、`layer_id`、`writing_goal`。适合生成 `反向代理`、`协议转换`、`号池`、`上游供应链`、`合规风险` 这类辅助页面。
+- `write_artifact`: 如果要写导航页，`tool_call.tool_name` 应为 `write_vault_index`，args 包含 `title`、`index_goal`。
 - `review_artifact`: `tool_call.tool_name` 应为 `review_artifact`，args 包含 `artifact_id`、`review_goal`。
 - `ask_user`: `tool_call.tool_name` 可为 `ask_user`，args 包含 `question`、`reason`、`options`、`what_will_change_after_answer`。
 - `finish`: `tool_call` 为 null，`stop_reason` 说明已满足哪些 acceptance criteria。
@@ -144,7 +147,7 @@ LLM 是大脑。代码不会替你决定下一步是搜索、读报告、写作�
 - 使用 `tool_calls` 时，最多给出 3 个顺序工具；不要把整轮研究塞进一个决策。
 - `current_goal` 应该是当前阶段目标，不要只重复用户输入。
 - `progress_check` 必须说明 State 已有什么、还缺什么、为什么下一步合理。
-- 每轮必须检查 Artifact Memory：如果已经有足够可展示的 artifact，下一步通常是 `review_artifact`、`finish_run` 或 `finish`，不是继续写新文档。
+- 每轮必须检查 Artifact Memory：如果只有主文档而缺少解释性卡片/导航页，优先补卡片或导航；如果主文档、关键卡片、导航页都已足够，下一步通常是 `review_artifact`、`finish_run` 或 `finish`，不是继续无目标搜索。
 
 ## Safety And Failure Handling
 

@@ -213,7 +213,7 @@ class AgentKernelRuntime:
         trace.append(state_event)
         await self._emit(context, state_event, gate="state_update", agent="V2 State Reducer")
 
-        if observation.tool_name == "write_layer_document" and not observation.success:
+        if observation.tool_name in {"write_layer_document", "write_explainer_card", "write_vault_index"} and not observation.success:
             failed = KernelTraceEvent(
                 kind=TraceEventKind.BLOCKED,
                 message="Blocked: LLM 写作失败，已停止运行，未导出模板或假产物。",
@@ -271,7 +271,7 @@ class AgentKernelRuntime:
 
     @staticmethod
     def _gate_for_tool(tool_name: str) -> str:
-        if tool_name == "write_layer_document":
+        if tool_name in {"write_layer_document", "write_explainer_card", "write_vault_index"}:
             return "artifact_writing"
         if tool_name == "review_artifact":
             return "artifact_review"

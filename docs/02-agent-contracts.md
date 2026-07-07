@@ -193,6 +193,11 @@ All Agent outputs that include factual claims must support:
   `schema_version="v2-agent-kernel"`.
 - Allowed actions: `call_tool`, `write_artifact`, `review_artifact`,
   `ask_user`, `finish`, and `block`.
+- Rich vault writing tools: `write_layer_document` writes main cognition-layer
+  documents; `write_explainer_card` writes focused Obsidian cards for concepts,
+  tools, players, risks, processes, notes, or drill-down questions discovered
+  during the run; `write_vault_index` writes a navigation page linking main
+  documents, cards, evidence, state bundle, and open questions.
 - Decision contract: every LLM decision should expose user-facing
   `thought_summary`, `current_goal`, `plan_steps`, and `progress_check`.
   It may contain one `tool_call` or a short ordered `tool_calls` list. Ordered
@@ -206,6 +211,12 @@ All Agent outputs that include factual claims must support:
   chain. Production initialization may use an LLM-planned adaptive
   `KnowledgeSchema` with string layer ids, priorities, prerequisites, coverage
   scores, and drill-down tasks.
+- Knowledge-base richness contract: the first export should not be limited to
+  five reports when State reveals useful concept gaps. After main documents are
+  written, the Agent should decide whether beginner blockers, hidden terms,
+  implementation concepts, risk terms, or unresolved questions deserve their
+  own explainer cards. The number of cards is Agent-judged from State and
+  source quality, not hard-coded.
 - Must not: traverse L1-L5 as a hard-coded production workflow, silently
   substitute fallback Markdown, persist partial artifacts after a failed run, or
   finish when no artifact exists.

@@ -193,6 +193,8 @@ class MarkdownExporter:
         """Generate project README with navigation."""
         if self._is_talent_vault(artifacts):
             return self._generate_talent_vault_readme(project, artifacts, evidence, project_dir)
+        if self._is_v2_agent_kernel_vault(artifacts):
+            return self._generate_v2_agent_kernel_readme(project, artifacts, evidence, project_dir)
         if self._is_v1_vault(artifacts):
             return self._generate_v1_vault_readme(project, artifacts, evidence, project_dir)
 
@@ -389,6 +391,99 @@ class MarkdownExporter:
         readme_path = project_dir / "README.md"
         readme_path.write_text("\n".join(lines), encoding="utf-8")
         return "README.md"
+
+    def _generate_v2_agent_kernel_readme(
+        self,
+        project: ResearchProject,
+        artifacts: list[Artifact],
+        evidence: list[EvidenceItem],
+        project_dir: Path,
+    ) -> str:
+        generated_date = datetime.now(UTC).strftime("%Y-%m-%d")
+        main_docs = sorted(
+            [artifact for artifact in artifacts if artifact.schema_version == "v2-agent-kernel"],
+            key=lambda artifact: artifact.content_path,
+        )
+        index_docs = sorted(
+            [artifact for artifact in artifacts if artifact.schema_version == "v2-agent-kernel-index"],
+            key=lambda artifact: artifact.content_path,
+        )
+        card_groups = {
+            "concepts": self._artifacts_under(artifacts, "concepts/"),
+            "tools": self._artifacts_under(artifacts, "tools/"),
+            "players": self._artifacts_under(artifacts, "players/"),
+            "processes": self._artifacts_under(artifacts, "processes/"),
+            "risks": self._artifacts_under(artifacts, "risks/"),
+            "questions": self._artifacts_under(artifacts, "questions/"),
+            "notes": self._artifacts_under(artifacts, "notes/"),
+        }
+        card_count = sum(len(items) for items in card_groups.values())
+        lines = [
+            "---",
+            f'project: "{project.title}"',
+            'type: "v2_agent_kernel_vault_home"',
+            'project_mode: "domain_knowledge"',
+            'status: "draft"',
+            f'generated_at: "{generated_date}"',
+            'tags: ["sectorbreaker", "agent-kernel", "vault-home"]',
+            "---\n",
+            f"# {project.title} 领域知识库\n",
+            f"**领域**：{project.domain}  ",
+            f"**市场范围**：{project.market_scope.value}  ",
+            f"**研究深度**：{project.depth.value}\n",
+            "## 这个 Vault 和普通研究报告有什么不同\n",
+            "- 它不是一篇一次性报告，而是由 Agent 将搜索、证据、主张、概念盲区和待验证问题内化后形成的可增长知识库。",
+            "- 主文档负责建立认知骨架；解释性卡片负责拆开新手容易卡住的术语、流程、风险和工具。",
+            "- `.sectorbreaker/` 保存本轮状态、证据、产物清单和运行摘要，后续可以继续补库。\n",
+            "## 推荐入口\n",
+        ]
+        if index_docs:
+            for artifact in index_docs:
+                lines.append(f"- [[{Path(artifact.content_path).stem}]] — Agent 生成的知识库导航")
+        else:
+            lines.append("- 先读下面的主文档，再沿着解释性卡片继续下钻。")
+        lines.extend(["", "## 主文档\n"])
+        for artifact in main_docs:
+            lines.append(f"- [[{Path(artifact.content_path).stem}]] — {artifact.title}")
+        lines.extend(["", "## 解释性知识卡\n"])
+        group_labels = {
+            "concepts": "概念卡",
+            "tools": "工具/框架卡",
+            "players": "玩家/角色卡",
+            "processes": "流程/机制卡",
+            "risks": "风险/边界卡",
+            "questions": "下钻问题卡",
+            "notes": "辅助笔记",
+        }
+        for folder, cards in card_groups.items():
+            lines.append(f"### {group_labels[folder]}：{len(cards)} 张\n")
+            lines.extend(self._readme_card_links(cards))
+            lines.append("")
+        lines.extend([
+            "## 证据与运行状态\n",
+            "- [[evidence-ledger]] — 本轮证据账本",
+            "- `.sectorbreaker/agent_state.json` — 可恢复/可继续的知识库状态摘要",
+            "- `.sectorbreaker/trace_summary.json` — Agent 判断、工具调用和状态更新摘要",
+            "",
+            "## 如何继续增长\n",
+            "- 如果读主文档时有不懂的术语，把问题交给 SectorBreaker，它应判断是回答、补卡、补搜还是更新已有页。",
+            "- 如果发现证据薄弱，优先补充来源并更新对应卡片，再回链到主文档。",
+            "- 如果出现新领域前置知识，可以创建新的概念卡或前置层，而不是硬塞进原来的 5 篇主文档。",
+            "",
+            "## 导出信息\n",
+            f"- 证据数量：{len(evidence)}",
+            f"- 主文档数量：{len(main_docs)}",
+            f"- 解释性/辅助卡数量：{card_count}",
+            f"- 总产物数量：{len(artifacts)}",
+            "- Manifest：[[manifest]]",
+        ])
+        readme_path = project_dir / "README.md"
+        readme_path.write_text("\n".join(lines), encoding="utf-8")
+        return "README.md"
+
+    @staticmethod
+    def _is_v2_agent_kernel_vault(artifacts: list[Artifact]) -> bool:
+        return any(artifact.schema_version.startswith("v2-agent-kernel") for artifact in artifacts)
 
     @staticmethod
     def _is_v1_vault(artifacts: list[Artifact]) -> bool:

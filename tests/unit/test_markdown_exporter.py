@@ -178,6 +178,79 @@ def test_markdown_exporter_writes_runnable_v1_vault_layout(tmp_path: Path) -> No
     assert "如何继续补库" in readme
 
 
+def test_markdown_exporter_writes_v2_agent_kernel_vault_home_with_cards(tmp_path: Path) -> None:
+    project = ResearchProject(
+        id="project-v2-kernel-vault",
+        title="API中转站",
+        domain="API中转站",
+        market_scope=MarketScope.MIXED,
+        depth=ResearchDepth.QUICK,
+    )
+    artifacts = [
+        Artifact(
+            id="ART-KERNEL-L1",
+            project_id=project.id,
+            artifact_type=ArtifactType.DOMAIN_OVERVIEW,
+            title="API 中转站：本源与需求",
+            content_path="01-API中转站-本源与需求.md",
+            content="# API 中转站：本源与需求\n\n## 小节\n\n正文",
+            source_evidence_ids=["EV-KERNEL-1"],
+            schema_version="v2-agent-kernel",
+        ),
+        Artifact(
+            id="ART-KERNEL-CARD",
+            project_id=project.id,
+            artifact_type=ArtifactType.CORE_CONCEPTS,
+            title="反向代理",
+            content_path="concepts/反向代理.md",
+            content="# 反向代理\n\n## 小节\n\n正文",
+            source_evidence_ids=["EV-KERNEL-1"],
+            schema_version="v2-agent-kernel-card",
+        ),
+        Artifact(
+            id="ART-KERNEL-INDEX",
+            project_id=project.id,
+            artifact_type=ArtifactType.EXPORT_MANIFEST,
+            title="API 中转站知识库导航",
+            content_path="00-知识库导航.md",
+            content="# API 中转站知识库导航\n\n## 推荐阅读顺序\n\n- [[01-API中转站-本源与需求]]\n- [[反向代理]]",
+            source_evidence_ids=["EV-KERNEL-1"],
+            schema_version="v2-agent-kernel-index",
+        ),
+    ]
+    evidence = [
+        EvidenceItem(
+            id="EV-KERNEL-1",
+            project_id=project.id,
+            source_title="API 中转站来源",
+            source_url="https://example.com/api-proxy",
+            source_type="web",
+            source_channel=SourceChannel.SEARCH,
+            snippet="API proxy context.",
+            source_quality=SourceQuality.MEDIUM,
+            claim_strength=ClaimStrength.FACT,
+            confidence=0.7,
+            verification_status=VerificationStatus.PARTIALLY_VERIFIED,
+        )
+    ]
+
+    manifest = MarkdownExporter(tmp_path).export_project(project, artifacts, evidence)
+
+    project_dir = tmp_path / "api中转站"
+    assert "README.md" in manifest.artifact_paths
+    assert "00-知识库导航.md" in manifest.artifact_paths
+    assert "concepts/反向代理.md" in manifest.artifact_paths
+    readme = (project_dir / "README.md").read_text(encoding="utf-8")
+    assert "领域知识库" in readme
+    assert "不是一篇一次性报告" in readme
+    assert "[[00-知识库导航]]" in readme
+    assert "[[01-API中转站-本源与需求]]" in readme
+    assert "[[反向代理]]" in readme
+    assert "解释性/辅助卡数量：1" in readme
+    state = (project_dir / ".sectorbreaker" / "agent_state.json").read_text(encoding="utf-8")
+    assert '"artifact_count": 3' in state
+
+
 def test_markdown_exporter_copies_default_obsidian_config(tmp_path: Path) -> None:
     project = ResearchProject(
         id="project-vault-config",

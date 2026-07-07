@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from backend.app.agent_kernel.models import ToolCall
 from backend.app.agent_kernel.reducer import apply_state_delta
 from backend.app.agent_kernel.tool_registry import KernelRuntimeContext
-from backend.app.agent_kernel.tools.artifacts import write_layer_document
+from backend.app.agent_kernel.tools.artifacts import write_explainer_card, write_layer_document, write_vault_index
 from backend.app.agent_kernel.tools.state import evaluate_coverage, internalize_observation, manage_state_memory, reflect_on_progress
 from backend.app.agent_state import KnowledgeClaim, SectorBreakerState, SourceMemory
 from backend.app.schemas import MarketScope, ProjectStatus, ResearchDepth, ResearchProject, SourcePolicy
@@ -73,9 +73,213 @@ def test_write_layer_document_retries_and_does_not_save_artifact_when_llm_fails(
     assert observation.success is False
     assert observation.artifact_ids == []
     assert context.artifacts == []
-    assert llm.calls == 2
-    assert observation.data["attempts"] == 2
+    assert llm.calls == 4
+    assert observation.data["attempts"] == 4
     assert "LLM 分节写作失败" in observation.summary
+
+
+def test_write_layer_document_falls_back_to_sections_after_full_document_errors() -> None:
+    class FlakyThenSectionLLM:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def complete(self, messages):
+            self.calls += 1
+            if self.calls <= 2:
+                raise ConnectionError("temporary upstream disconnect")
+            return (
+                "## 分节内容\n\n"
+                "这是一段足够长的分节内容，用来验证当完整文档写作因为上游连接失败时，writer 会继续尝试更小的分节写作，而不是直接失败。"
+                "内容包含 API 中转站的定义、证据状态、待验证问题和 Obsidian 可读结构。"
+                "EV-KERNEL-1 用于证明证据引用能够继续保留。"
+                "这一节还会解释为什么分节写作更适合不稳定的中转接口：它降低单次请求长度，让模型只处理一个小目标，"
+                "即使上游偶发断连，也能在下一节继续恢复，而不是把整篇文档直接判定失败。"
+            )
+
+        async def complete_structured(self, messages, response_schema):
+            raise AssertionError("Markdown writing must not use structured completion")
+
+    class FakeRepository:
+        def list_evidence(self, project_id):
+            return []
+
+        def list_documents(self, project_id):
+            return []
+
+        def list_artifacts(self, project_id):
+            return []
+
+        def get_evidence(self, evidence_id):
+            raise KeyError(evidence_id)
+
+    async def emit(event):
+        return None
+
+    state = SectorBreakerState.initialize(project_id="project-kernel", domain="API中转站", user_goal="建库")
+    state.evidence_refs.append("EV-KERNEL-1")
+    context = KernelRuntimeContext(
+        project=_project(),
+        repository=FakeRepository(),  # type: ignore[arg-type]
+        state=state,
+        search_provider=None,
+        llm_provider=FlakyThenSectionLLM(),  # type: ignore[arg-type]
+        emit_event=emit,
+    )
+
+    observation = asyncio.run(write_layer_document(
+        ToolCall(
+            tool_name="write_layer_document",
+            args={"layer_id": "L1_what_why", "title": "L1 本源与需求", "writing_goal": "解释是什么"},
+            reason="测试完整写作失败后分节成功。",
+        ),
+        context,
+    ))
+
+    assert observation.success is True
+    assert len(context.artifacts) == 1
+    assert context.artifacts[0].schema_version == "v2-agent-kernel"
+    assert "## 分节内容" in context.artifacts[0].content
+    assert observation.state_delta.artifact_ids == [context.artifacts[0].id]
+
+
+def test_write_explainer_card_creates_observable_knowledge_card() -> None:
+    class CardLLM:
+        async def complete(self, messages):
+            return (
+                "# 反向代理\n\n"
+                "## 一句话解释\n\n"
+                "反向代理是位于客户端和上游服务之间的代理层。在 API 中转站里，它常被用来统一入口、隐藏上游差异，并把请求转交给真正的模型服务。"
+                "这只是基于当前 State 的 partial 解释，仍需结合 EV-KERNEL-1 等证据继续验证。\n\n"
+                "## 为什么它重要\n\n"
+                "如果没有反向代理，用户通常需要直接面对不同厂商的鉴权、域名、网络连通性和计费差异。中转站把这些差异包装成一个较稳定的调用面，"
+                "让开发者先理解 [[协议转换]]、[[模型路由]] 和 [[上游供应]] 的关系。\n\n"
+                "## 它如何运作\n\n"
+                "典型链路是客户端请求先进入代理层，代理层检查 Key、额度和模型名，再把请求转发给上游模型 API。返回结果再被整理成用户期望的格式。"
+                "这里涉及请求头、路径、模型名和响应结构的适配。\n\n"
+                "## 和本领域的关系\n\n"
+                "API 中转站的价值不只在代理请求，还在统一多模型访问、做配额控制、降低接入摩擦。因此它应当和 [[API 中转站]] 主文档互相链接。\n\n"
+                "## 证据与待验证\n\n"
+                "- 当前证据来自 EV-KERNEL-1，可信度仍是 partial。\n"
+                "- 下一轮需要验证不同开源网关项目如何实现反向代理和协议适配。"
+            )
+
+        async def complete_structured(self, messages, response_schema):
+            raise AssertionError("Explainer card writing must use plain text completion")
+
+    class FakeRepository:
+        def list_evidence(self, project_id):
+            return []
+
+        def list_documents(self, project_id):
+            return []
+
+        def list_artifacts(self, project_id):
+            return []
+
+        def get_evidence(self, evidence_id):
+            raise KeyError(evidence_id)
+
+    async def emit(event):
+        return None
+
+    state = SectorBreakerState.initialize(project_id="project-kernel", domain="API中转站", user_goal="建库")
+    state.evidence_refs.append("EV-KERNEL-1")
+    context = KernelRuntimeContext(
+        project=_project(),
+        repository=FakeRepository(),  # type: ignore[arg-type]
+        state=state,
+        search_provider=None,
+        llm_provider=CardLLM(),  # type: ignore[arg-type]
+        emit_event=emit,
+    )
+
+    observation = asyncio.run(write_explainer_card(
+        ToolCall(
+            tool_name="write_explainer_card",
+            args={
+                "card_kind": "concept",
+                "title": "反向代理",
+                "focus": "解释反向代理为什么是 API 中转站的基础概念",
+                "layer_id": "L3_how",
+                "writing_goal": "给新手一张可链接的概念卡。",
+            },
+            reason="主文档发现术语盲区。",
+        ),
+        context,
+    ))
+
+    assert observation.success is True
+    assert len(context.artifacts) == 1
+    artifact = context.artifacts[0]
+    assert artifact.schema_version == "v2-agent-kernel-card"
+    assert artifact.content_path == "concepts/反向代理.md"
+    assert artifact.source_evidence_ids == ["EV-KERNEL-1"]
+    assert observation.state_delta.artifact_ids == [artifact.id]
+    assert "[[协议转换]]" in artifact.content
+
+
+def test_write_vault_index_links_main_docs_and_cards() -> None:
+    class FakeRepository:
+        def list_evidence(self, project_id):
+            return []
+
+        def list_documents(self, project_id):
+            return []
+
+        def list_artifacts(self, project_id):
+            return []
+
+    async def emit(event):
+        return None
+
+    context = KernelRuntimeContext(
+        project=_project(),
+        repository=FakeRepository(),  # type: ignore[arg-type]
+        state=SectorBreakerState.initialize(project_id="project-kernel", domain="API中转站", user_goal="建库"),
+        search_provider=None,
+        llm_provider=None,
+        emit_event=emit,
+    )
+    from backend.app.schemas import Artifact, ArtifactType
+
+    context.artifacts.extend([
+        Artifact(
+            id="ART-1",
+            project_id="project-kernel",
+            artifact_type=ArtifactType.DOMAIN_OVERVIEW,
+            title="API 中转站：本源与需求",
+            content_path="01-API中转站-本源与需求.md",
+            content="# API 中转站：本源与需求\n\n## 小节\n\n正文",
+            schema_version="v2-agent-kernel",
+            created_at=datetime.now(UTC),
+        ),
+        Artifact(
+            id="ART-CARD-1",
+            project_id="project-kernel",
+            artifact_type=ArtifactType.CORE_CONCEPTS,
+            title="反向代理",
+            content_path="concepts/反向代理.md",
+            content="# 反向代理\n\n## 小节\n\n正文",
+            schema_version="v2-agent-kernel-card",
+            created_at=datetime.now(UTC),
+        ),
+    ])
+
+    observation = asyncio.run(write_vault_index(
+        ToolCall(
+            tool_name="write_vault_index",
+            args={"title": "API 中转站知识库导航", "index_goal": "给录屏演示一个总入口。"},
+            reason="主文档和解释卡都已有，需要总入口。",
+        ),
+        context,
+    ))
+
+    assert observation.success is True
+    index_artifact = context.artifacts[-1]
+    assert index_artifact.schema_version == "v2-agent-kernel-index"
+    assert index_artifact.content_path == "00-知识库导航.md"
+    assert "[[01-API中转站-本源与需求]]" in index_artifact.content
+    assert "[[反向代理]]" in index_artifact.content
 
 
 def test_state_tools_create_drill_down_and_manage_memory() -> None:
