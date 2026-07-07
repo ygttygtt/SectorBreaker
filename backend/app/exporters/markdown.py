@@ -15,6 +15,24 @@ from pydantic import BaseModel
 from backend.app.schemas import Artifact, EvidenceItem, ResearchProject, RunEvent
 
 
+def _resolve_artifact_export_path(artifact: "Artifact", export_dir: Path) -> Path:
+    """Resolve export path: v2 main docs go to docs/, cards go to cards/.
+
+    Decision rules:
+    - Non-v2 artifacts keep their existing content_path as-is.
+    - v2 CARD artifacts (id contains 'CARD') go to cards/ subdirectory.
+    - v2 main documents go to docs/ subdirectory.
+    """
+    filename = artifact.content_path or f"{artifact.id}.md"
+    if artifact.schema_version != "v2-agent-kernel":
+        return export_dir / filename
+    if "CARD" in artifact.id or filename.startswith("cards/"):
+        clean = filename.replace("cards/", "").lstrip("/\\")
+        return export_dir / "cards" / clean
+    clean = filename.replace("docs/", "").lstrip("/\\")
+    return export_dir / "docs" / clean
+
+
 class ExportManifest(BaseModel):
     export_version: str
     project_id: str
@@ -42,13 +60,13 @@ class MarkdownExporter:
 
         artifact_paths: list[str] = []
 
-        # Write each artifact to its content_path
+        # Write each artifact to its resolved path (v2: docs/ or cards/; legacy: as-is)
         for artifact in artifacts:
-            relative_path = Path(artifact.content_path)
-            output_path = project_dir / relative_path
+            output_path = _resolve_artifact_export_path(artifact, project_dir)
+            relative_path = output_path.relative_to(project_dir)
             if output_path.exists() and output_path.is_dir():
                 output_path = output_path / "index.md"
-                relative_path = Path(relative_path) / "index.md"
+                relative_path = relative_path / "index.md"
             parent_path = output_path.parent
             if parent_path.exists() and parent_path.is_file():
                 parent_path.unlink()
