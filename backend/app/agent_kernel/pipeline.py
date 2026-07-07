@@ -101,10 +101,10 @@ def _kernel_config_for_project(project: ResearchProject) -> KernelLoopConfig:
     if env_config is not None:
         return env_config
     if project.depth.value == "deep":
-        return KernelLoopConfig(max_iterations=40, max_search_calls=16, max_writer_calls=8)
+        return KernelLoopConfig(max_iterations=56, max_search_calls=24, max_writer_calls=28)
     if project.depth.value == "standard":
-        return KernelLoopConfig(max_iterations=32, max_search_calls=12, max_writer_calls=6)
-    return KernelLoopConfig(max_iterations=24, max_search_calls=10, max_writer_calls=5)
+        return KernelLoopConfig(max_iterations=44, max_search_calls=20, max_writer_calls=22)
+    return KernelLoopConfig(max_iterations=36, max_search_calls=16, max_writer_calls=16)
 
 
 def _kernel_config_from_env() -> KernelLoopConfig | None:

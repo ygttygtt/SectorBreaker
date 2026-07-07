@@ -1,0 +1,14 @@
+{
+  "namingStrategy": "original",
+  "autoRenameOnConflict": true,
+  "assetFolderPath": "./${notename}.assets/",
+  "interceptImagePath": true,
+  "enableWikiLinkConversion": false,
+  "scanCodeBlocks": false,
+  "showRestructureTool": true,
+  "manualAttachmentFolder": "",
+  "iconImageAudit": "trash-2",
+  "iconShare": "share",
+  "iconRestructure": "folder-sync",
+  "openFolderAfterExport": false
+}

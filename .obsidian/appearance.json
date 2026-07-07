@@ -1,1 +1,15 @@
-{}
+{
+  "accentColor": "",
+  "theme": "obsidian",
+  "interfaceFontFamily": "新宋体",
+  "textFontFamily": "微软雅黑",
+  "baseFontSize": 20,
+  "baseFontSizeAction": true,
+  "nativeMenus": false,
+  "cssTheme": "",
+  "showRibbon": true,
+  "enabledCssSnippets": [
+    "image-center",
+    "hide-assets-folders"
+  ]
+}

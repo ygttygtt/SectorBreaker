@@ -1,0 +1,452 @@
+/* Typorian Image Plugin Styles */
+
+/* Orphan Image Modal */
+.orphan-status {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 24px 0;
+}
+
+.orphan-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 8px;
+}
+
+.orphan-select-all-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 0.9em;
+}
+
+.orphan-summary {
+  margin-left: auto;
+  font-size: 0.85em;
+  color: var(--text-muted);
+}
+
+.orphan-list {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.orphan-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.1s ease;
+}
+
+.orphan-item:hover {
+  background-color: var(--background-modifier-hover);
+}
+
+.orphan-checkbox {
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.orphan-thumbnail {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex-shrink: 0;
+  background: var(--background-secondary);
+}
+
+.orphan-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.orphan-path {
+  font-family: var(--font-monospace);
+  font-size: 0.9em;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orphan-size {
+  font-size: 0.85em;
+  color: var(--text-faint);
+}
+
+.orphan-locate-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.1s ease, background-color 0.1s ease;
+}
+
+.orphan-locate-btn:hover {
+  color: var(--text-normal);
+  background-color: var(--background-modifier-hover);
+}
+
+.orphan-locate-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.orphan-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.orphan-repair-btn {
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  padding: 4px 12px;
+  cursor: pointer;
+  font-size: 0.9em;
+  transition: color 0.1s ease, border-color 0.1s ease;
+}
+
+.orphan-repair-btn:hover:not(:disabled) {
+  color: var(--text-normal);
+  border-color: var(--text-muted);
+}
+
+.orphan-repair-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.orphan-refresh-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.1s ease, border-color 0.1s ease;
+}
+
+.orphan-refresh-btn:hover {
+  color: var(--text-normal);
+  border-color: var(--text-muted);
+}
+
+.orphan-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--background-modifier-border);
+  margin-top: 8px;
+}
+
+.orphan-footer-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.orphan-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Share Modal */
+.share-btn-container {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 12px;
+  border-top: 1px solid var(--background-modifier-border);
+  margin-top: 12px;
+}
+
+/* Restructure Modal */
+.restructure-warning {
+  color: var(--text-warning);
+  font-weight: 500;
+  padding: 8px 12px;
+  border-left: 3px solid var(--text-warning);
+  background: var(--background-modifier-warning);
+  border-radius: 2px;
+}
+
+.restructure-confirm-input {
+  width: 120px;
+  margin-right: 8px;
+}
+
+.restructure-warning-overwrite {
+  color: var(--text-error) !important;
+  font-weight: 600;
+}
+
+/* Make restructure modal resizable */
+.typorian-restructure-modal .modal {
+  resize: both;
+  overflow: auto;
+  min-width: 600px;
+  min-height: 400px;
+}
+
+/* Restructure Table */
+.restructure-table-container {
+  max-height: 400px;
+  overflow-y: auto;
+  margin: 8px 0;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+}
+
+.restructure-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+
+.restructure-table th {
+  position: sticky;
+  top: 0;
+  background: var(--background-secondary);
+  text-align: left;
+  padding: 6px 10px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.restructure-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.restructure-th-check,
+.restructure-td-check {
+  width: 32px;
+  text-align: center;
+}
+
+.restructure-th-note,
+.restructure-td-note {
+  width: 30%;
+  font-weight: 500;
+}
+
+.restructure-th-assets,
+.restructure-td-assets {
+  width: 50%;
+  font-family: var(--font-monospace);
+  font-size: 0.85em;
+  color: var(--text-muted);
+}
+
+.restructure-th-images,
+.restructure-td-images {
+  width: 80px;
+  text-align: center;
+}
+
+.restructure-row-empty {
+  opacity: 0.5;
+}
+
+.restructure-no-images {
+  font-size: 0.8em;
+}
+
+/* Wiki toggle in orphan modal footer — inline, no button wrapper */
+.orphan-wiki-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  font-size: 0.85em;
+  color: var(--text-muted);
+  user-select: none;
+  transition: color 0.1s ease;
+}
+
+.orphan-wiki-toggle:hover {
+  color: var(--text-normal);
+}
+
+.orphan-wiki-toggle-label {
+  white-space: nowrap;
+}
+
+.orphan-wiki-toggle-track {
+  position: relative;
+  width: 28px;
+  height: 16px;
+  background: var(--background-modifier-border);
+  border-radius: 8px;
+  transition: background-color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.orphan-wiki-toggle-track.is-on {
+  background: var(--interactive-accent);
+}
+
+.orphan-wiki-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  background: var(--text-on-accent);
+  border-radius: 50%;
+  transition: transform 0.15s ease;
+}
+
+.orphan-wiki-toggle-track.is-on .orphan-wiki-toggle-thumb {
+  transform: translateX(12px);
+}
+
+/* Icon preview in settings — absolute positioned at far left of setting row */
+.typorian-icon-preview {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  margin-right: 6px;
+  color: var(--text-muted);
+}
+
+.typorian-icon-preview svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+/* Icon dropdown — consistent width */
+.setting-item:has(.typorian-icon-preview) .setting-item-control select,
+.setting-item:has(.typorian-icon-preview) .dropdown {
+  min-width: 120px;
+  width: 120px;
+}
+
+/* Broken image links section */
+.orphan-broken-section {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+}
+
+.orphan-broken-section h4 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  color: var(--text-error);
+}
+
+.orphan-broken-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0 0 8px;
+}
+
+.orphan-broken-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.orphan-broken-link {
+  font-family: var(--font-monospace);
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.orphan-broken-line {
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  margin-left: 8px;
+}
+
+/* Wiki Converter Modal */
+.wiki-mode-group {
+  display: flex;
+  gap: 4px;
+  margin-right: 12px;
+}
+
+.wiki-mode-btn {
+  padding: 4px 12px;
+  font-size: 0.85em;
+  font-weight: 500;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--interactive-normal);
+  color: var(--text-normal);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.wiki-mode-btn:hover {
+  background: var(--interactive-hover);
+}
+
+.wiki-mode-btn.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+}
+
+/* Wiki broken items */
+.wiki-item-broken {
+  opacity: 0.7;
+}
+
+.wiki-broken-text {
+  color: var(--text-error);
+  text-decoration: line-through;
+}
+
+.wiki-broken-icon {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.orphan-checkbox-placeholder {
+  width: 18px;
+  flex-shrink: 0;
+}

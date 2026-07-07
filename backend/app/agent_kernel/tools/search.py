@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from math import ceil
 from uuid import uuid4
 
 from backend.app.agent_kernel.models import KernelObservation, KernelStateDelta, ToolSpec
@@ -32,6 +33,11 @@ def register_search_tools(registry: ToolRegistry) -> None:
             args_schema=schema(
                 {
                     "query": {"type": "string"},
+                    "queries": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional 2-4 human-style query variants for the same search goal.",
+                    },
                     "layer_hint": {"type": "string"},
                     "search_goal": {"type": "string"},
                     "max_results": {"type": "integer", "default": 8},
@@ -51,24 +57,48 @@ async def search_web(tool_call, context: KernelRuntimeContext) -> KernelObservat
             summary="搜索工具不可用：当前没有配置 SearchProvider。",
             error="search provider not configured",
         )
-    query = str(tool_call.args.get("query") or "").strip()
-    if not query:
+    queries = _query_variants(tool_call.args.get("query"), tool_call.args.get("queries"))
+    if not queries:
         return KernelObservation(
             tool_name="search_web",
             success=False,
-            summary="搜索工具调用失败：query 为空。",
+            summary="搜索工具调用失败：query/queries 为空。",
             error="empty query",
         )
     max_results = int(tool_call.args.get("max_results") or 8)
     layer_id = _layer_from_hint(tool_call.args.get("layer_hint"), context.state.current_layer_id)
     context.search_call_count += 1
-    results = await context.search_provider.search(SearchQuery(
-        query=query,
-        market_scope=context.project.market_scope.value,
-        max_results=max(1, min(max_results, 10)),
-        allowed_domains=None,
-        blocked_domains=[],
-    ))
+    total_result_budget = max(1, min(max_results, 16))
+    per_query_limit = max(3, min(8, ceil(total_result_budget / len(queries))))
+    results = []
+    query_diagnostics = []
+    seen_result_urls: set[str] = set()
+    for query in queries:
+        query_results = await context.search_provider.search(SearchQuery(
+            query=query,
+            market_scope=context.project.market_scope.value,
+            max_results=per_query_limit,
+            allowed_domains=None,
+            blocked_domains=[],
+        ))
+        accepted_for_query = 0
+        for result in query_results:
+            canonical_url = (result.url or "").strip()
+            if canonical_url and canonical_url in seen_result_urls:
+                continue
+            if canonical_url:
+                seen_result_urls.add(canonical_url)
+            results.append(result)
+            accepted_for_query += 1
+            if len(results) >= total_result_budget:
+                break
+        query_diagnostics.append({
+            "query": query,
+            "raw_result_count": len(query_results),
+            "merged_result_count": accepted_for_query,
+        })
+        if len(results) >= total_result_budget:
+            break
     existing_urls = {item.source_url for item in context.repository.list_evidence(context.project.id) if item.source_url}
     accepted = []
     rejected = 0
@@ -135,20 +165,23 @@ async def search_web(tool_call, context: KernelRuntimeContext) -> KernelObservat
         claims=claims,
         evidence_ids=evidence_ids,
         task_notes=[
-            f"search_web query={query}; raw={len(results)}; accepted={len(accepted)}; rejected={rejected}"
+            f"search_web queries={' | '.join(queries)}; raw={len(results)}; accepted={len(accepted)}; rejected={rejected}"
         ],
     )
     titles = "；".join(result.title for result in accepted[:5])
+    query_label = "；".join(queries)
     return KernelObservation(
         tool_name="search_web",
         success=bool(accepted),
         summary=(
-            f"Action Observation: 搜索「{query}」返回 {len(results)} 条，"
+            f"Action Observation: 搜索「{query_label}」返回 {len(results)} 条，"
             f"采纳 {len(accepted)} 条，去重/过滤 {rejected} 条。"
             + (f"代表来源：{titles}" if titles else "")
         ),
         data={
-            "query": query,
+            "query": queries[0],
+            "queries": queries,
+            "query_diagnostics": query_diagnostics,
             "raw_result_count": len(results),
             "accepted_count": len(accepted),
             "rejected_count": rejected,
@@ -157,6 +190,26 @@ async def search_web(tool_call, context: KernelRuntimeContext) -> KernelObservat
         state_delta=delta,
         evidence_ids=evidence_ids,
     )
+
+
+def _query_variants(query_value, queries_value) -> list[str]:
+    raw_queries = []
+    if isinstance(queries_value, list):
+        raw_queries.extend(str(item) for item in queries_value)
+    raw_query = str(query_value or "").strip()
+    if raw_query:
+        raw_queries.insert(0, raw_query)
+    seen = set()
+    queries: list[str] = []
+    for item in raw_queries:
+        cleaned = " ".join(str(item).split())
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        queries.append(cleaned)
+        if len(queries) >= 4:
+            break
+    return queries
 
 
 def _layer_from_hint(value, fallback) -> KnowledgeLayerId | None:

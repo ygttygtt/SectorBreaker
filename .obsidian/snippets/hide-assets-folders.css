@@ -1,0 +1,9 @@
+/* 隐藏侧边栏中所有以 .assets 结尾的文件夹 */
+.nav-folder-title[data-path*=".assets"] {
+    display: none !important;
+}
+
+/* 如果你也想隐藏这些文件夹里的文件（可选） */
+.nav-file-title[data-path*=".assets"] {
+    display: none !important;
+}

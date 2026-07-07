@@ -117,12 +117,12 @@ class LLMAgentPolicy:
             load_prompt("tool_decision.md"),
             load_prompt("search_strategy.md"),
             load_prompt("coverage_judge.md"),
-            "# Runtime Budget\n"
-            f"- max_iterations: {loop_config.max_iterations}\n"
-            f"- max_search_calls: {loop_config.max_search_calls}\n"
-            f"- max_writer_calls: {loop_config.max_writer_calls}\n"
+            "# Runtime Guidance (Soft, Not A Workflow Limit)\n"
+            f"- suggested_iteration_strength: {loop_config.max_iterations}\n"
+            f"- suggested_search_strength: {loop_config.max_search_calls}\n"
+            f"- suggested_writer_strength: {loop_config.max_writer_calls}\n"
             f"- max_consecutive_failed_tools: {loop_config.max_consecutive_failed_tools}\n",
-            "这些预算是搜索/思考强度提示，不是固定 workflow。你可以多调用工具，但每次都必须说明目的、缺口和预期观察；当 open_web 下已有足够 partial 证据时，应写成带待验证任务的初版，而不是无限等待 verified 来源。\n",
+            "这些数字只是搜索/思考/写作强度提示，不是固定 workflow，也不是足够性标准。不要因为 writer strength 接近某个数字就停止；是否继续写主文档、解释卡或导航页，应由 State、Artifact Memory、coverage gaps、open questions 和用户目标决定。每次工具调用都必须说明目的、缺口和预期观察；当 open_web 下已有足够 partial 证据时，应写成带待验证任务的初版，而不是无限等待 verified 来源。\n",
             "# Current State And Tools\n" + context,
             "# Required Output\n"
             "只返回一个 JSON 对象，必须符合 AgentDecision schema。"

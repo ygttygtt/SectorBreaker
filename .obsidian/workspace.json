@@ -1,50 +1,89 @@
 {
   "main": {
-    "id": "5760d70a7712fb4b",
+    "id": "29133d3ab6b193ab",
     "type": "split",
     "children": [
       {
-        "id": "bf67a4526f76c8e3",
+        "id": "c73e206cb0aeca03",
         "type": "tabs",
         "children": [
           {
-            "id": "81fd82a14a53fc68",
+            "id": "2ae08cbffaeed601",
             "type": "leaf",
             "state": {
-              "type": "empty",
-              "state": {},
+              "type": "markdown",
+              "state": {
+                "file": "05_LLMForEverybody/04-第四章-量化/10分钟理解大模型的量化.md",
+                "mode": "source",
+                "source": false,
+                "backlinks": false
+              },
               "icon": "lucide-file",
-              "title": "新标签页"
+              "title": "10分钟理解大模型的量化"
+            }
+          },
+          {
+            "id": "653e2d9ff3c8a6f9",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "02_每日复盘/26.06/2026年6月26日模块一二巩固进阶练习.md",
+                "mode": "source",
+                "source": false,
+                "backlinks": false
+              },
+              "icon": "lucide-file",
+              "title": "2026年6月26日模块一二巩固进阶练习"
+            }
+          },
+          {
+            "id": "b5e9d552e2e60439",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "04_开发留档/SectorBreaker开发留档.md",
+                "mode": "source",
+                "source": false,
+                "backlinks": false
+              },
+              "icon": "lucide-file",
+              "title": "SectorBreaker开发留档"
+            }
+          },
+          {
+            "id": "ed1b479916248c06",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "01_课堂笔记/户鹏军/05_7.02_阶段4 模块四_大模型评测与vLLM高并发部署.md",
+                "mode": "source",
+                "source": false,
+                "backlinks": false
+              },
+              "icon": "lucide-file",
+              "title": "05_7.02_阶段4 模块四_大模型评测与vLLM高并发部署"
             }
           }
-        ]
+        ],
+        "currentTab": 3
       }
     ],
     "direction": "vertical"
   },
   "left": {
-    "id": "da3cb02f8ec24c99",
+    "id": "8d63264dfc079ac6",
     "type": "split",
     "children": [
       {
-        "id": "e15992a8b6bfd218",
+        "id": "fd37830ac3a245bb",
         "type": "tabs",
+        "dimension": 66.05293440736479,
         "children": [
           {
-            "id": "170d04e23889a846",
-            "type": "leaf",
-            "state": {
-              "type": "file-explorer",
-              "state": {
-                "sortOrder": "alphabetical",
-                "autoReveal": false
-              },
-              "icon": "lucide-folder-closed",
-              "title": "文件列表"
-            }
-          },
-          {
-            "id": "80057887e8e2ed82",
+            "id": "ec25d636b0034cb6",
             "type": "leaf",
             "state": {
               "type": "search",
@@ -61,35 +100,76 @@
             }
           },
           {
-            "id": "d03abaf93178452f",
+            "id": "e1e14ea283834937",
             "type": "leaf",
             "state": {
-              "type": "bookmarks",
-              "state": {},
-              "icon": "lucide-bookmark",
-              "title": "书签"
+              "type": "outline",
+              "state": {
+                "file": "01_课堂笔记/户鹏军/05_7.02_阶段4 模块四_大模型评测与vLLM高并发部署.md",
+                "followCursor": false,
+                "showSearch": true,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "05_7.02_阶段4 模块四_大模型评测与vLLM高并发部署 的大纲"
+            }
+          }
+        ],
+        "currentTab": 1
+      },
+      {
+        "id": "910c1782b292b01a",
+        "type": "tabs",
+        "dimension": 33.94706559263521,
+        "children": [
+          {
+            "id": "5c9dac180c0b5aac",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": true
+              },
+              "icon": "lucide-folder-closed",
+              "title": "文件列表"
             }
           }
         ]
       }
     ],
     "direction": "horizontal",
-    "width": 300
+    "width": 319.5
   },
   "right": {
-    "id": "1a58ff220ad7e460",
+    "id": "67be4fbc4e24d586",
     "type": "split",
     "children": [
       {
-        "id": "89c850bc8e56c06b",
+        "id": "d8d9566fc21a0eba",
         "type": "tabs",
         "children": [
           {
-            "id": "4c8c892b06c8aefd",
+            "id": "f5483080e4bafb3f",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "01_日记/2025/25年9月/2025年9月6日.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "2025年9月6日 的出链列表"
+            }
+          },
+          {
+            "id": "3f177344740f9816",
             "type": "leaf",
             "state": {
               "type": "backlink",
               "state": {
+                "file": "01_日记/2025/25年9月/2025年9月6日.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -99,63 +179,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "反向链接"
-            }
-          },
-          {
-            "id": "bef447515a17cddb",
-            "type": "leaf",
-            "state": {
-              "type": "outgoing-link",
-              "state": {
-                "linksCollapsed": false,
-                "unlinkedCollapsed": true
-              },
-              "icon": "links-going-out",
-              "title": "出链"
-            }
-          },
-          {
-            "id": "d83caaa06da87381",
-            "type": "leaf",
-            "state": {
-              "type": "tag",
-              "state": {
-                "sortOrder": "frequency",
-                "useHierarchy": true,
-                "showSearch": false,
-                "searchQuery": ""
-              },
-              "icon": "lucide-tags",
-              "title": "标签"
-            }
-          },
-          {
-            "id": "5776ec4b884789a4",
-            "type": "leaf",
-            "state": {
-              "type": "all-properties",
-              "state": {
-                "sortOrder": "frequency",
-                "showSearch": false,
-                "searchQuery": ""
-              },
-              "icon": "lucide-archive",
-              "title": "添加笔记属性"
-            }
-          },
-          {
-            "id": "8b736d375501bc46",
-            "type": "leaf",
-            "state": {
-              "type": "outline",
-              "state": {
-                "followCursor": false,
-                "showSearch": false,
-                "searchQuery": ""
-              },
-              "icon": "lucide-list",
-              "title": "大纲"
+              "title": "2025年9月6日 的反向链接列表"
             }
           }
         ]
@@ -167,15 +191,64 @@
   },
   "left-ribbon": {
     "hiddenItems": {
+      "bases:新建数据库": false,
       "switcher:打开快速切换": false,
-      "graph:查看关系图谱": false,
-      "canvas:新建白板": false,
-      "daily-notes:打开/创建今天的日记": false,
       "templates:插入模板": false,
       "command-palette:打开命令面板": false,
-      "bases:新建数据库": false
+      "workspaces:管理工作区布局": false,
+      "typorian-image:无主图片清理": false,
+      "typorian-image:Wiki 链接转换": false,
+      "typorian-image:一键分享": false,
+      "typorian-image:附件重构": false
     }
   },
-  "active": "81fd82a14a53fc68",
-  "lastOpenFiles": []
+  "active": "ed1b479916248c06",
+  "lastOpenFiles": [
+    "01_课堂笔记/户鹏军/阶段4 模块四_大模型评测与vLLM高并发部署(3).md",
+    "01_课堂笔记/户鹏军/05_7.02_阶段4 模块四_大模型评测与vLLM高并发部署.md",
+    "03_就业笔记/本人简历/2026年7月2日初版/王天艺AIAgent工程师2年经验 本科.md",
+    "04_开发留档/SectorBreaker开发留档2.md",
+    "04_开发留档/ai搜索.md",
+    "01_课堂笔记/户鹏军/05_7.02_模块四：课堂笔记.md",
+    "04_开发留档/SectorBreaker开发留档2.md.tmp.22904.b506acc6b234",
+    "04_开发留档/SectorBreaker开发留档2.md.tmp.22904.dffc638ca3b2",
+    "04_开发留档/SectorBreaker开发留档2.md.tmp.22904.98295be471c5",
+    "01_课堂笔记/户鹏军/04_7.01_AI芯源-AI大模型开发面试宝典V20260528.pdf",
+    "01_课堂笔记/邢鹏辉/AI大模型开发—50之综合实战.md",
+    "04_开发留档/SectorBreaker开发留档.md",
+    "04_开发留档/ObsidianPlugin_TyporianImage.md",
+    "02_每日复盘/26.07/2026年7月4日.md",
+    "01_课堂笔记/户鹏军/01_langgraph-第4章：AUTPGPT与BABYAGI课堂小结.md",
+    "01_课堂笔记/户鹏军/01_langgraph-第3章：循环控制与综合案例.md",
+    "01_课堂笔记/户鹏军/01_langgraph-第1&2章：高级状态管理与条件分支实战.md",
+    "02_每日复盘/26.07/2026年7月1日大模型破限.md",
+    "01_课堂笔记/户鹏军/04_6.29_模块三_高效微调.md",
+    "03_就业笔记/简历范例/Java简历2/马飞扬-java后端工程师-专科-三年.pdf",
+    "03_就业笔记/简历范例/Java简历2/韩栋梁应届.pdf",
+    "03_就业笔记/简历范例/Java简历2/陈恒臻-Java开发-1年-本科.pdf",
+    "03_就业笔记/简历范例/Java简历2/陈怡杰-Java开发-3年-本科.pdf",
+    "03_就业笔记/简历范例/Java简历2/赵天凡+Java开发工程师+3年+专科.pdf",
+    "03_就业笔记/简历范例/Java简历2/边甲林-java开发工程师-2年-本科.pdf",
+    "01_课堂笔记/户鹏军/04_7.01_模块三_课后实践题_微调与强化学习.md",
+    "01_课堂笔记/户鹏军/04_7.01_模块三_高效微调-笔记 - 03.md",
+    "03_就业笔记/本人简历/2026年7月2日初版/王天艺AIAgent工程师2年经验 本科.assets/王天艺.jpg",
+    "03_就业笔记/2026年7月2日.md",
+    "03_就业笔记/2026年6月12日.md",
+    "03_就业笔记/2026年4月27日.md",
+    "02_每日复盘/26.06/2026年6月26日模块一二巩固进阶练习.md",
+    "01_课堂笔记/户鹏军/未命名.md",
+    "02_每日复盘/26.07/2026年7月2日大语言模型晨考.md",
+    "02_每日复盘/26.07/2026年7月2日大模型微调.md",
+    "02_每日复盘/26.06/2026年6月23日大模型部署优化核心教程.md",
+    "01_课堂笔记/邢鹏辉/机器学习综合练习.assets/1778579511438.png",
+    "01_课堂笔记/邢鹏辉/机器学习综合练习.assets/1778567470771.png",
+    "01_课堂笔记/邢鹏辉/AI大模型开发之44ClaudeCode和TinyLLM一.assets/1779850764480.png",
+    "01_课堂笔记/邢鹏辉/AI大模型开发之44ClaudeCode和TinyLLM一.assets/1779845872036.png",
+    "01_课堂笔记/邢鹏辉/AI大模型开发之44ClaudeCode和TinyLLM一.assets/1779845615324.png",
+    "01_课堂笔记/邢鹏辉/AI大模型开发之44ClaudeCode和TinyLLM一.assets/1779845233690.png",
+    "01_课堂笔记/邢鹏辉/AI大模型开发之44ClaudeCode和TinyLLM一.assets/1779844975658.png",
+    "01_课堂笔记/邢鹏辉/AI大模型开发之43Transformer三.assets/1779780447003.png",
+    "01_课堂笔记/邢鹏辉/AI大模型开发之43Transformer三.assets/1779780188562.png",
+    "未命名.canvas"
+  ]
 }

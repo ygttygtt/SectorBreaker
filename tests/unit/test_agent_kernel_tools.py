@@ -5,8 +5,10 @@ from backend.app.agent_kernel.models import ToolCall
 from backend.app.agent_kernel.reducer import apply_state_delta
 from backend.app.agent_kernel.tool_registry import KernelRuntimeContext
 from backend.app.agent_kernel.tools.artifacts import write_explainer_card, write_layer_document, write_vault_index
+from backend.app.agent_kernel.tools.search import search_web
 from backend.app.agent_kernel.tools.state import evaluate_coverage, internalize_observation, manage_state_memory, reflect_on_progress
 from backend.app.agent_state import KnowledgeClaim, SectorBreakerState, SourceMemory
+from backend.app.providers.interfaces import SearchResult
 from backend.app.schemas import MarketScope, ProjectStatus, ResearchDepth, ResearchProject, SourcePolicy
 
 
@@ -76,6 +78,78 @@ def test_write_layer_document_retries_and_does_not_save_artifact_when_llm_fails(
     assert llm.calls == 4
     assert observation.data["attempts"] == 4
     assert "LLM 分节写作失败" in observation.summary
+
+
+def test_search_web_supports_human_query_variants() -> None:
+    class FakeSearchProvider:
+        def __init__(self) -> None:
+            self.queries = []
+
+        async def search(self, query):
+            self.queries.append((query.query, query.max_results))
+            return [
+                SearchResult(
+                    title=f"{query.query} result",
+                    url=f"https://example.com/{len(self.queries)}",
+                    snippet=f"{query.query} snippet",
+                )
+            ]
+
+    class FakeRepository:
+        def __init__(self) -> None:
+            self.evidence = []
+
+        def list_evidence(self, project_id):
+            return self.evidence
+
+        def add_evidence(self, evidence):
+            self.evidence.append(evidence)
+
+        def list_documents(self, project_id):
+            return []
+
+        def list_artifacts(self, project_id):
+            return []
+
+    async def emit(event):
+        return None
+
+    search_provider = FakeSearchProvider()
+    repository = FakeRepository()
+    context = KernelRuntimeContext(
+        project=_project(),
+        repository=repository,  # type: ignore[arg-type]
+        state=SectorBreakerState.initialize(project_id="project-kernel", domain="API中转站", user_goal="建库"),
+        search_provider=search_provider,  # type: ignore[arg-type]
+        llm_provider=None,
+        emit_event=emit,
+    )
+
+    observation = asyncio.run(search_web(
+        ToolCall(
+            tool_name="search_web",
+            args={
+                "query": "API 中转站 原理",
+                "queries": ["API 中转站 原理", "API 中转站 One API New API", "AI API relay protocol conversion"],
+                "layer_hint": "L3_how",
+                "search_goal": "找到实现机制和常见工具。",
+                "max_results": 9,
+            },
+            reason="用真人式 query variants 覆盖同一缺口。",
+        ),
+        context,
+    ))
+
+    assert observation.success is True
+    assert [item[0] for item in search_provider.queries] == [
+        "API 中转站 原理",
+        "API 中转站 One API New API",
+        "AI API relay protocol conversion",
+    ]
+    assert all(limit == 3 for _, limit in search_provider.queries)
+    assert observation.data["queries"] == [item[0] for item in search_provider.queries]
+    assert len(observation.state_delta.source_memories) == 3
+    assert len(repository.evidence) == 3
 
 
 def test_write_layer_document_falls_back_to_sections_after_full_document_errors() -> None:

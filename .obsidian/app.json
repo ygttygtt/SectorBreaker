@@ -1,1 +1,18 @@
-{}
+{
+  "attachmentFolderPath": "./附件",
+  "newFileLocation": "current",
+  "focusNewTab": false,
+  "promptDelete": false,
+  "readableLineLength": false,
+  "rightToLeft": false,
+  "showLineNumber": false,
+  "alwaysUpdateLinks": true,
+  "trashOption": "system",
+  "showUnsupportedFiles": false,
+  "livePreview": true,
+  "useMarkdownLinks": false,
+  "userIgnoreFilters": [
+    ".*\\.assets$"
+  ],
+  "newLinkFormat": "relative"
+}
