@@ -93,6 +93,7 @@ class KnowledgeLayer(BaseModel):
     completion_criteria: list[str] = Field(default_factory=list)
     required_evidence_types: list[str] = Field(default_factory=list)
     card_titles: list[str] = Field(default_factory=list)
+    is_universal_anchor: bool = False
     open_question_ids: list[str] = Field(default_factory=list)
     drill_down_task_ids: list[str] = Field(default_factory=list)
     coverage_status: CoverageStatus = CoverageStatus.NOT_STARTED
@@ -136,6 +137,7 @@ class KnowledgeSchema(BaseModel):
                 guiding_questions=["它是什么？", "为什么会产生这个需求？", "它解决谁的什么痛点？"],
                 completion_criteria=["能用小白能懂的语言说明领域边界和存在理由。"],
                 required_evidence_types=["overview", "official_or_report", "example"],
+                is_universal_anchor=True,
             ),
             KnowledgeLayer(
                 id=KnowledgeLayerId.WHO,
@@ -144,6 +146,7 @@ class KnowledgeSchema(BaseModel):
                 guiding_questions=["谁在用？", "谁在提供？", "主流玩家是谁？", "关键资源掌握在谁手里？"],
                 completion_criteria=["能列出主要角色并说明它们之间的关系。"],
                 required_evidence_types=["player", "case", "community_or_company"],
+                is_universal_anchor=True,
             ),
             KnowledgeLayer(
                 id=KnowledgeLayerId.HOW,
@@ -152,6 +155,7 @@ class KnowledgeSchema(BaseModel):
                 guiding_questions=["它怎么实现？", "需要什么工具/框架/资源？", "发现黑话时是否需要继续下钻？"],
                 completion_criteria=["能说明关键流程，并把未知术语转成可继续追问的任务。"],
                 required_evidence_types=["technical_doc", "tutorial", "implementation_case"],
+                is_universal_anchor=True,
             ),
             KnowledgeLayer(
                 id=KnowledgeLayerId.MONEY,

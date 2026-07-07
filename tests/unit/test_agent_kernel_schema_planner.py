@@ -50,7 +50,7 @@ def test_build_adaptive_schema_uses_llm_planned_layers() -> None:
         llm_provider=FakeLLM(),  # type: ignore[arg-type]
     ))
 
-    assert schema.strategy == "llm_adaptive_practical_cognition"
+    assert schema.strategy == "universal_anchors_with_llm_extensions"
     assert schema.layer("technical_protocols") is not None
     assert schema.layer("technical_protocols").priority_weight == 2.2
     assert "技术实现" in schema.generated_reason
@@ -66,4 +66,50 @@ def test_build_adaptive_schema_falls_back_without_llm() -> None:
     ))
 
     assert schema.layer("L1_what_why") is not None
-    assert "fallback" in schema.generated_reason
+    assert "universal anchors" in schema.generated_reason
+
+
+# ── Task 2: Universal anchor tests ────────────────────────────────────────
+
+from backend.app.agent_state.universal_anchors import UNIVERSAL_ANCHOR_IDS, build_universal_anchors
+
+
+def test_universal_anchors_are_marked() -> None:
+    anchors = build_universal_anchors("test-domain")
+    assert len(anchors) == 3
+    for anchor in anchors:
+        assert anchor.is_universal_anchor is True
+
+
+def test_schema_without_llm_contains_universal_anchors() -> None:
+    schema = asyncio.run(build_adaptive_schema(
+        domain="open-source-toolchain",
+        user_goal="build knowledge base",
+        market_scope="mixed",
+        source_policy="reliable_first",
+        llm_provider=None,
+    ))
+    layer_ids = {
+        (layer.id.value if hasattr(layer.id, "value") else str(layer.id))
+        for layer in schema.layers
+    }
+    assert UNIVERSAL_ANCHOR_IDS.issubset(layer_ids), (
+        f"Missing universal anchors: {UNIVERSAL_ANCHOR_IDS - layer_ids}"
+    )
+    anchor_layers = [layer for layer in schema.layers if layer.is_universal_anchor]
+    assert len(anchor_layers) == 3
+
+
+def test_schema_without_llm_anchors_appear_first() -> None:
+    schema = asyncio.run(build_adaptive_schema(
+        domain="industry-saas",
+        user_goal="build knowledge base",
+        market_scope="china",
+        source_policy="open_web",
+        llm_provider=None,
+    ))
+    first_three_ids = {
+        (layer.id.value if hasattr(layer.id, "value") else str(layer.id))
+        for layer in schema.layers[:3]
+    }
+    assert UNIVERSAL_ANCHOR_IDS.issubset(first_three_ids)
