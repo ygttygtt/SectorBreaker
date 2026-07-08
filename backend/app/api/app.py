@@ -848,7 +848,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="project not found") from exc
         if project.project_mode != ProjectMode.DOMAIN_KNOWLEDGE:
             raise HTTPException(status_code=400, detail="continue only supported for domain_knowledge mode")
-        resumed_state = repository.load_run_state_checkpoint(run_id=project_id)
+        resumed_state = repository.load_latest_resumable_project_checkpoint(project_id=project_id)
         if resumed_state is None:
             raise HTTPException(
                 status_code=404,

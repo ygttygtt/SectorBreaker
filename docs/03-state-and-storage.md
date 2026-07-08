@@ -132,6 +132,38 @@ reflections. `ContextPackBuilder` must filter hidden, inactive, rejected, and
 superseded memories before prompt construction. Adaptive schemas may use string
 layer ids in addition to the original L0-L5 enum ids.
 
+## V2 Agent Kernel Checkpoints
+
+V2.0 persists `SectorBreakerState` snapshots in SQLite
+`run_state_checkpoints` so a finished knowledge base can be reopened and
+expanded by a later Agent Kernel run.
+
+Checkpoint fields:
+
+- `id`
+- `run_id`
+- `project_id`
+- `state_json`
+- `checkpoint_type`
+- `artifact_id`
+- `iteration`
+- `created_at`
+
+Continuation must be project-scoped, not only run-scoped. A normal first run may
+save checkpoints under `run_id=project_id`, while later `/continue` runs save
+under their own run ids. The default continuation query must therefore load the
+latest resumable checkpoint by `project_id`.
+
+Resumable checkpoint types:
+
+- `artifact_write`: state captured after a successful artifact write.
+- `run_end_completed`: state captured after a completed Kernel run.
+
+Diagnostic checkpoint type:
+
+- `run_end`: state captured after a non-completed Kernel run. It is useful for
+  debugging but must not be the default source for `/continue`.
+
 ## Source Policy
 
 `source_policy` values:

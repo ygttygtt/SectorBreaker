@@ -74,3 +74,59 @@ def test_save_multiple_checkpoints_load_returns_latest(repo: SQLiteRepository) -
     loaded = repo.load_run_state_checkpoint(run_id="run-002")
     assert loaded is not None
     assert len(loaded.evidence_refs) == 3
+
+
+def test_load_latest_resumable_project_checkpoint_uses_continue_run_state(repo: SQLiteRepository) -> None:
+    initial_state = _make_state()
+    initial_state.evidence_refs = ["EV-INITIAL"]
+    repo.save_run_state_checkpoint(
+        run_id="proj-test",
+        project_id="proj-test",
+        state=initial_state,
+        checkpoint_type="run_end_completed",
+        iteration=4,
+    )
+
+    continued_state = _make_state()
+    continued_state.evidence_refs = ["EV-INITIAL", "EV-CONTINUE"]
+    repo.save_run_state_checkpoint(
+        run_id="run-continue-001",
+        project_id="proj-test",
+        state=continued_state,
+        checkpoint_type="artifact_write",
+        artifact_id="ART-CONTINUE",
+        iteration=2,
+    )
+
+    loaded = repo.load_latest_resumable_project_checkpoint(project_id="proj-test")
+
+    assert loaded is not None
+    assert loaded.evidence_refs == ["EV-INITIAL", "EV-CONTINUE"]
+
+
+def test_load_latest_resumable_project_checkpoint_ignores_failed_run_end(repo: SQLiteRepository) -> None:
+    good_state = _make_state()
+    good_state.evidence_refs = ["EV-GOOD"]
+    repo.save_run_state_checkpoint(
+        run_id="run-good",
+        project_id="proj-test",
+        state=good_state,
+        checkpoint_type="artifact_write",
+        artifact_id="ART-GOOD",
+        iteration=3,
+    )
+
+    failed_state = _make_state()
+    failed_state.evidence_refs = ["EV-FAILED"]
+    repo.save_run_state_checkpoint(
+        run_id="run-failed",
+        project_id="proj-test",
+        state=failed_state,
+        checkpoint_type="run_end",
+        iteration=9,
+    )
+
+    loaded = repo.load_latest_resumable_project_checkpoint(project_id="proj-test")
+
+    assert loaded is not None
+    assert loaded.evidence_refs == ["EV-GOOD"]

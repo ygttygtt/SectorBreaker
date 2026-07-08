@@ -67,6 +67,8 @@ The latest completed implementation milestone is:
 - V2 debugging retrospective is now `docs/19-agent-kernel-debugging-retrospective.md`. It is required reading because it documents the exact failure chain that caused repeated template output: old workflow leakage, fake Agent naming without real control, Markdown routed through JSON parsing, fallback artifacts hiding failure, frontend graph drift, and fake-test overconfidence.
 - Version isolation governance is now `docs/20-version-isolation-and-cutover-rules.md`. It is required reading before changing Agent entrypoints, product-mode routing, workflow definitions, or anything that could make archived workflow code reachable again. New architecture work must isolate or delete old executable paths first; runtime guards are smoke alarms only.
 - Living knowledge-base roadmap is now `docs/21-living-knowledge-base-roadmap.md`. It captures the product distinction from one-shot Deep Search reports: structured retention, evidence continuity, Obsidian links, and human-in-the-loop vault growth. The first real growth loop is implemented: follow-up RAG answers are persisted as `followups/*.md` artifacts and exported with `.sectorbreaker/` state. Full visual reopen/resume remains future work.
+- Current code reality is V2.0 Agent Kernel for personal `domain_knowledge`, not the older V1.6 workflow stage. V2.0 includes persisted `SectorBreakerState` checkpoints, universal anchor layers, `docs/` + `cards/` vault structure, `revise_layer_document`, and `POST /api/projects/{project_id}/continue`.
+- Latest V2.0 checkpoint fix: continuation now loads the latest resumable checkpoint by `project_id`, so a second or later `/continue` run resumes from the previous follow-up run instead of the original first-run checkpoint. Non-completed `run_end` checkpoints are diagnostic only; default continuation uses `artifact_write` or `run_end_completed`.
 - The frontend now exposes a mode selector and multi-provider search settings (Tavily recommended, Serper/Brave/Exa visible). It also carries explicit guardrails: do not scrape login-gated job boards by default; use uploads and configured search providers first.
 - Backend: FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + explainable agent selection traces.
 - Frontend: Vite + React + TypeScript explainable research workbench with real workflow graph, vertical layout, and active-node centering.
@@ -197,6 +199,18 @@ Expected result: compile passes, Agent Kernel/State suite reports 15 passed,
 version isolation passes, and the workflow-definition API test passes with the
 known TestClient warning. A slower API trio was interrupted after hanging
 locally; do not treat it as passed.
+
+Latest V2.0 checkpoint/continue verification:
+
+```bash
+python -m pytest tests/unit/test_run_state_checkpoint.py tests/api/test_app.py::test_api_continue_uses_latest_project_checkpoint_after_previous_continue tests/unit/test_agent_kernel_runtime.py tests/unit/test_agent_kernel_tools.py tests/unit/test_markdown_exporter.py tests/unit/test_agent_kernel_schema_planner.py -q
+python tools/check_version_isolation.py
+cd frontend && npm test -- --run App.test.tsx
+```
+
+Expected result: focused backend suite reports 27 passed with the known
+Starlette/TestClient warning, version isolation passes, and frontend App suite
+reports 19 passed.
 
 ## Local Run
 

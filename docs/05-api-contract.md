@@ -29,12 +29,31 @@ workflow definition. Patch/update remains a contract target.
 ### Runs
 
 - `POST /api/projects/{project_id}/runs`: start a research run.
+- `POST /api/projects/{project_id}/continue`: start a follow-up Agent Kernel run from the latest project checkpoint.
 - `GET /api/runs/{run_id}`: get run status.
 - `POST /api/runs/{run_id}/resume`: resume after human review.
 - `GET /api/runs/{run_id}/events`: stream run events with SSE.
 - `GET /api/runs/{run_id}/workflow-definition`: returns the run graph. Runs with a stored Supervisor plan return the expanded legacy Supervisor graph; personal Agent Kernel runs without a Supervisor plan return the Agent Kernel graph.
 
 Current implementation creates a background run, pauses for Supervisor plan confirmation unless `auto_run=true`, supports resume, and streams SSE node events. The `auto_run=true` personal path uses the V2 Agent Kernel loop and must not import archived legacy pipelines.
+
+`POST /api/projects/{project_id}/continue` is supported for
+`project_mode="domain_knowledge"` only. It loads the latest resumable
+`SectorBreakerState` checkpoint by `project_id`, creates a new run, and re-enters
+the V2 Agent Kernel with `resume_state`. It must not look up only
+`run_id=project_id`, because previous continue runs save checkpoints under their
+own run ids. The response shape is:
+
+```json
+{
+  "run_id": "...",
+  "status": "started",
+  "resumed_from_checkpoint": true
+}
+```
+
+If no resumable checkpoint exists, the endpoint returns 404. Failed/diagnostic
+checkpoints are not valid default continuation sources.
 
 ### Evidence And Artifacts
 

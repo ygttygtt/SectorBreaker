@@ -6,9 +6,11 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from backend.app.agent_state.models import SectorBreakerState
 from backend.app.api.app import create_app
 from backend.app.providers.fakes import FakeContentExtractionProvider, FakeLLMProvider, FakeSearchProvider
 from backend.app.providers.interfaces import JobPostingSource, JobSourceQuery, JobSourceStatus
+from backend.app.storage.sqlite import SQLiteRepository
 
 
 def _docx_bytes(paragraphs: list[str]) -> bytes:
@@ -1894,6 +1896,70 @@ def test_api_run_auto_includes_uploaded_assistant_brief_documents(tmp_path: Path
     evidence_response = client.get(f"/api/projects/{project_id}/evidence")
 
     assert any(item["source_type"] == "assistant_brief" for item in evidence_response.json())
+
+
+def test_api_continue_uses_latest_project_checkpoint_after_previous_continue(tmp_path: Path) -> None:
+    database_path = tmp_path / "sectorbreaker.sqlite3"
+    client = TestClient(
+        create_app(
+            database_path=database_path,
+            export_root=tmp_path / "exports",
+            llm_provider=_default_fake_llm(),
+        )
+    )
+    project_id = client.post(
+        "/api/projects",
+        json={
+            "title": "Continue Checkpoint",
+            "domain": "可持续补库",
+            "market_scope": "mixed",
+            "depth": "quick",
+            "project_mode": "domain_knowledge",
+        },
+    ).json()["id"]
+    repo = SQLiteRepository(database_path)
+
+    first_state = SectorBreakerState.initialize(
+        project_id=project_id,
+        domain="可持续补库",
+        user_goal="build knowledge base",
+    )
+    first_state.evidence_refs = ["EV-FIRST"]
+    repo.save_run_state_checkpoint(
+        run_id=project_id,
+        project_id=project_id,
+        state=first_state,
+        checkpoint_type="run_end_completed",
+        iteration=4,
+    )
+
+    continued_state = SectorBreakerState.initialize(
+        project_id=project_id,
+        domain="可持续补库",
+        user_goal="build knowledge base",
+    )
+    continued_state.evidence_refs = ["EV-FIRST", "EV-CONTINUED"]
+    repo.save_run_state_checkpoint(
+        run_id="run-from-previous-continue",
+        project_id=project_id,
+        state=continued_state,
+        checkpoint_type="artifact_write",
+        artifact_id="ART-CONTINUED",
+        iteration=2,
+    )
+
+    response = client.post(f"/api/projects/{project_id}/continue")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "started"
+    assert payload["resumed_from_checkpoint"] is True
+    events = repo.list_run_events(payload["run_id"])
+    assert any(
+        "2 evidence refs" in event["message"]
+        for event in [event.model_dump(mode="json") for event in events]
+        if event["gate"] == "initialize_state"
+    )
 
 
 def test_api_exposes_source_registry_status(tmp_path: Path) -> None:

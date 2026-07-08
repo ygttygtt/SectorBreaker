@@ -669,3 +669,21 @@ class SQLiteRepository:
         if row is None:
             return None
         return SectorBreakerState.model_validate_json(row[0])
+
+    def load_latest_resumable_project_checkpoint(self, *, project_id: str) -> "SectorBreakerState | None":  # type: ignore[name-defined]
+        """Load the newest project checkpoint that is safe to use for continuation."""
+        from backend.app.agent_state.models import SectorBreakerState
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT state_json FROM run_state_checkpoints
+                WHERE project_id = ?
+                  AND checkpoint_type IN ('artifact_write', 'run_end_completed')
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (project_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return SectorBreakerState.model_validate_json(row[0])

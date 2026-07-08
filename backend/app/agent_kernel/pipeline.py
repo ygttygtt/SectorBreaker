@@ -131,13 +131,18 @@ async def run_v2_agent_kernel_pipeline(
     )
     result = await runtime.run(runtime_context)
 
-    # Save final checkpoint regardless of outcome
+    # Save final state for either continuation or diagnostics.
+    final_checkpoint_type = (
+        "run_end_completed"
+        if result.status == KernelRunStatus.COMPLETED
+        else "run_end"
+    )
     try:
         repository.save_run_state_checkpoint(
             run_id=_run_id,
             project_id=project.id,
             state=runtime_context.state,
-            checkpoint_type="run_end",
+            checkpoint_type=final_checkpoint_type,
             iteration=result.iterations,
         )
     except Exception:

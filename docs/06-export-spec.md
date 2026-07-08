@@ -152,25 +152,43 @@ status: "draft"
 Recommended V2 vault layout:
 
 ```text
-00-知识库首页.md
-01-L1-本源与需求.md
-02-L2-角色与玩家.md
-03-L3-原理与实操.md
-04-L4-商业与激励.md
-05-L5-风险与边界.md
-90-Agent运行日志.md
-99-待验证问题与补库任务.md
-concepts/
-players/
-tools/
-risks/
-_sources/evidence-ledger.md
+README.md
+docs/
+  01-本源与边界.md
+  02-参与者生态.md
+  03-运行机制.md
+  ...
+cards/
+  concept-*.md
+  tool-*.md
+  player-*.md
+  risk-*.md
+  question-*.md
+sources/
+  evidence-ledger.md
+.obsidian/
+.sectorbreaker/
+  project.json
+  agent_state.json
+  evidence_ledger.json
+  trace_summary.json
+  artifact_manifest.json
+  open_questions.json
 manifest.json
 ```
 
 The Agent may create fewer or more files depending on State, but any completed
 run must contain non-template Markdown, evidence metadata, and enough trace
 events for the user to understand why each artifact was written.
+
+V2.0 uses a two-tier document structure:
+
+- main layer documents written by `write_layer_document` are exported under
+  `docs/`;
+- auxiliary explainers written by `write_explainer_card` are exported under
+  `cards/`;
+- `write_vault_index` may create a navigation artifact that links the main
+  documents, cards, evidence ledger, and open questions.
 
 Exporter behavior for V2 artifacts:
 
