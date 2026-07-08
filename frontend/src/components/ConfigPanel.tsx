@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { Settings, Eye, EyeOff, Loader2, CheckCircle2, XCircle, Search, Globe, ShieldCheck } from "lucide-react";
-import { api, type SearchConfigStatus, type SearchTestResult, type SourceRegistryStatus } from "../api/client";
+import { Settings, Eye, EyeOff, Loader2, CheckCircle2, XCircle, Search, Globe, ShieldCheck, Plus, Save, Trash2, KeyRound } from "lucide-react";
+import { api, type LLMPreset, type SearchConfigStatus, type SearchTestResult, type SourceRegistryStatus } from "../api/client";
 
 interface ConfigPanelProps {
   isOpen: boolean;
@@ -14,9 +14,17 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
+  const [maxTokens, setMaxTokens] = useState(4096);
+  const [presetName, setPresetName] = useState("");
+  const [presetNotes, setPresetNotes] = useState("");
+  const [selectedPresetId, setSelectedPresetId] = useState("");
+  const [llmPresets, setLlmPresets] = useState<LLMPreset[]>([]);
   const [showApiKey, setShowApiKey] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingPreset, setIsSavingPreset] = useState(false);
+  const [isApplyingPreset, setIsApplyingPreset] = useState(false);
+  const [isDeletingPreset, setIsDeletingPreset] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [configStatus, setConfigStatus] = useState<{ configured: boolean; base_url?: string; model?: string } | null>(null);
   const [searchStatus, setSearchStatus] = useState<SearchConfigStatus | null>(null);
@@ -42,6 +50,7 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
   useEffect(() => {
     if (isOpen) {
       fetchConfigStatus();
+      fetchLlmPresets();
       fetchSearchStatus();
       fetchSourceRegistryStatus();
     }
@@ -54,10 +63,44 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
       if (status.configured) {
         setBaseUrl(status.base_url || "");
         setModel(status.model || "");
+        setMaxTokens(status.max_tokens || 4096);
       }
     } catch (err) {
       console.error("Failed to fetch config status:", err);
     }
+  }
+
+  async function fetchLlmPresets() {
+    try {
+      const result = await api.listLLMPresets();
+      setLlmPresets(result.presets);
+      if (!selectedPresetId && result.presets.length > 0) {
+        setSelectedPresetId(result.presets[0].id);
+      }
+    } catch (err) {
+      console.error("Failed to fetch LLM presets:", err);
+    }
+  }
+
+  function applyPresetToForm(presetId: string) {
+    setSelectedPresetId(presetId);
+    const preset = llmPresets.find((item) => item.id === presetId);
+    if (!preset) return;
+    setPresetName(preset.name);
+    setBaseUrl(preset.base_url || "");
+    setModel(preset.model || "");
+    setMaxTokens(preset.max_tokens || 4096);
+    setPresetNotes(preset.notes || "");
+    setApiKey("");
+  }
+
+  function presetIdFromName(name: string) {
+    const slug = name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    return slug || `preset-${Date.now()}`;
   }
 
   async function fetchSearchStatus() {
@@ -94,13 +137,7 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
     setTestResult(null);
 
     try {
-      const response = await fetch("/api/config/llm/test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ base_url: baseUrl, api_key: apiKey, model }),
-      });
-
-      const result = await response.json();
+      const result = await api.testLLMConnection({ base_url: baseUrl, api_key: apiKey, model, max_tokens: maxTokens });
       setTestResult(result);
     } catch (err) {
       setTestResult({ success: false, message: "请求失败，请检查网络连接" });
@@ -118,23 +155,83 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
     setIsSaving(true);
 
     try {
-      const response = await fetch("/api/config/llm", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ base_url: baseUrl, api_key: apiKey, model }),
-      });
-
-      if (response.ok) {
-        onSuccess("LLM 配置已保存");
-        onClose();
-      } else {
-        const error = await response.json();
-        onError(error.detail || "保存失败");
-      }
+      await api.updateLLMConfig({ base_url: baseUrl, api_key: apiKey, model, max_tokens: maxTokens });
+      onSuccess("LLM 配置已保存");
+      onConfigChanged?.();
     } catch (err) {
-      onError("请求失败，请检查网络连接");
+      onError(err instanceof Error ? err.message : "请求失败，请检查网络连接");
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function handleApplyPreset() {
+    if (!selectedPresetId) {
+      onError("请先选择一个预设");
+      return;
+    }
+    setIsApplyingPreset(true);
+    try {
+      const result = await api.applyLLMPreset(selectedPresetId, { api_key: apiKey || undefined });
+      await fetchConfigStatus();
+      await fetchLlmPresets();
+      onConfigChanged?.();
+      onSuccess(result.message || "LLM 预设已应用");
+      setTestResult({ success: true, message: result.message || "LLM 预设已应用" });
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "应用预设失败，请确认 Base URL、API Key 和模型名已填写");
+    } finally {
+      setIsApplyingPreset(false);
+    }
+  }
+
+  async function handleSavePreset() {
+    const name = presetName.trim() || model.trim() || "自定义预设";
+    const presetId = selectedPresetId && !llmPresets.find((item) => item.id === selectedPresetId)?.is_builtin
+      ? selectedPresetId
+      : presetIdFromName(name);
+    if (!baseUrl || !model) {
+      onError("请至少填写 Base URL 和 Model 后再保存预设");
+      return;
+    }
+    setIsSavingPreset(true);
+    try {
+      await api.upsertLLMPreset(presetId, {
+        name,
+        base_url: baseUrl,
+        api_key: apiKey || undefined,
+        model,
+        max_tokens: maxTokens,
+        notes: presetNotes || undefined,
+      });
+      await fetchLlmPresets();
+      setSelectedPresetId(presetId);
+      onSuccess("LLM 预设已保存到本地");
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "保存 LLM 预设失败");
+    } finally {
+      setIsSavingPreset(false);
+    }
+  }
+
+  async function handleDeletePreset() {
+    const preset = llmPresets.find((item) => item.id === selectedPresetId);
+    if (!preset || preset.is_builtin) {
+      onError("内置预设不能删除");
+      return;
+    }
+    setIsDeletingPreset(true);
+    try {
+      await api.deleteLLMPreset(preset.id);
+      await fetchLlmPresets();
+      setSelectedPresetId("");
+      setPresetName("");
+      setPresetNotes("");
+      onSuccess("LLM 预设已删除");
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "删除 LLM 预设失败");
+    } finally {
+      setIsDeletingPreset(false);
     }
   }
 
@@ -219,7 +316,7 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
 
   return (
     <div className="modal-overlay">
-      <div className="modal-content">
+      <div className="modal-content config-modal">
         <div className="modal-header">
           <div className="modal-title">
             <Settings size={20} />
@@ -240,53 +337,160 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
 
           <div className="config-section">
             <div className="config-section-title">
-              <Settings size={16} />
-              <span>LLM 配置</span>
+              <KeyRound size={16} />
+              <span>LLM 预设</span>
             </div>
 
-            <div className="form-group">
-              <label htmlFor="baseUrl">Base URL *</label>
-              <input
-                id="baseUrl"
-                type="text"
-                value={baseUrl}
-                onChange={(e) => setBaseUrl(e.target.value)}
-                placeholder="https://api.openai.com/v1"
-              />
-              <span className="form-hint">OpenAI 兼容的 API 地址</span>
+            <div className="settings-grid">
+              <div className="settings-card">
+                <div className="form-group">
+                  <label htmlFor="llmPresetSelect">选择预设</label>
+                  <select
+                    id="llmPresetSelect"
+                    value={selectedPresetId}
+                    onChange={(e) => applyPresetToForm(e.target.value)}
+                  >
+                    {llmPresets.map((preset) => (
+                      <option key={preset.id} value={preset.id}>
+                        {preset.name}{preset.has_api_key ? "（已保存 Key）" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="form-hint">预设和密钥只保存到本地 runtime config，不会进入 Git。</span>
+                </div>
+
+                <div className="preset-list">
+                  {llmPresets.map((preset) => (
+                    <button
+                      className={`preset-chip ${preset.id === selectedPresetId ? "active" : ""}`}
+                      key={preset.id}
+                      onClick={() => applyPresetToForm(preset.id)}
+                      type="button"
+                    >
+                      <strong>{preset.name}</strong>
+                      <span>{preset.model || "未填模型"}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="settings-card">
+                <div className="form-group">
+                  <label htmlFor="presetName">预设名称</label>
+                  <input
+                    id="presetName"
+                    type="text"
+                    value={presetName}
+                    onChange={(e) => setPresetName(e.target.value)}
+                    placeholder="例如：DeepSeek 官方 / 商汤 V4 Flash / Mimo"
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="presetNotes">备注</label>
+                  <input
+                    id="presetNotes"
+                    type="text"
+                    value={presetNotes}
+                    onChange={(e) => setPresetNotes(e.target.value)}
+                    placeholder="用途、速度、价格或上下文长度"
+                  />
+                </div>
+              </div>
             </div>
 
-            <div className="form-group">
-              <label htmlFor="apiKey">API Key *</label>
-              <div className="input-with-toggle">
-                <input
-                  id="apiKey"
-                  type={showApiKey ? "text" : "password"}
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="sk-..."
-                />
-                <button
-                  className="toggle-password"
-                  onClick={() => setShowApiKey(!showApiKey)}
-                  type="button"
-                >
-                  {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+            <div className="settings-card">
+              <div className="config-section-title">
+                <Settings size={16} />
+                <span>当前连接</span>
+              </div>
+
+              <div className="settings-grid compact">
+                <div className="form-group">
+                  <label htmlFor="baseUrl">Base URL *</label>
+                  <input
+                    id="baseUrl"
+                    type="text"
+                    value={baseUrl}
+                    onChange={(e) => setBaseUrl(e.target.value)}
+                    placeholder="https://api.openai.com/v1"
+                  />
+                  <span className="form-hint">OpenAI 兼容的 API 地址</span>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="model">Model *</label>
+                  <input
+                    id="model"
+                    type="text"
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    placeholder="gpt-4o-mini"
+                  />
+                  <span className="form-hint">模型名称</span>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="maxTokens">Max Tokens</label>
+                  <input
+                    id="maxTokens"
+                    type="number"
+                    min={512}
+                    max={32768}
+                    value={maxTokens}
+                    onChange={(e) => setMaxTokens(Number(e.target.value || 4096))}
+                  />
+                  <span className="form-hint">默认 4096，可按模型能力调整</span>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="apiKey">API Key *</label>
+                <div className="input-with-toggle">
+                  <input
+                    id="apiKey"
+                    type={showApiKey ? "text" : "password"}
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    placeholder="sk-..."
+                  />
+                  <button
+                    className="toggle-password"
+                    onClick={() => setShowApiKey(!showApiKey)}
+                    type="button"
+                    aria-label={showApiKey ? "隐藏 API Key" : "显示 API Key"}
+                  >
+                    {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                <span className="form-hint">Key 仅发送到本地后端保存，列表接口不会回传明文。</span>
+              </div>
+
+              <div className="config-action-row">
+                <button className="secondary" onClick={handleApplyPreset} disabled={isApplyingPreset || !selectedPresetId} type="button">
+                  {isApplyingPreset ? <Loader2 size={16} className="spinner" /> : <CheckCircle2 size={16} />}
+                  应用预设
+                </button>
+                <button className="secondary" onClick={handleSavePreset} disabled={isSavingPreset || !baseUrl || !model} type="button">
+                  {isSavingPreset ? <Loader2 size={16} className="spinner" /> : <Save size={16} />}
+                  保存为预设
+                </button>
+                <button className="secondary danger" onClick={handleDeletePreset} disabled={isDeletingPreset || !selectedPresetId || llmPresets.find((item) => item.id === selectedPresetId)?.is_builtin} type="button">
+                  {isDeletingPreset ? <Loader2 size={16} className="spinner" /> : <Trash2 size={16} />}
+                  删除预设
+                </button>
+                <button className="secondary" onClick={() => {
+                  setSelectedPresetId("");
+                  setPresetName("");
+                  setPresetNotes("");
+                  setBaseUrl("");
+                  setApiKey("");
+                  setModel("");
+                  setMaxTokens(4096);
+                }} type="button">
+                  <Plus size={16} />
+                  新建空白
                 </button>
               </div>
-              <span className="form-hint">API 密钥（不会保存到前端）</span>
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="model">Model *</label>
-              <input
-                id="model"
-                type="text"
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                placeholder="gpt-4o-mini"
-              />
-              <span className="form-hint">模型名称</span>
             </div>
           </div>
 

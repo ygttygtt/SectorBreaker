@@ -58,6 +58,7 @@ metadata:
 - V2 运行页体验修复：支持 URL/localStorage 恢复 run；过滤低价值 `State Update +0`；状态更新改为中文摘要；次要工具细节折叠；右侧 raw log 固定高度滚动；运行图默认隐藏 MiniMap 并自动聚焦当前节点。
 - 当前代码现实是 V2.0 Agent Kernel，不是 V1.6 workflow 阶段。V2.0 已包含 `SectorBreakerState` checkpoint 持久化、通用锚点层、`docs/` + `cards/` vault 结构、`revise_layer_document` 和 `POST /api/projects/{project_id}/continue`。
 - V2.0 checkpoint continuation 已修复：`/continue` 按 `project_id` 读取最新可恢复 checkpoint，因此第二次及后续 continue 会接上上一轮 follow-up 的 State。默认可恢复类型是 `artifact_write` 和 `run_end_completed`；非 completed 的 `run_end` 只作为诊断状态。
+- 本地 LLM provider 切换已改为预设功能：后端通过 `/api/config/llm/presets` 管理本地私有预设，列表不回传 API key；前端设置页可选择内置 DeepSeek / 商汤 V4 Flash / Mimo 模板，也可新增、编辑、删除用户预设、应用本地 key 并测试连接。`*.runtime-config.json` 已加入 `.gitignore`。
 - 根目录 `.obsidian/` 是默认 Obsidian Vault 配置模板，导出器会复制到每个生成的知识库目录；它不是 generated artifact 或 evidence。
 - 前端设置页已展示 Tavily / Serper / Brave / Exa provider mode；Tavily 仍是推荐默认。人才需求模式明确不默认抓取登录型招聘网站。
 - 后端：FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + 可解释选择轨迹
@@ -98,6 +99,7 @@ metadata:
 - 最新硬删除旧链路验证：旧事件守卫和 workflow-definition API 测试 2 passed；后端关键文件 py_compile passed；Agent Kernel 单测 4 passed；frontend App 19 passed；frontend build passed；backend/tests 旧 pipeline import 扫描无匹配。
 - 最新 Agent Kernel 治理验证：Agent State/Kernel 关键文件 py_compile passed；Agent Kernel/State 聚焦 suite 15 passed；`python tools/check_version_isolation.py` passed；workflow-definition API 测试 1 passed，1 warning。较慢 API 三件套本地挂住后中断，不能算通过。
 - 最新 V2.0 checkpoint/continue 验证：focused backend suite 27 passed，1 个已知 Starlette/TestClient warning；`python tools/check_version_isolation.py` passed；frontend App suite 19 passed。
+- 最新本地 LLM 预设/设置页验证：focused backend config suite 3 passed，1 个已知 Starlette/TestClient warning；frontend App suite 20 passed；frontend build passed，仅 Vite chunk-size warning。
 - 最新版本隔离验证入口：`python tools/check_version_isolation.py`。如果失败，优先移除生产引用或隔离历史代码，不允许继续补丁式防御。
 
 最高风险任务：

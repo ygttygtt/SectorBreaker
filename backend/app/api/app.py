@@ -137,6 +137,19 @@ class LLMConfig(BaseModel):
     max_tokens: int = Field(default=4096, ge=512, le=32768)
 
 
+class LLMPresetPayload(BaseModel):
+    name: str
+    base_url: str = ""
+    api_key: str | None = None
+    model: str = ""
+    max_tokens: int = Field(default=4096, ge=512, le=32768)
+    notes: str | None = None
+
+
+class LLMPresetApplyPayload(BaseModel):
+    api_key: str | None = None
+
+
 class LLMConfigStatus(BaseModel):
     configured: bool
     base_url: str | None = None
@@ -315,6 +328,70 @@ def _normalize_extraction_provider_name(provider_name: str | None) -> str:
     if normalized not in {"http", "firecrawl", "jina"}:
         return "http"
     return normalized
+
+
+DEFAULT_LLM_PRESETS: dict[str, dict] = {
+    "deepseek-official": {
+        "id": "deepseek-official",
+        "name": "DeepSeek 官方",
+        "base_url": "https://api.deepseek.com/v1",
+        "model": "deepseek-chat",
+        "max_tokens": 4096,
+        "notes": "OpenAI-compatible DeepSeek endpoint. Fill your local key before applying.",
+    },
+    "sensenova-v4-flash": {
+        "id": "sensenova-v4-flash",
+        "name": "商汤 V4 Flash",
+        "base_url": "https://token.sensenova.cn/v1",
+        "model": "deepseek-v4-flash",
+        "max_tokens": 4096,
+        "notes": "SenseNova OpenAI-compatible runtime preset. API key stays local.",
+    },
+    "mimo": {
+        "id": "mimo",
+        "name": "Mimo",
+        "base_url": "",
+        "model": "mimo-v2.5-pro",
+        "max_tokens": 4096,
+        "notes": "Fill the local Mimo-compatible base URL and key before applying.",
+    },
+}
+
+
+def _llm_presets_from_runtime(runtime_config: dict) -> dict[str, dict]:
+    stored = runtime_config.get("llm_presets")
+    if not isinstance(stored, dict):
+        stored = {}
+    presets = {preset_id: dict(preset) for preset_id, preset in DEFAULT_LLM_PRESETS.items()}
+    for preset_id, preset in stored.items():
+        if isinstance(preset, dict):
+            merged = {**presets.get(preset_id, {"id": preset_id}), **preset, "id": preset_id}
+            presets[preset_id] = merged
+    return presets
+
+
+def _public_llm_preset(preset_id: str, preset: dict) -> dict:
+    return {
+        "id": preset_id,
+        "name": str(preset.get("name") or preset_id),
+        "base_url": str(preset.get("base_url") or ""),
+        "model": str(preset.get("model") or ""),
+        "max_tokens": int(preset.get("max_tokens") or 4096),
+        "notes": preset.get("notes"),
+        "has_api_key": bool(preset.get("api_key")),
+        "is_builtin": preset_id in DEFAULT_LLM_PRESETS,
+    }
+
+
+def _save_llm_presets_to_runtime(runtime_config_path: Path, presets: dict[str, dict]) -> None:
+    persisted_config = load_runtime_config(runtime_config_path)
+    save_runtime_config(
+        runtime_config_path,
+        {
+            **persisted_config,
+            "llm_presets": presets,
+        },
+    )
 
 
 def _build_search_config_status(
@@ -1468,6 +1545,91 @@ def create_app(
             model=active_llm_provider.model,
             max_tokens=getattr(active_llm_provider, "max_tokens", None),
         ).model_dump(mode="json")
+
+    @app.get("/api/config/llm/presets")
+    def list_llm_presets():
+        presets = _llm_presets_from_runtime(load_runtime_config(runtime_config_path))
+        return {
+            "presets": [
+                _public_llm_preset(preset_id, preset)
+                for preset_id, preset in sorted(presets.items(), key=lambda item: item[1].get("name", item[0]))
+            ],
+        }
+
+    @app.put("/api/config/llm/presets/{preset_id}")
+    def upsert_llm_preset(preset_id: str, payload: LLMPresetPayload):
+        normalized_id = preset_id.strip()
+        if not normalized_id:
+            raise HTTPException(status_code=400, detail="preset id is required")
+        presets = _llm_presets_from_runtime(load_runtime_config(runtime_config_path))
+        current = presets.get(normalized_id, {"id": normalized_id})
+        next_preset = {
+            **current,
+            "id": normalized_id,
+            "name": payload.name.strip() or normalized_id,
+            "base_url": payload.base_url.strip(),
+            "model": payload.model.strip(),
+            "max_tokens": payload.max_tokens,
+            "notes": payload.notes,
+        }
+        if payload.api_key is not None:
+            next_preset["api_key"] = payload.api_key
+        presets[normalized_id] = next_preset
+        _save_llm_presets_to_runtime(runtime_config_path, presets)
+        return {"success": True, "preset": _public_llm_preset(normalized_id, next_preset)}
+
+    @app.delete("/api/config/llm/presets/{preset_id}")
+    def delete_llm_preset(preset_id: str):
+        if preset_id in DEFAULT_LLM_PRESETS:
+            raise HTTPException(status_code=400, detail="built-in presets cannot be deleted")
+        presets = _llm_presets_from_runtime(load_runtime_config(runtime_config_path))
+        if preset_id not in presets:
+            raise HTTPException(status_code=404, detail="preset not found")
+        del presets[preset_id]
+        _save_llm_presets_to_runtime(runtime_config_path, presets)
+        return {"success": True, "message": "LLM 预设已删除"}
+
+    @app.post("/api/config/llm/presets/{preset_id}/apply")
+    def apply_llm_preset(preset_id: str, payload: LLMPresetApplyPayload | None = None):
+        nonlocal active_llm_provider
+        presets = _llm_presets_from_runtime(load_runtime_config(runtime_config_path))
+        preset = presets.get(preset_id)
+        if preset is None:
+            raise HTTPException(status_code=404, detail="preset not found")
+        supplied_key = payload.api_key if payload is not None else None
+        api_key = supplied_key or preset.get("api_key")
+        base_url = str(preset.get("base_url") or "").strip()
+        model = str(preset.get("model") or "").strip()
+        max_tokens = int(preset.get("max_tokens") or 4096)
+        if not base_url or not api_key or not model:
+            raise HTTPException(status_code=400, detail="preset requires base_url, api_key, and model before applying")
+        active_llm_provider = build_llm_provider_from_config(
+            base_url=base_url,
+            api_key=str(api_key),
+            model=model,
+            max_tokens=max_tokens,
+        )
+        if supplied_key is not None:
+            preset = {**preset, "api_key": supplied_key}
+            presets[preset_id] = preset
+        persisted_config = load_runtime_config(runtime_config_path)
+        save_runtime_config(
+            runtime_config_path,
+            {
+                **persisted_config,
+                "llm_base_url": base_url,
+                "llm_api_key": str(api_key),
+                "llm_model": model,
+                "llm_max_tokens": max_tokens,
+                "llm_active_preset_id": preset_id,
+                "llm_presets": presets,
+            },
+        )
+        return {
+            "success": True,
+            "message": f"已应用 LLM 预设：{preset.get('name') or preset_id}",
+            "preset": _public_llm_preset(preset_id, preset),
+        }
 
     @app.get("/api/config/search")
     def get_search_config():

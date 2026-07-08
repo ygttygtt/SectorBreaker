@@ -52,6 +52,7 @@ metadata:
 - V2 运行页体验修复：刷新后可通过 URL/localStorage 恢复 active/last run；主汇报过滤 `State Update +0`，把非零状态更新转成人话，工具细节折叠；新事件自动聚焦；右侧完整日志固定高度滚动；运行图隐藏坏掉的 MiniMap 并更可靠聚焦当前节点。
 - 当前代码现实是 V2.0 Agent Kernel，不是 V1.6 workflow 阶段。V2.0 已包含 `SectorBreakerState` checkpoint 持久化、通用锚点层、`docs/` + `cards/` 两档 vault 结构、`revise_layer_document` 和 `POST /api/projects/{project_id}/continue`。
 - V2.0 checkpoint continuation 已修复：`/continue` 按 `project_id` 读取最新可恢复 checkpoint，因此第二次及后续 continue 会接上上一轮 follow-up 的 State，而不是回到首次运行的 checkpoint。默认可恢复类型是 `artifact_write` 和 `run_end_completed`；非 completed 的 `run_end` 只作为诊断状态，不作为默认继续来源。
+- 本地 LLM provider 切换已改为预设功能：后端通过 `/api/config/llm/presets` 管理本地私有预设，列表不回传 API key；前端设置页可选择内置 DeepSeek / 商汤 V4 Flash / Mimo 模板，也可新增、编辑、删除用户预设、应用本地 key 并测试连接。`*.runtime-config.json` 已加入 `.gitignore`，避免本地预设/key 误上传。
 - 根目录 `.obsidian/` 是默认 Obsidian Vault 配置模板，包含用户常用插件/设置/工作区。Markdown 导出必须把它复制到每个生成的知识库目录；它不是 evidence，也不是 Agent artifact。
 - 文档与协作规范已建立。
 - 核心 schema、provider interfaces、provider factory、SQLite migration/repository 已建立。
@@ -151,6 +152,7 @@ metadata:
 - 当前硬删除旧链路验证：旧事件守卫和 workflow-definition API 测试 2 passed；后端关键文件 py_compile passed；Agent Kernel 单测 4 passed；frontend App 19 passed；frontend build passed；backend/tests 旧 pipeline import 扫描无匹配。
 - 当前 Agent Kernel 治理验证：Agent State/Kernel 关键文件 py_compile passed；`python -m pytest tests/unit/test_agent_kernel_models.py tests/unit/test_agent_state_models.py tests/unit/test_agent_kernel_runtime.py tests/unit/test_agent_kernel_tools.py tests/unit/test_context_pack_builder.py tests/unit/test_agent_kernel_schema_planner.py -q` => 15 passed；`python tools/check_version_isolation.py` passed；`python -m pytest tests/api/test_app.py::test_api_exposes_workflow_definition_and_source_policy -q` => 1 passed，1 warning。较慢的 API 三件套本地挂住后已中断，不能算通过。
 - 当前 V2.0 checkpoint/continue 验证：`python -m pytest tests/unit/test_run_state_checkpoint.py tests/api/test_app.py::test_api_continue_uses_latest_project_checkpoint_after_previous_continue tests/unit/test_agent_kernel_runtime.py tests/unit/test_agent_kernel_tools.py tests/unit/test_markdown_exporter.py tests/unit/test_agent_kernel_schema_planner.py -q` => 27 passed，1 个已知 Starlette/TestClient warning；`python tools/check_version_isolation.py` passed；`cd frontend && npm test -- --run App.test.tsx` => 19 passed。
+- 当前本地 LLM 预设/设置页验证：`python -m pytest tests/api/test_app.py::test_api_restores_persisted_llm_runtime_config_after_restart tests/api/test_app.py::test_api_manages_local_llm_presets_without_uploading_to_repo tests/api/test_app.py::test_api_restores_persisted_search_runtime_config_after_restart -q` => 3 passed，1 个已知 Starlette/TestClient warning；`cd frontend && npm test -- --run App.test.tsx` => 20 passed；`cd frontend && npm run build` passed，仅 Vite chunk-size warning。
 - 当前版本隔离验证入口：`python tools/check_version_isolation.py`。如果该扫描失败，禁止继续在旧路径上补丁式修复，必须移除生产引用或把历史代码迁出生产可 import 区域。
 - `cd frontend && npm test -- --run`：3 passed。
 - `cd frontend && npm run build`：通过。

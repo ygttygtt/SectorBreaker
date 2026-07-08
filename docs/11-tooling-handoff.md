@@ -69,6 +69,7 @@ The latest completed implementation milestone is:
 - Living knowledge-base roadmap is now `docs/21-living-knowledge-base-roadmap.md`. It captures the product distinction from one-shot Deep Search reports: structured retention, evidence continuity, Obsidian links, and human-in-the-loop vault growth. The first real growth loop is implemented: follow-up RAG answers are persisted as `followups/*.md` artifacts and exported with `.sectorbreaker/` state. Full visual reopen/resume remains future work.
 - Current code reality is V2.0 Agent Kernel for personal `domain_knowledge`, not the older V1.6 workflow stage. V2.0 includes persisted `SectorBreakerState` checkpoints, universal anchor layers, `docs/` + `cards/` vault structure, `revise_layer_document`, and `POST /api/projects/{project_id}/continue`.
 - Latest V2.0 checkpoint fix: continuation now loads the latest resumable checkpoint by `project_id`, so a second or later `/continue` run resumes from the previous follow-up run instead of the original first-run checkpoint. Non-completed `run_end` checkpoints are diagnostic only; default continuation uses `artifact_write` or `run_end_completed`.
+- Local LLM presets are now first-class settings. Backend routes under `/api/config/llm/presets` manage local-only presets, never return API keys in list responses, and apply presets into the active OpenAI-compatible provider. The settings UI can select built-in DeepSeek / SenseNova V4 Flash / Mimo templates, create/edit/delete user presets, apply a preset with a local key, and test the connection. Runtime preset files are ignored by Git through `*.runtime-config.json`.
 - The frontend now exposes a mode selector and multi-provider search settings (Tavily recommended, Serper/Brave/Exa visible). It also carries explicit guardrails: do not scrape login-gated job boards by default; use uploads and configured search providers first.
 - Backend: FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + explainable agent selection traces.
 - Frontend: Vite + React + TypeScript explainable research workbench with real workflow graph, vertical layout, and active-node centering.
@@ -211,6 +212,18 @@ cd frontend && npm test -- --run App.test.tsx
 Expected result: focused backend suite reports 27 passed with the known
 Starlette/TestClient warning, version isolation passes, and frontend App suite
 reports 19 passed.
+
+Latest local LLM preset/settings verification:
+
+```bash
+python -m pytest tests/api/test_app.py::test_api_restores_persisted_llm_runtime_config_after_restart tests/api/test_app.py::test_api_manages_local_llm_presets_without_uploading_to_repo tests/api/test_app.py::test_api_restores_persisted_search_runtime_config_after_restart -q
+cd frontend && npm test -- --run App.test.tsx
+cd frontend && npm run build
+```
+
+Expected result: focused backend config suite reports 3 passed with the known
+Starlette/TestClient warning, frontend App suite reports 20 passed, and frontend
+build passes with the existing Vite chunk-size warning.
 
 ## Local Run
 

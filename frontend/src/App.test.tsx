@@ -26,9 +26,40 @@ const {
   mockOpenExportFolder,
   mockGetWorkflow,
   mockGetSourceRegistryStatus,
+  mockListLLMPresets,
+  mockUpsertLLMPreset,
+  mockApplyLLMPreset,
+  mockDeleteLLMPreset,
 } = vi.hoisted(() => ({
   mockEventsState: { current: [] as Array<Record<string, unknown>> },
   mockGetLLMConfig: vi.fn().mockResolvedValue({ configured: true, base_url: "http://test", model: "test" }),
+  mockListLLMPresets: vi.fn().mockResolvedValue({
+    presets: [
+      {
+        id: "deepseek-official",
+        name: "DeepSeek 官方",
+        base_url: "https://api.deepseek.com/v1",
+        model: "deepseek-chat",
+        max_tokens: 4096,
+        has_api_key: false,
+        is_builtin: true,
+        notes: "official",
+      },
+      {
+        id: "sensenova-v4-flash",
+        name: "商汤 V4 Flash",
+        base_url: "https://token.sensenova.cn/v1",
+        model: "deepseek-v4-flash",
+        max_tokens: 4096,
+        has_api_key: true,
+        is_builtin: true,
+        notes: "sense",
+      },
+    ],
+  }),
+  mockUpsertLLMPreset: vi.fn().mockResolvedValue({ success: true, preset: { id: "custom-fast", name: "Custom Fast", has_api_key: true } }),
+  mockApplyLLMPreset: vi.fn().mockResolvedValue({ success: true, message: "applied" }),
+  mockDeleteLLMPreset: vi.fn().mockResolvedValue({ success: true }),
   mockGetSourceRegistryStatus: vi.fn().mockResolvedValue({
     packs: [
       {
@@ -232,6 +263,10 @@ vi.mock("./api/client", () => ({
     getRunWorkflowDefinition: mockGetWorkflow,
     getProjectWorkflowDefinition: mockGetWorkflow,
     getLLMConfig: mockGetLLMConfig,
+    listLLMPresets: mockListLLMPresets,
+    upsertLLMPreset: mockUpsertLLMPreset,
+    applyLLMPreset: mockApplyLLMPreset,
+    deleteLLMPreset: mockDeleteLLMPreset,
     getSearchConfig: mockGetSearchConfig,
     getJobSourceConfig: mockGetJobSourceConfig,
     updateJobSourceConfig: mockUpdateJobSourceConfig,
@@ -487,6 +522,34 @@ test("config panel can test search connectivity", async () => {
   expect(screen.getByText(/Allowed domains: sec.gov, investor.example.com/)).toBeInTheDocument();
   expect(screen.getByText(/Blocked domains: medium.com/)).toBeInTheDocument();
   expect(screen.getByText(/Official Market Report/)).toBeInTheDocument();
+});
+
+test("config panel can apply and save local llm presets", async () => {
+  render(<App />);
+
+  fireEvent.click(screen.getByRole("button", { name: /LLM 设置/ }));
+
+  expect(await screen.findByText(/LLM 预设/)).toBeInTheDocument();
+  expect(screen.getAllByText(/DeepSeek 官方/).length).toBeGreaterThan(0);
+
+  fireEvent.change(screen.getByLabelText("选择预设"), { target: { value: "sensenova-v4-flash" } });
+  fireEvent.change(screen.getByLabelText("API Key *"), { target: { value: "sk-local-only" } });
+  fireEvent.click(screen.getByRole("button", { name: /应用预设/ }));
+
+  await waitFor(() => expect(mockApplyLLMPreset).toHaveBeenCalledWith("sensenova-v4-flash", { api_key: "sk-local-only" }));
+
+  fireEvent.change(screen.getByLabelText("预设名称"), { target: { value: "Custom Fast" } });
+  fireEvent.change(screen.getByLabelText("Base URL *"), { target: { value: "https://api.custom.test/v1" } });
+  fireEvent.change(screen.getByLabelText("Model *"), { target: { value: "custom-fast" } });
+  fireEvent.click(screen.getByRole("button", { name: /保存为预设/ }));
+
+  await waitFor(() => expect(mockUpsertLLMPreset).toHaveBeenCalledWith(expect.stringMatching(/^custom-fast/), expect.objectContaining({
+    name: "Custom Fast",
+    base_url: "https://api.custom.test/v1",
+    api_key: "sk-local-only",
+    model: "custom-fast",
+    max_tokens: 4096,
+  })));
 });
 
 test("config panel can save search runtime config", async () => {

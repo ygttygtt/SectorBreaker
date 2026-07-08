@@ -1425,7 +1425,53 @@ def test_api_restores_persisted_llm_runtime_config_after_restart(tmp_path: Path)
         "configured": True,
         "base_url": "https://api.example.com/v1",
         "model": "test-model",
+        "max_tokens": 4096,
     }
+
+
+def test_api_manages_local_llm_presets_without_uploading_to_repo(tmp_path: Path) -> None:
+    database_path = tmp_path / "sectorbreaker.sqlite3"
+    export_root = tmp_path / "exports"
+    client = TestClient(create_app(database_path=database_path, export_root=export_root))
+
+    presets_response = client.get("/api/config/llm/presets")
+    assert presets_response.status_code == 200
+    presets = presets_response.json()["presets"]
+    assert {"deepseek-official", "sensenova-v4-flash", "mimo"}.issubset({item["id"] for item in presets})
+    assert all("api_key" not in item for item in presets)
+
+    save_response = client.put(
+        "/api/config/llm/presets/local-test",
+        json={
+            "name": "Local Test",
+            "base_url": "https://api.local.test/v1",
+            "api_key": "local-secret",
+            "model": "local-model",
+            "max_tokens": 8192,
+            "notes": "private preset",
+        },
+    )
+    assert save_response.status_code == 200
+    assert save_response.json()["preset"]["has_api_key"] is True
+    assert "api_key" not in save_response.json()["preset"]
+
+    apply_response = client.post("/api/config/llm/presets/local-test/apply")
+    assert apply_response.status_code == 200
+
+    status = client.get("/api/config/llm")
+    assert status.status_code == 200
+    assert status.json() == {
+        "configured": True,
+        "base_url": "https://api.local.test/v1",
+        "model": "local-model",
+        "max_tokens": 8192,
+    }
+
+    restarted = TestClient(create_app(database_path=database_path, export_root=export_root))
+    restarted_presets = restarted.get("/api/config/llm/presets").json()["presets"]
+    local = next(item for item in restarted_presets if item["id"] == "local-test")
+    assert local["has_api_key"] is True
+    assert "api_key" not in local
 
 
 def test_api_restores_persisted_content_extraction_provider_after_restart(tmp_path: Path) -> None:

@@ -68,6 +68,10 @@ Current v1 implementation supports project-scoped evidence and artifact lists. A
 - `GET /api/config/llm`
 - `POST /api/config/llm`
 - `POST /api/config/llm/test`
+- `GET /api/config/llm/presets`
+- `PUT /api/config/llm/presets/{preset_id}`
+- `DELETE /api/config/llm/presets/{preset_id}`
+- `POST /api/config/llm/presets/{preset_id}/apply`
 - `GET /api/config/search`
 - `POST /api/config/search`
 - `POST /api/config/search/test`
@@ -75,9 +79,27 @@ Current v1 implementation supports project-scoped evidence and artifact lists. A
 - `POST /api/config/job-source`
 - `POST /api/config/job-source/test`
 
-Current baseline exposes LLM configuration status and search configuration
-status. Search config should expose which providers are currently enabled. The
-frontend must surface explicit warnings when search is unavailable.
+Current baseline exposes LLM configuration status, local LLM presets, and search
+configuration status. Search config should expose which providers are currently
+enabled. The frontend must surface explicit warnings when search is unavailable.
+
+LLM presets are local runtime configuration for test convenience. Presets may
+include provider name, OpenAI-compatible base URL, model, max tokens, notes, and
+an API key, but list/read responses must never return the API key. They return
+`has_api_key` instead. The default runtime config file is ignored by Git, and
+`*.runtime-config.json` must remain ignored so user-created presets are not
+uploaded to GitHub.
+
+Built-in LLM preset templates:
+
+- `deepseek-official`
+- `sensenova-v4-flash`
+- `mimo`
+
+`POST /api/config/llm/presets/{preset_id}/apply` loads the local preset,
+optionally updates its local key from the request body, rebuilds the active LLM
+provider, and writes the active LLM config back to local runtime config. Applying
+a preset requires `base_url`, `api_key`, and `model`.
 
 `GET /api/config/search` now also serves as the primary runtime diagnostic
 endpoint for search onboarding. In addition to enabled provider names, it should

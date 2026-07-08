@@ -191,6 +191,26 @@ export interface LLMConfigStatus {
   max_tokens?: number | null;
 }
 
+export interface LLMPreset {
+  id: string;
+  name: string;
+  base_url: string;
+  model: string;
+  max_tokens: number;
+  notes?: string | null;
+  has_api_key: boolean;
+  is_builtin: boolean;
+}
+
+export interface LLMPresetPayload {
+  name: string;
+  base_url: string;
+  api_key?: string | null;
+  model: string;
+  max_tokens: number;
+  notes?: string | null;
+}
+
 export interface LLMTestResult {
   success: boolean;
   message: string;
@@ -576,14 +596,38 @@ export const api = {
     );
   },
 
-  updateLLMConfig(data: { base_url: string; api_key: string; model: string }) {
+  listLLMPresets() {
+    return requestJson<{ presets: LLMPreset[] }>("/api/config/llm/presets");
+  },
+
+  upsertLLMPreset(presetId: string, data: LLMPresetPayload) {
+    return requestJson<{ success: boolean; preset: LLMPreset }>(`/api/config/llm/presets/${encodeURIComponent(presetId)}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  },
+
+  applyLLMPreset(presetId: string, data?: { api_key?: string | null }) {
+    return requestJson<{ success: boolean; message: string; preset: LLMPreset }>(`/api/config/llm/presets/${encodeURIComponent(presetId)}/apply`, {
+      method: "POST",
+      body: JSON.stringify(data ?? {}),
+    });
+  },
+
+  deleteLLMPreset(presetId: string) {
+    return requestJson<{ success: boolean; message?: string }>(`/api/config/llm/presets/${encodeURIComponent(presetId)}`, {
+      method: "DELETE",
+    });
+  },
+
+  updateLLMConfig(data: { base_url: string; api_key: string; model: string; max_tokens?: number }) {
     return requestJson<{ success: boolean; message: string }>("/api/config/llm", {
       method: "POST",
       body: JSON.stringify(data),
     });
   },
 
-  testLLMConnection(data: { base_url: string; api_key: string; model: string }) {
+  testLLMConnection(data: { base_url: string; api_key: string; model: string; max_tokens?: number }) {
     return requestJson<LLMTestResult>("/api/config/llm/test", {
       method: "POST",
       body: JSON.stringify(data),

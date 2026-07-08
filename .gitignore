@@ -41,6 +41,7 @@ Thumbs.db
 
 # Runtime data and generated exports
 data/
+*.runtime-config.json
 exports/**
 !exports/.gitkeep
 test-output/
