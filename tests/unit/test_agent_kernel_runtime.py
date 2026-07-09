@@ -109,7 +109,14 @@ def test_agent_kernel_runtime_follows_llm_decided_tool_order() -> None:
     assert any(event.gate == "state_update" for event in events)
 
 
-def test_agent_kernel_runtime_stops_on_document_writing_failure() -> None:
+def test_agent_kernel_runtime_main_writer_failure_continues_to_finish() -> None:
+    """V3 behavior: main writer failure does NOT immediately kill the run.
+
+    The loop continues to the next policy decision (FINISH). Since there are
+    no artifacts, the runtime returns BLOCKED. This is intentional — it gives
+    the Agent a chance to retry or switch strategy before being killed.
+    """
+
     class FakePolicy:
         def __init__(self) -> None:
             self.index = 0
@@ -120,13 +127,13 @@ def test_agent_kernel_runtime_stops_on_document_writing_failure() -> None:
                     tool_call=ToolCall(
                         tool_name="write_layer_document",
                         args={"layer_id": "L1_what_why", "title": "L1 本源与需求", "writing_goal": "解释是什么"},
-                        reason="验证写作失败必须中断。",
+                        reason="验证写作失败会被记录但不立即中断。",
                     ),
                 ),
                 AgentDecision(
-                    thought_summary="不应该走到这里。",
+                    thought_summary="写作失败，选择结束。",
                     action_type=AgentActionType.FINISH,
-                    stop_reason="错误地继续 finish",
+                    stop_reason="没有产物可继续",
                 ),
             ]
 
@@ -174,10 +181,12 @@ def test_agent_kernel_runtime_stops_on_document_writing_failure() -> None:
     policy = FakePolicy()
     result = asyncio.run(AgentKernelRuntime(policy=policy, registry=registry).run(context))  # type: ignore[arg-type]
 
-    assert result.status == KernelRunStatus.FAILED
+    # V3: 主文档失败不再立即 FAILED，而是记录后继续到 FINISH。
+    # 没有产物 → BLOCKED（有产物时则 COMPLETED 或 MAX_ITERATIONS）。
+    assert result.status == KernelRunStatus.BLOCKED
     assert result.artifact_ids == []
-    assert result.stop_reason == "artifact_writing_failed"
-    assert policy.index == 1
+    assert policy.index == 2  # 两个决策都执行了（写文档 + FINISH）
+    # 写作失败事件仍然被记录（severity="error" 对主文档）
     assert any(event.gate == "artifact_writing" and event.severity == "error" for event in events)
 
 
@@ -275,10 +284,13 @@ def test_agent_kernel_runtime_executes_ordered_tool_calls_and_updates_state_betw
 
     assert result.status == KernelRunStatus.BLOCKED
     assert seen_scores == [0.25]
-    assert [
+    # V3: action event message 不再以 "Action:" 开头（改用 user_notice 或 tool_name），
+    # 用 agent="V2 Tool Executor" 过滤 ACTION 事件（区别于 OBSERVATION 事件的 agent=tool_name）。
+    action_agents = [
         event.agent for event in events
-        if event.gate == "tool_execution" and event.message.startswith("Action:")
-    ] == ["V2 Tool Executor", "V2 Tool Executor"]
+        if event.gate == "tool_execution" and event.agent == "V2 Tool Executor"
+    ]
+    assert action_agents == ["V2 Tool Executor", "V2 Tool Executor"]
     assert any("coverage_updates+1" in event.message for event in events)
 
 

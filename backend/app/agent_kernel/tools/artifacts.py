@@ -208,7 +208,7 @@ async def write_explainer_card(tool_call, context: KernelRuntimeContext) -> Kern
     title = str(tool_call.args.get("title") or "").strip()
     focus = str(tool_call.args.get("focus") or title).strip()
     if not title and focus:
-        title = focus[:36].strip()
+        title = focus[:60].strip()
     if not focus and title:
         focus = title
     writing_goal = str(tool_call.args.get("writing_goal") or "").strip()
@@ -266,6 +266,13 @@ async def write_explainer_card(tool_call, context: KernelRuntimeContext) -> Kern
 
 
 async def write_explainer_cards_batch(tool_call, context: KernelRuntimeContext) -> KernelObservation:
+    if context.llm_provider is None:
+        return KernelObservation(
+            tool_name="write_explainer_cards_batch",
+            success=False,
+            summary="批量解释卡写作失败：没有配置 LLM Provider。",
+            error="llm provider not configured",
+        )
     raw_cards = tool_call.args.get("cards") or []
     if not isinstance(raw_cards, list) or not raw_cards:
         return KernelObservation(
