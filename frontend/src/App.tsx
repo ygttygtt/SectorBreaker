@@ -287,6 +287,26 @@ export function buildAgentBriefCards(events: RunEvent[], limit = 8): AgentBriefC
   events.forEach((event, index) => {
     const raw = event.message || "";
     let card: AgentBriefCard | null = null;
+    const data = (event.data || {}) as Record<string, unknown>;
+    const userNotice = typeof data.user_notice === "string" ? data.user_notice.trim() : "";
+
+    if (userNotice) {
+      const detail = [
+        typeof data.reason === "string" ? `原因: ${data.reason}` : "",
+        typeof data.current_goal === "string" ? `目标: ${data.current_goal}` : "",
+        raw && raw !== userNotice ? `原始: ${raw}` : "",
+      ].filter(Boolean).join("\n");
+      cards.push({
+        id: `${event.timestamp}-${index}-notice`,
+        label: "进展",
+        summary: compactMessage(userNotice),
+        detail: detail || undefined,
+        tone: event.severity === "error" ? "warning" : raw.startsWith("Observation:") ? "result" : "action",
+        importance: "primary",
+        timestamp: event.timestamp,
+      });
+      return;
+    }
 
     if (raw.startsWith("Thought Summary:")) {
       card = {
@@ -1219,6 +1239,7 @@ function ReviewView({
 
 function ResultView({
   project,
+  runId,
   artifacts,
   setArtifacts,
   evidence,
@@ -1232,6 +1253,7 @@ function ResultView({
   toastSuccess,
 }: {
   project: Project;
+  runId: string | null;
   artifacts: Artifact[];
   setArtifacts: (items: Artifact[]) => void;
   evidence: Evidence[];
@@ -1311,6 +1333,26 @@ function ResultView({
       toastSuccess("已打开导出文件夹");
     } catch (err) {
       toastError(err instanceof Error ? err.message : "打开文件夹失败");
+    }
+  }
+
+  async function downloadRunTrace() {
+    if (!runId) {
+      toastError("当前没有可下载的运行日志");
+      return;
+    }
+    try {
+      const data = await api.getRunTrace(runId);
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `run-trace-${runId}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      toastSuccess("思考日志已下载");
+    } catch (err) {
+      toastError(err instanceof Error ? err.message : "思考日志下载失败");
     }
   }
 
@@ -1457,6 +1499,10 @@ function ResultView({
             <button className="secondary btn-sm" onClick={exportProject} disabled={isExporting} type="button">
               {isExporting ? <Loader2 size={14} className="spinner" /> : <Download size={14} />}
               导出
+            </button>
+            <button className="secondary btn-sm" onClick={downloadRunTrace} type="button">
+              <Download size={14} />
+              下载思考日志
             </button>
             {exportManifest?.export_dir && (
               <button className="secondary btn-sm" onClick={openExportFolder} type="button">
@@ -1823,6 +1869,7 @@ export function App() {
       {phase === "result" && project && (
         <ResultView
           project={project}
+          runId={runId}
           artifacts={artifacts}
           setArtifacts={setArtifacts}
           evidence={evidence}

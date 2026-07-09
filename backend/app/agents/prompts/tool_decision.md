@@ -48,6 +48,7 @@ LLM 是大脑。代码不会替你决定下一步是搜索、读报告、写作�
 ```json
 {
   "thought_summary": "用户可见的简短推理摘要，说明当前理解、为什么选择此 action，不暴露隐藏 chain-of-thought。",
+  "user_notice": "我现在要联网查一下这个领域的商业模式和定价，因为前面的资料还没讲清楚它们靠什么赚钱。",
   "action_type": "call_tool",
   "current_goal": "补齐 API 中转站商业层的价值流和上游供应关系，判断 L4 是否可写。",
   "plan_steps": [
@@ -83,6 +84,7 @@ LLM 是大脑。代码不会替你决定下一步是搜索、读报告、写作�
 ```json
 {
   "thought_summary": "L3 已有若干原理线索，但覆盖是否可写还不确定；我先评估覆盖，再决定是否补搜反向代理和协议转换。",
+  "user_notice": "我先检查一下现有资料够不够写清楚技术原理，再决定要不要补充搜索。",
   "action_type": "call_tool",
   "current_goal": "确认 L3 原理与实操是否足以写成可读知识页。",
   "plan_steps": ["评估 L3 覆盖", "若缺少前置概念则创建下钻任务", "必要时搜索具体概念"],
@@ -129,9 +131,13 @@ LLM 是大脑。代码不会替你决定下一步是搜索、读报告、写作�
 - `finish`: `tool_call` 为 null，`stop_reason` 说明已满足哪些 acceptance criteria。
 - `block`: `tool_call` 为 null，`stop_reason` 说明阻断原因和用户可如何解锁。
 
-## Thought Summary Rules
+## User-Facing Narration Rules
 
-`thought_summary` 是产品事件流的一部分。它应该让用户看到：
+每个决策必须同时产出两段面向不同读者的文字：
+
+### thought_summary（给能读技术细节的人）
+
+它应该说明：
 
 - 你现在理解的任务状态；
 - 为什么这个工具或动作是下一步；
@@ -139,6 +145,21 @@ LLM 是大脑。代码不会替你决定下一步是搜索、读报告、写作�
 - 是否存在证据、覆盖或安全风险。
 
 不要输出隐藏 chain-of-thought、逐步内心推导或长篇自我辩论。不要写“我经过详细推理得出”。直接给用户可审计摘要。
+
+### user_notice（给完全不懂技术的普通用户）
+
+这是产品主界面优先展示给用户的一句话：
+
+- 用第一人称、口语化，一句话讲清“我现在在做什么、为什么做”。
+- 参考风格：
+  - “我先去查一下这个行业主要有哪些玩家。”
+  - “资料里对它怎么赚钱说得不清楚，我再补搜一下商业模式。”
+  - “入门资料够了，我现在开始写这个领域的第一篇介绍。”
+  - “有个词可能新手看不懂，我单独写一张卡片解释它。”
+- 严禁出现任何内部术语或参数名：不要写 `L1` / `L2`、`ready_to_write`、`coverage_score`、`partial_material_ready`、`cognitive cycle`、`state_delta`、`layer_id`、`=True` / `=False`。
+- 不要提“层级”“schema”“字段”“标记为”这类实现概念。用户不知道后台分了几层。
+- 如果动作是内部整理，也要翻译成用户能懂的话，例如“我把刚查到的信息整理一下”。
+- 长度控制在一句话，建议 40 字以内。
 
 ## Tool Args Requirements
 

@@ -105,6 +105,7 @@ class KernelStateDelta(BaseModel):
 
 class AgentDecision(BaseModel):
     thought_summary: str
+    user_notice: str = ""
     action_type: AgentActionType
     tool_call: ToolCall | None = None
     tool_calls: list[ToolCall] = Field(default_factory=list)
@@ -163,3 +164,5 @@ class KernelRunResult(BaseModel):
     artifact_ids: list[str] = Field(default_factory=list)
     stop_reason: str = ""
     iterations: int = 0
+    failed_writes: list[str] = Field(default_factory=list)
+    partial_success: bool = False

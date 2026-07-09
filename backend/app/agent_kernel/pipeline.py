@@ -134,7 +134,7 @@ async def run_v2_agent_kernel_pipeline(
     # Save final state for either continuation or diagnostics.
     final_checkpoint_type = (
         "run_end_completed"
-        if result.status == KernelRunStatus.COMPLETED
+        if result.status == KernelRunStatus.COMPLETED or runtime_context.artifacts
         else "run_end"
     )
     try:
@@ -156,10 +156,27 @@ async def run_v2_agent_kernel_pipeline(
         severity="info" if result.status == KernelRunStatus.COMPLETED else "warning",
         data=result.model_dump(mode="json"),
     ))
-    if result.status != KernelRunStatus.COMPLETED:
-        raise RuntimeError("V2 Agent Kernel did not complete: " + result.status.value + " / " + result.stop_reason)
     for artifact in runtime_context.artifacts:
         repository.add_artifact(artifact)
+    if runtime_context.artifacts:
+        if result.failed_writes:
+            await emit_event(RunEvent(
+                event_type="node_degraded",
+                gate="artifact_writing",
+                agent="V2 Agent Kernel",
+                message=(
+                    "本轮已生成 "
+                    + str(len(runtime_context.artifacts))
+                    + " 篇文档；"
+                    + str(len(result.failed_writes))
+                    + " 项写作未成功，可在下一轮继续补全。"
+                ),
+                severity="warning",
+                data={"failed_writes": result.failed_writes},
+            ))
+        return runtime_context.artifacts
+    if result.status != KernelRunStatus.COMPLETED:
+        raise RuntimeError("V2 Agent Kernel produced no artifacts: " + result.status.value + " / " + result.stop_reason)
     return runtime_context.artifacts
 
 

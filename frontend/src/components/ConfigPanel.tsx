@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Settings, Eye, EyeOff, Loader2, CheckCircle2, XCircle, Search, Globe, ShieldCheck, Plus, Save, Trash2, KeyRound } from "lucide-react";
-import { api, type LLMPreset, type SearchConfigStatus, type SearchTestResult, type SourceRegistryStatus } from "../api/client";
+import { api, type LLMConfigStatus, type LLMPreset, type SearchConfigStatus, type SearchTestResult, type SourceRegistryStatus } from "../api/client";
 
 interface ConfigPanelProps {
   isOpen: boolean;
@@ -26,7 +26,13 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
   const [isApplyingPreset, setIsApplyingPreset] = useState(false);
   const [isDeletingPreset, setIsDeletingPreset] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
-  const [configStatus, setConfigStatus] = useState<{ configured: boolean; base_url?: string; model?: string } | null>(null);
+  const [configStatus, setConfigStatus] = useState<LLMConfigStatus | null>(null);
+  const [savedConfig, setSavedConfig] = useState({
+    baseUrl: "",
+    model: "",
+    maxTokens: 4096,
+    selectedPresetId: "",
+  });
   const [searchStatus, setSearchStatus] = useState<SearchConfigStatus | null>(null);
   const [searchQuery, setSearchQuery] = useState("AI agent market map");
   const [extractUrl, setExtractUrl] = useState("https://example.com");
@@ -56,6 +62,41 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
     }
   }, [isOpen]);
 
+  const selectedPreset = llmPresets.find((item) => item.id === selectedPresetId);
+  const formMatchesSelectedPreset = Boolean(
+    selectedPreset
+      && baseUrl === selectedPreset.base_url
+      && model === selectedPreset.model
+      && Number(maxTokens) === Number(selectedPreset.max_tokens || 4096),
+  );
+  const canUseStoredPresetKey = Boolean(selectedPreset?.has_api_key && formMatchesSelectedPreset);
+  const hasUsableApiKey = Boolean(apiKey.trim()) || canUseStoredPresetKey;
+  const llmConfigDirty = Boolean(
+    apiKey.trim()
+      || baseUrl !== savedConfig.baseUrl
+      || model !== savedConfig.model
+      || Number(maxTokens) !== Number(savedConfig.maxTokens)
+      || selectedPresetId !== savedConfig.selectedPresetId,
+  );
+
+  function snapshotConfig(status: LLMConfigStatus, presetId = selectedPresetId) {
+    const nextSnapshot = {
+      baseUrl: status.base_url || "",
+      model: status.model || "",
+      maxTokens: status.max_tokens || 4096,
+      selectedPresetId: presetId,
+    };
+    setSavedConfig(nextSnapshot);
+    return nextSnapshot;
+  }
+
+  function handleClose() {
+    if (llmConfigDirty && !window.confirm("当前 LLM 配置有未保存改动，确定关闭吗？")) {
+      return;
+    }
+    onClose();
+  }
+
   async function fetchConfigStatus() {
     try {
       const status = await api.getLLMConfig();
@@ -65,6 +106,7 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
         setModel(status.model || "");
         setMaxTokens(status.max_tokens || 4096);
       }
+      snapshotConfig(status);
     } catch (err) {
       console.error("Failed to fetch config status:", err);
     }
@@ -85,7 +127,15 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
   function applyPresetToForm(presetId: string) {
     setSelectedPresetId(presetId);
     const preset = llmPresets.find((item) => item.id === presetId);
-    if (!preset) return;
+    if (!preset) {
+      setPresetName("");
+      setPresetNotes("");
+      setBaseUrl("");
+      setApiKey("");
+      setModel("");
+      setMaxTokens(4096);
+      return;
+    }
     setPresetName(preset.name);
     setBaseUrl(preset.base_url || "");
     setModel(preset.model || "");
@@ -147,8 +197,8 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
   }
 
   async function handleSave() {
-    if (!baseUrl || !apiKey || !model) {
-      onError("请填写所有必填字段");
+    if (!baseUrl || !model || !apiKey.trim()) {
+      onError("请填写 Base URL、Model 和 API Key；如果要使用已保存 Key 的预设，请点击应用预设。");
       return;
     }
 
@@ -157,6 +207,10 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
     try {
       await api.updateLLMConfig({ base_url: baseUrl, api_key: apiKey, model, max_tokens: maxTokens });
       onSuccess("LLM 配置已保存");
+      setConfigStatus({ configured: true, base_url: baseUrl, model, max_tokens: maxTokens });
+      snapshotConfig({ configured: true, base_url: baseUrl, model, max_tokens: maxTokens }, selectedPresetId);
+      setApiKey("");
+      setTestResult({ success: true, message: `当前生效模型：${model}` });
       onConfigChanged?.();
     } catch (err) {
       onError(err instanceof Error ? err.message : "请求失败，请检查网络连接");
@@ -173,11 +227,26 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
     setIsApplyingPreset(true);
     try {
       const result = await api.applyLLMPreset(selectedPresetId, { api_key: apiKey || undefined });
+      const appliedPreset = result.preset || selectedPreset || {
+        id: selectedPresetId,
+        name: presetName || model || "LLM 预设",
+        base_url: baseUrl,
+        model,
+        max_tokens: maxTokens,
+      };
       await fetchConfigStatus();
       await fetchLlmPresets();
+      if (!apiKey.trim()) {
+        setApiKey("");
+      }
+      setConfigStatus({ configured: true, base_url: appliedPreset.base_url, model: appliedPreset.model, max_tokens: appliedPreset.max_tokens });
+      snapshotConfig(
+        { configured: true, base_url: appliedPreset.base_url, model: appliedPreset.model, max_tokens: appliedPreset.max_tokens },
+        appliedPreset.id,
+      );
       onConfigChanged?.();
-      onSuccess(result.message || "LLM 预设已应用");
-      setTestResult({ success: true, message: result.message || "LLM 预设已应用" });
+      onSuccess(result.message || `LLM 预设已应用：${appliedPreset.name}`);
+      setTestResult({ success: true, message: `当前生效模型：${appliedPreset.model}` });
     } catch (err) {
       onError(err instanceof Error ? err.message : "应用预设失败，请确认 Base URL、API Key 和模型名已填写");
     } finally {
@@ -206,12 +275,21 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
       });
       await fetchLlmPresets();
       setSelectedPresetId(presetId);
+      setSavedConfig((current) => ({ ...current, selectedPresetId: presetId }));
       onSuccess("LLM 预设已保存到本地");
     } catch (err) {
       onError(err instanceof Error ? err.message : "保存 LLM 预设失败");
     } finally {
       setIsSavingPreset(false);
     }
+  }
+
+  function handlePrimarySave() {
+    if (canUseStoredPresetKey && !apiKey.trim()) {
+      void handleApplyPreset();
+      return;
+    }
+    void handleSave();
   }
 
   async function handleDeletePreset() {
@@ -322,7 +400,7 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
             <Settings size={20} />
             <h3>LLM 配置</h3>
           </div>
-          <button className="modal-close" onClick={onClose}>
+          <button className="modal-close" onClick={handleClose}>
             &times;
           </button>
         </div>
@@ -331,7 +409,14 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
           {configStatus?.configured && (
             <div className="config-status configured">
               <CheckCircle2 size={16} />
-              <span>当前已配置: {configStatus.model}</span>
+              <span>当前生效模型：<strong>{configStatus.model}</strong></span>
+            </div>
+          )}
+
+          {llmConfigDirty && (
+            <div className="config-status unsaved">
+              <XCircle size={16} />
+              <span>当前表单有未保存改动，保存或应用预设后才会用于新测试。</span>
             </div>
           )}
 
@@ -350,6 +435,7 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
                     value={selectedPresetId}
                     onChange={(e) => applyPresetToForm(e.target.value)}
                   >
+                    <option value="">新建空白配置</option>
                     {llmPresets.map((preset) => (
                       <option key={preset.id} value={preset.id}>
                         {preset.name}{preset.has_api_key ? "（已保存 Key）" : ""}
@@ -451,7 +537,7 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
                     type={showApiKey ? "text" : "password"}
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
-                    placeholder="sk-..."
+                    placeholder={canUseStoredPresetKey ? "已保存，可留空继续使用；输入新 Key 会替换" : "sk-..."}
                   />
                   <button
                     className="toggle-password"
@@ -462,7 +548,11 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
                     {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                 </div>
-                <span className="form-hint">Key 仅发送到本地后端保存，列表接口不会回传明文。</span>
+                <span className="form-hint">
+                  {canUseStoredPresetKey
+                    ? "该预设已有本地保存的 Key。出于安全不会回显明文，留空应用会继续使用旧 Key。"
+                    : "Key 仅发送到本地后端保存，列表接口不会回传明文。"}
+                </span>
               </div>
 
               <div className="config-action-row">
@@ -849,16 +939,16 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
           </button>
           <button
             className="primary"
-            onClick={handleSave}
-            disabled={isSaving || !baseUrl || !apiKey || !model}
+            onClick={handlePrimarySave}
+            disabled={isSaving || isApplyingPreset || !baseUrl || !model || !hasUsableApiKey}
           >
-            {isSaving ? (
+            {isSaving || isApplyingPreset ? (
               <>
                 <Loader2 size={16} className="spinner" />
-                保存中...
+                {isApplyingPreset ? "应用中..." : "保存中..."}
               </>
             ) : (
-              "保存配置"
+              canUseStoredPresetKey && !apiKey.trim() ? "应用并生效" : "保存配置"
             )}
           </button>
         </div>

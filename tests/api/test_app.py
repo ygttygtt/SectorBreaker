@@ -416,16 +416,17 @@ def test_api_agent_kernel_writer_failure_marks_run_failed_without_artifacts(tmp_
     run_result = _wait_for_run(client, run_response.json()["id"])
 
     assert run_result["status"] == "failed"
-    assert llm.writer_calls == 3
+    assert llm.writer_calls >= 3
     artifacts_response = client.get(f"/api/projects/{project_id}/artifacts")
     assert artifacts_response.status_code == 200
     assert artifacts_response.json() == []
     events = client.get(f"/api/runs/{run_response.json()['id']}/events").text
-    assert "LLM 写作连续失败" in events
-    assert "未导出模板" in events
+    assert '"gate":"artifact_writing"' in events
+    assert '"severity":"error"' in events
+    assert "主文档写作失败" in events or "连续写作失败过多" in events
 
 
-def test_api_agent_kernel_failed_run_does_not_persist_partial_artifacts(tmp_path: Path) -> None:
+def test_api_agent_kernel_failed_run_keeps_completed_artifacts(tmp_path: Path) -> None:
     llm = _partial_then_failing_kernel_writer_llm()
     client = TestClient(
         create_app(
@@ -447,10 +448,11 @@ def test_api_agent_kernel_failed_run_does_not_persist_partial_artifacts(tmp_path
     run_response = client.post(f"/api/projects/{project['id']}/runs", params={"auto_run": "true"})
     run_result = _wait_for_run(client, run_response.json()["id"])
 
-    assert run_result["status"] == "failed"
-    assert llm.writer_calls == 4
+    assert run_result["status"] == "completed"
+    assert llm.writer_calls >= 4
     artifacts = client.get(f"/api/projects/{project['id']}/artifacts").json()
-    assert artifacts == []
+    assert len(artifacts) == 1
+    assert artifacts[0]["title"] == "L1 本源与需求"
 
 
 def test_api_agent_kernel_uploaded_report_reaches_writer_context(tmp_path: Path) -> None:

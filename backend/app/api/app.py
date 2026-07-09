@@ -1132,6 +1132,22 @@ def create_app(
 
         return {"status": "resumed", "run_id": run_id}
 
+    @app.get("/api/runs/{run_id}/trace")
+    def export_run_trace(run_id: str):
+        """Export the full run trace for debugging and tuning analysis."""
+        try:
+            run = repository.get_run(run_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="run not found") from exc
+        events = repository.list_run_events(run_id)
+        return {
+            "run_id": run_id,
+            "project_id": run.project_id,
+            "status": run.status.value,
+            "event_count": len(events),
+            "events": [event.model_dump(mode="json") for event in events],
+        }
+
     @app.get("/api/runs/{run_id}/events")
     async def stream_events(run_id: str):
         """SSE endpoint for streaming run events."""

@@ -70,6 +70,10 @@ The latest completed implementation milestone is:
 - Current code reality is V2.0 Agent Kernel for personal `domain_knowledge`, not the older V1.6 workflow stage. V2.0 includes persisted `SectorBreakerState` checkpoints, universal anchor layers, `docs/` + `cards/` vault structure, `revise_layer_document`, and `POST /api/projects/{project_id}/continue`.
 - Latest V2.0 checkpoint fix: continuation now loads the latest resumable checkpoint by `project_id`, so a second or later `/continue` run resumes from the previous follow-up run instead of the original first-run checkpoint. Non-completed `run_end` checkpoints are diagnostic only; default continuation uses `artifact_write` or `run_end_completed`.
 - Local LLM presets are now first-class settings. Backend routes under `/api/config/llm/presets` manage local-only presets, never return API keys in list responses, and apply presets into the active OpenAI-compatible provider. The settings UI can select built-in DeepSeek / SenseNova V4 Flash / Mimo templates, create/edit/delete user presets, apply a preset with a local key, and test the connection. Runtime preset files are ignored by Git through `*.runtime-config.json`.
+- V2 Agent Kernel recovery/UX follow-up is implemented. Optional card/index/narrative write failures are warnings instead of fatal artifact-loss events; completed main artifacts can be returned with partial-success metadata and failed-write diagnostics. User-facing Agent narration should come from `user_notice` when present, while raw internal terms stay in logs/trace data.
+- Run trace analysis is now a product surface: `GET /api/runs/{run_id}/trace` exports persisted run events, the frontend result view has a "下载思考日志" action, and the Kernel has `generate_run_narrative` for a first-person research recap artifact.
+- The LLM settings panel now has explicit confirmation: current effective model display, unsaved-change warning/close confirm, preset application using locally stored keys without key disclosure, and a clearer "loaded preset vs applied config" flow. A blank key is valid only when applying a selected preset that already has a stored local key.
+- The Agent Kernel registers `write_explainer_cards_batch` for independent optional Obsidian cards. Use it for parallel supplementary cards after main docs exist; do not use it as a substitute for main layer documents.
 - The frontend now exposes a mode selector and multi-provider search settings (Tavily recommended, Serper/Brave/Exa visible). It also carries explicit guardrails: do not scrape login-gated job boards by default; use uploads and configured search providers first.
 - Backend: FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + explainable agent selection traces.
 - Frontend: Vite + React + TypeScript explainable research workbench with real workflow graph, vertical layout, and active-node centering.
@@ -224,6 +228,19 @@ cd frontend && npm run build
 Expected result: focused backend config suite reports 3 passed with the known
 Starlette/TestClient warning, frontend App suite reports 20 passed, and frontend
 build passes with the existing Vite chunk-size warning.
+
+Latest V2 recovery/UX verification:
+
+```bash
+python -m pytest tests/unit/test_explainer_cards_batch.py -q
+python -m pytest tests/unit/test_kernel_partial_success.py tests/unit/test_agent_kernel_models.py tests/unit/test_run_narrative.py tests/api/test_run_trace_export.py -q
+python -m pytest tests/api/test_app.py::test_api_agent_kernel_writer_failure_marks_run_failed_without_artifacts tests/api/test_app.py::test_api_agent_kernel_failed_run_keeps_completed_artifacts -q
+cd frontend && npm test -- --run App.test.tsx
+cd frontend && npm run build
+python tools/check_version_isolation.py
+```
+
+Expected result: batch-card unit test passes; Kernel recovery/narrative/trace suite reports 8 passed with the known Starlette warning; focused API failure/partial-artifact suite reports 2 passed with the known warning; frontend App suite reports 20 passed; frontend build passes with the existing Vite chunk-size warning; version isolation passes.
 
 ## Local Run
 

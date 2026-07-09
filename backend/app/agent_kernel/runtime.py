@@ -33,9 +33,11 @@ class AgentKernelRuntime:
         self.policy = policy
         self.registry = registry
         self.config = config or KernelLoopConfig()
+        self._failed_writes: list[str] = []
 
     async def run(self, context: KernelRuntimeContext) -> KernelRunResult:
         trace: list[KernelTraceEvent] = []
+        self._failed_writes = []
         consecutive_failed_tools = 0
         for iteration in range(1, self.config.max_iterations + 1):
             decision = await self._decide_with_heartbeat(
@@ -46,10 +48,14 @@ class AgentKernelRuntime:
                 loop_config=self.config,
                 artifacts=context.artifacts,
             )
+            user_text = (decision.user_notice or "").strip() or decision.thought_summary
             thought = KernelTraceEvent(
                 kind=TraceEventKind.THOUGHT,
-                message=f"Thought Summary: {decision.thought_summary}",
-                data=decision.model_dump(mode="json"),
+                message=user_text,
+                data={
+                    **decision.model_dump(mode="json"),
+                    "user_notice": decision.user_notice,
+                },
             )
             trace.append(thought)
             await self._emit(context, thought, gate="agent_decide", agent="V2 Master Agent")
@@ -104,12 +110,13 @@ class AgentKernelRuntime:
             for tool_call in tool_calls:
                 action_event = KernelTraceEvent(
                     kind=TraceEventKind.ACTION,
-                    message=f"Action: {tool_call.tool_name} - {tool_call.reason}",
+                    message=(decision.user_notice or "").strip() or tool_call.tool_name,
                     data={
                         **tool_call.model_dump(mode="json"),
                         "current_goal": decision.current_goal,
                         "plan_steps": decision.plan_steps,
                         "progress_check": decision.progress_check,
+                        "user_notice": decision.user_notice,
                     },
                 )
                 trace.append(action_event)
@@ -221,10 +228,19 @@ class AgentKernelRuntime:
                 except Exception:
                     pass  # checkpoint errors must not abort the Agent loop
 
-        if observation.tool_name in {"write_layer_document", "write_explainer_card", "write_vault_index"} and not observation.success:
+        optional_writers = {"write_explainer_card", "write_explainer_cards_batch", "write_vault_index", "generate_run_narrative"}
+        main_writers = {"write_layer_document", "revise_layer_document"}
+        if observation.tool_name in (optional_writers | main_writers) and not observation.success:
+            self._failed_writes.append(observation.summary or observation.tool_name)
+            severity = "warning" if observation.tool_name in optional_writers else "error"
+            note = (
+                "可选卡片/索引写作失败，已跳过，不影响主文档和整轮产物。"
+                if observation.tool_name in optional_writers
+                else "主文档写作失败，已记录；已写成的其它文档仍会保留。"
+            )
             failed = KernelTraceEvent(
-                kind=TraceEventKind.BLOCKED,
-                message="Blocked: LLM 写作失败，已停止运行，未导出模板或假产物。",
+                kind=TraceEventKind.WARNING,
+                message="Observation: " + note,
                 data=observation.model_dump(mode="json"),
             )
             trace.append(failed)
@@ -233,15 +249,18 @@ class AgentKernelRuntime:
                 failed,
                 gate="artifact_writing",
                 agent="V2 Artifact Writer",
-                severity="error",
+                severity=severity,
             )
-            return consecutive_failed_tools, self._result(
-                KernelRunStatus.FAILED,
-                context,
-                trace,
-                iteration,
-                "artifact_writing_failed",
-            )
+            consecutive_failed_tools += 1
+            if consecutive_failed_tools >= self.config.max_consecutive_failed_tools:
+                return consecutive_failed_tools, self._result(
+                    KernelRunStatus.MAX_ITERATIONS if context.artifacts else KernelRunStatus.FAILED,
+                    context,
+                    trace,
+                    iteration,
+                    "连续写作失败过多，已停止；已写成的产物会保留。",
+                )
+            return consecutive_failed_tools, None
         if observation.requires_human:
             return consecutive_failed_tools, self._result(
                 KernelRunStatus.WAITING_FOR_HUMAN,
@@ -279,7 +298,14 @@ class AgentKernelRuntime:
 
     @staticmethod
     def _gate_for_tool(tool_name: str) -> str:
-        if tool_name in {"write_layer_document", "write_explainer_card", "write_vault_index"}:
+        if tool_name in {
+            "write_layer_document",
+            "revise_layer_document",
+            "write_explainer_card",
+            "write_explainer_cards_batch",
+            "write_vault_index",
+            "generate_run_narrative",
+        }:
             return "artifact_writing"
         if tool_name == "review_artifact":
             return "artifact_review"
@@ -291,12 +317,12 @@ class AgentKernelRuntime:
     def _severity_for_observation(observation: KernelObservation) -> str:
         if observation.success:
             return "info"
-        if observation.tool_name == "write_layer_document":
+        if observation.tool_name in {"write_layer_document", "revise_layer_document"}:
             return "error"
         return "warning"
 
-    @staticmethod
     def _result(
+        self,
         status: KernelRunStatus,
         context: KernelRuntimeContext,
         trace: list[KernelTraceEvent],
@@ -310,6 +336,8 @@ class AgentKernelRuntime:
             artifact_ids=[artifact.id for artifact in context.artifacts],
             stop_reason=reason,
             iterations=iterations,
+            failed_writes=list(self._failed_writes),
+            partial_success=bool(context.artifacts and self._failed_writes),
         )
 
     @staticmethod

@@ -15,3 +15,24 @@ def test_agent_decision_requires_tool_call_for_call_tool() -> None:
 
     assert decision.tool_call is not None
     assert decision.tool_call.tool_name == "search_web"
+
+
+def test_agent_decision_accepts_user_notice() -> None:
+    decision = AgentDecision(
+        thought_summary="L1 coverage_score 足够，准备写作。",
+        user_notice="我已经收集够资料了，现在开始撰写这个领域的入门介绍。",
+        action_type=AgentActionType.WRITE_ARTIFACT,
+        tool_call=ToolCall(tool_name="write_layer_document", args={"title": "本源与边界"}, reason="x"),
+    )
+
+    assert decision.user_notice.startswith("我")
+
+
+def test_agent_decision_user_notice_defaults_empty() -> None:
+    decision = AgentDecision(
+        thought_summary="finish",
+        action_type=AgentActionType.FINISH,
+        stop_reason="done",
+    )
+
+    assert decision.user_notice == ""

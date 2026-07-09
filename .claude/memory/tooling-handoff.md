@@ -59,6 +59,10 @@ metadata:
 - 当前代码现实是 V2.0 Agent Kernel，不是 V1.6 workflow 阶段。V2.0 已包含 `SectorBreakerState` checkpoint 持久化、通用锚点层、`docs/` + `cards/` vault 结构、`revise_layer_document` 和 `POST /api/projects/{project_id}/continue`。
 - V2.0 checkpoint continuation 已修复：`/continue` 按 `project_id` 读取最新可恢复 checkpoint，因此第二次及后续 continue 会接上上一轮 follow-up 的 State。默认可恢复类型是 `artifact_write` 和 `run_end_completed`；非 completed 的 `run_end` 只作为诊断状态。
 - 本地 LLM provider 切换已改为预设功能：后端通过 `/api/config/llm/presets` 管理本地私有预设，列表不回传 API key；前端设置页可选择内置 DeepSeek / 商汤 V4 Flash / Mimo 模板，也可新增、编辑、删除用户预设、应用本地 key 并测试连接。`*.runtime-config.json` 已加入 `.gitignore`。
+- V2 Agent Kernel recovery/UX 已落地：可选解释卡/索引/调研复盘写作失败按 warning 处理，不会丢弃已完成主文档；运行结果记录 `failed_writes` / partial-success metadata。用户可见进展优先使用 `user_notice`，内部参数留在 trace/log。
+- API 现有 `GET /api/runs/{run_id}/trace` 可导出运行事件，前端结果页可下载“思考日志”；Kernel 还有 `generate_run_narrative` 生成第一人称调研复盘 artifact。
+- LLM 设置页已强化确认感：当前生效模型、未保存提示/关闭确认、预设加载与应用分离、本地已保存 Key 可留空应用但不回显明文、新输入 Key 可继续保存为预设。
+- 新增 `write_explainer_cards_batch` 用于主文档后并行生成互不依赖的可选解释卡；它不是主文档写作工具，不应拿来替代 `write_layer_document` / `revise_layer_document`。
 - 根目录 `.obsidian/` 是默认 Obsidian Vault 配置模板，导出器会复制到每个生成的知识库目录；它不是 generated artifact 或 evidence。
 - 前端设置页已展示 Tavily / Serper / Brave / Exa provider mode；Tavily 仍是推荐默认。人才需求模式明确不默认抓取登录型招聘网站。
 - 后端：FastAPI + LangGraph + SQLite + provider factory + Supervisor Plan + Evidence Ledger + 可解释选择轨迹
@@ -100,6 +104,7 @@ metadata:
 - 最新 Agent Kernel 治理验证：Agent State/Kernel 关键文件 py_compile passed；Agent Kernel/State 聚焦 suite 15 passed；`python tools/check_version_isolation.py` passed；workflow-definition API 测试 1 passed，1 warning。较慢 API 三件套本地挂住后中断，不能算通过。
 - 最新 V2.0 checkpoint/continue 验证：focused backend suite 27 passed，1 个已知 Starlette/TestClient warning；`python tools/check_version_isolation.py` passed；frontend App suite 19 passed。
 - 最新本地 LLM 预设/设置页验证：focused backend config suite 3 passed，1 个已知 Starlette/TestClient warning；frontend App suite 20 passed；frontend build passed，仅 Vite chunk-size warning。
+- 最新 V2 recovery/UX 验证：batch-card unit 1 passed；Kernel recovery/narrative/trace suite 8 passed，1 warning；Agent Kernel failure/partial-artifact API focused suite 2 passed，1 warning；frontend App suite 20 passed；frontend build passed，仅 Vite chunk-size warning；`python tools/check_version_isolation.py` passed。
 - 最新版本隔离验证入口：`python tools/check_version_isolation.py`。如果失败，优先移除生产引用或隔离历史代码，不允许继续补丁式防御。
 
 最高风险任务：

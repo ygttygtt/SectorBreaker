@@ -440,6 +440,16 @@ export const api = {
     return requestJson<RunSnapshot>(`/api/runs/${runId}/snapshot`);
   },
 
+  getRunTrace(runId: string) {
+    return requestJson<{
+      run_id: string;
+      project_id: string;
+      status: string;
+      event_count: number;
+      events: RunEvent[];
+    }>(`/api/runs/${runId}/trace`);
+  },
+
   getActiveRun(projectId: string) {
     return requestJson<RunResponse | null>(`/api/projects/${projectId}/active-run`);
   },

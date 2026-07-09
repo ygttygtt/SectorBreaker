@@ -62,6 +62,33 @@ def register_artifact_tools(registry: ToolRegistry) -> None:
     )
     registry.register(
         ToolSpec(
+            name="write_explainer_cards_batch",
+            description=(
+                "Write several independent Obsidian knowledge cards in one batch. "
+                "Use this only for optional explainer cards that do not depend on each other."
+            ),
+            args_schema=schema({
+                "cards": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "card_kind": {"type": "string"},
+                            "title": {"type": "string"},
+                            "focus": {"type": "string"},
+                            "layer_id": {"type": "string"},
+                            "writing_goal": {"type": "string"},
+                            "linked_artifact_ids": {"type": "array", "items": {"type": "string"}},
+                        },
+                        "required": ["title", "focus", "writing_goal"],
+                    },
+                }
+            }, required=["cards"]),
+        ),
+        write_explainer_cards_batch,
+    )
+    registry.register(
+        ToolSpec(
             name="write_vault_index",
             description="Write an Obsidian navigation/index page that connects main documents, cards, evidence, and open questions.",
             args_schema=schema({
@@ -180,6 +207,10 @@ async def write_explainer_card(tool_call, context: KernelRuntimeContext) -> Kern
         )
     title = str(tool_call.args.get("title") or "").strip()
     focus = str(tool_call.args.get("focus") or title).strip()
+    if not title and focus:
+        title = focus[:36].strip()
+    if not focus and title:
+        focus = title
     writing_goal = str(tool_call.args.get("writing_goal") or "").strip()
     if not title or not focus:
         return KernelObservation(
@@ -231,6 +262,69 @@ async def write_explainer_card(tool_call, context: KernelRuntimeContext) -> Kern
         },
         state_delta=KernelStateDelta(artifact_ids=[artifact.id], task_notes=[summary]),
         artifact_ids=[artifact.id],
+    )
+
+
+async def write_explainer_cards_batch(tool_call, context: KernelRuntimeContext) -> KernelObservation:
+    raw_cards = tool_call.args.get("cards") or []
+    if not isinstance(raw_cards, list) or not raw_cards:
+        return KernelObservation(
+            tool_name="write_explainer_cards_batch",
+            success=False,
+            summary="批量解释卡写作失败：没有提供 cards。",
+            error="missing cards",
+        )
+    cards = [card for card in raw_cards[:6] if isinstance(card, dict)]
+    if not cards:
+        return KernelObservation(
+            tool_name="write_explainer_cards_batch",
+            success=False,
+            summary="批量解释卡写作失败：cards 格式无效。",
+            error="invalid cards",
+        )
+
+    async def write_one(card: dict) -> KernelObservation:
+        card_args = {
+            "card_kind": card.get("card_kind") or "concept",
+            "title": card.get("title") or card.get("focus") or "",
+            "focus": card.get("focus") or card.get("title") or "",
+            "layer_id": card.get("layer_id") or tool_call.args.get("layer_id"),
+            "writing_goal": card.get("writing_goal") or "补充主文档之外的解释性知识卡。",
+            "linked_artifact_ids": card.get("linked_artifact_ids") or [],
+        }
+        return await write_explainer_card(
+            tool_call.model_copy(update={
+                "tool_name": "write_explainer_card",
+                "args": card_args,
+                "reason": f"批量解释卡：{card_args['title']}",
+            }),
+            context,
+        )
+
+    observations = await asyncio.gather(*(write_one(card) for card in cards))
+    successful_ids = [artifact_id for obs in observations if obs.success for artifact_id in obs.artifact_ids]
+    failed = [
+        {
+            "title": str(cards[index].get("title") or cards[index].get("focus") or f"card-{index + 1}"),
+            "summary": obs.summary,
+            "error": obs.error,
+        }
+        for index, obs in enumerate(observations)
+        if not obs.success
+    ]
+    summary = f"批量解释卡完成：成功 {len(successful_ids)} 张，失败 {len(failed)} 张。"
+    return KernelObservation(
+        tool_name="write_explainer_cards_batch",
+        success=bool(successful_ids),
+        summary=summary,
+        error="" if successful_ids else "all cards failed",
+        data={
+            "artifact_ids": successful_ids,
+            "failed_cards": failed,
+            "requested_count": len(cards),
+        },
+        state_delta=KernelStateDelta(artifact_ids=successful_ids, task_notes=[summary]),
+        artifact_ids=successful_ids,
     )
 
 
