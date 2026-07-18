@@ -28,7 +28,6 @@ class SourcePolicy(StrEnum):
 
 class ProjectMode(StrEnum):
     DOMAIN_KNOWLEDGE = "domain_knowledge"
-    TALENT_DEMAND = "talent_demand"
 
 
 class ProjectStatus(StrEnum):

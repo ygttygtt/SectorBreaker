@@ -51,7 +51,7 @@ Markdown 必须 Obsidian-friendly：
 
 ```yaml
 ---
-schema_version: v2-agent-kernel
+schema_version: v3-knowledge-ops
 type: layer_artifact
 layer_id: L3_how
 status: draft
@@ -112,7 +112,7 @@ L5 文档应解释政策、平台规则、安全、伦理、骗局、失败模�
 
 ```markdown
 ---
-schema_version: "v2-agent-kernel"
+schema_version: "v3-knowledge-ops"
 type: "layer_artifact"
 layer_id: "L3_how"
 status: "draft"

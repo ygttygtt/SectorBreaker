@@ -8,9 +8,9 @@ import os
 import sys
 
 from backend.app.env import load_local_env
-from backend.app.graph.workflow import search_constraints_for_policy
 from backend.app.providers.factory import build_content_extraction_provider, build_search_provider
 from backend.app.providers.interfaces import SearchQuery
+from backend.app.providers.source_policy import search_constraints_for_policy
 from backend.app.providers.source_verification import HeuristicSourceVerificationProvider
 
 

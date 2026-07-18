@@ -27,7 +27,6 @@ class SourceType(StrEnum):
 
 class SourceChannel(StrEnum):
     SEARCH = "search"
-    BOSS_JOB = "boss_job"
     RELIABLE_PROVIDER = "reliable_provider"
     USER_UPLOAD = "user_upload"
     ASSISTANT_BRIEF = "assistant_brief"

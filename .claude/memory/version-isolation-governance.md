@@ -21,3 +21,7 @@ incident:
 Future agents must read `docs/20-version-isolation-and-cutover-rules.md` before
 changing Agent entrypoints, workflow definitions, or product-mode routing.
 
+V3 additionally retires the enterprise talent-demand experiment. Production
+code, API routes, frontend modes, providers, and tests must not restore
+TalentScope, Boss/job-source, or `talent_demand`. Historical migration SQL may
+mention those names only to archive or delete old data.

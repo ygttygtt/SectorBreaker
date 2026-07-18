@@ -74,6 +74,16 @@ class KernelContextBuilder:
             f"{pack.to_prompt_text()}\n\n"
             "## Artifact Memory\n"
             f"{json.dumps({'artifact_count': len(artifact_summaries), 'artifacts': artifact_summaries}, ensure_ascii=False, indent=2)}\n\n"
+            "## Knowledge Management Control Plane\n"
+            f"{json.dumps({
+                'vault_import_id': state.vault_import_id,
+                'latest_health_report_id': state.latest_health_report_id,
+                'maintenance_task_ids': state.maintenance_task_ids,
+                'maintenance_task_summaries': state.maintenance_task_summaries,
+                'active_maintenance_objective': state.active_maintenance_objective,
+                'delegation_log': state.delegation_log[-12:],
+                'autonomy_policy': state.autonomy_policy.model_dump(mode='json'),
+            }, ensure_ascii=False, indent=2)}\n\n"
             "## Available Tools\n"
             f"{json.dumps(tool_specs, ensure_ascii=False, indent=2)}\n\n"
             "## Recent Agent Trace\n"

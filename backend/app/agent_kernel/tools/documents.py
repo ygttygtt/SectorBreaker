@@ -1,10 +1,11 @@
-"""Document and project-memory tools for the V2 Agent Kernel."""
+"""Document and project-memory tools for the V3 Agent Kernel."""
 
 from __future__ import annotations
 
 from backend.app.agent_kernel.models import KernelObservation, KernelStateDelta, ToolSpec
 from backend.app.agent_kernel.tool_registry import KernelRuntimeContext, ToolRegistry, schema
 from backend.app.agent_state.models import SourceMemory, SourceUse, TrustLevel
+from backend.app.rag import ProjectRetriever
 
 
 def register_document_tools(registry: ToolRegistry) -> None:
@@ -107,25 +108,21 @@ async def retrieve_project_memory(tool_call, context: KernelRuntimeContext) -> K
             summary="项目记忆检索失败：query 为空。",
             error="empty query",
         )
-    snippets = []
-    try:
-        snippets.extend([
-            {"id": item.document_id, "snippet": item.snippet[:600], "score": item.score}
-            for item in context.repository.search_project(context.project.id, query, limit)
-        ])
-    except Exception:
-        snippets = []
-    lowered = query.lower()
-    for document in context.repository.list_documents(context.project.id):
-        if lowered in document.content.lower() or lowered in (document.file_name or "").lower():
-            snippets.append({"id": document.id, "snippet": document.content[:600], "score": 0.7})
-            if len(snippets) >= limit:
-                break
-    for artifact in context.repository.list_artifacts(context.project.id):
-        if lowered in artifact.content.lower() or lowered in artifact.title.lower():
-            snippets.append({"id": artifact.id, "snippet": artifact.content[:600], "score": 0.6})
-            if len(snippets) >= limit:
-                break
+    citations = ProjectRetriever(context.repository).retrieve(context.project.id, query, limit)
+    snippets = [
+        {
+            "id": item.source_id,
+            "source_type": item.source_type,
+            "title": item.title,
+            "snippet": item.snippet[:600],
+            "score": item.score,
+            "url": item.url,
+            "relative_path": item.relative_path,
+            "content_hash": item.content_hash,
+            "verification_status": item.verification_status,
+        }
+        for item in citations
+    ]
     return KernelObservation(
         tool_name="retrieve_project_memory",
         success=bool(snippets),

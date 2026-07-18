@@ -9,7 +9,6 @@ from fastapi.testclient import TestClient
 from backend.app.agent_state.models import SectorBreakerState
 from backend.app.api.app import create_app
 from backend.app.providers.fakes import FakeContentExtractionProvider, FakeLLMProvider, FakeSearchProvider
-from backend.app.providers.interfaces import JobPostingSource, JobSourceQuery, JobSourceStatus
 from backend.app.storage.sqlite import SQLiteRepository
 
 
@@ -98,7 +97,7 @@ def _default_fake_llm():
                 return (
                     "# L1 本源与需求\n\n"
                     "## 是什么\n\n"
-                    "这是一个用于测试 SectorBreaker V2 Agent Kernel 的结构化知识库文档。它不是空模板，而是验证写作工具能够由 Agent 决策触发。"
+                    "这是一个用于测试 SectorBreaker V3 Agent Kernel 的结构化知识库文档。它不是空模板，而是验证写作工具能够由 Agent 决策触发。"
                     "本文会保留 Obsidian 友好的结构，例如 [[领域边界]]、[[用户需求]] 和 [[待验证问题]]。"
                     + "测试内容用于模拟详实段落，确保写作工具不会把过薄文本保存为成功产物。"*20
                     + "\n\n"
@@ -117,7 +116,7 @@ def _default_fake_llm():
             return (
                 "# L1 本源与需求\n\n"
                 "## 是什么\n\n"
-                "这是一个用于测试 SectorBreaker V2 Agent Kernel 的结构化知识库文档。它不是空模板，而是验证写作工具能够由 Agent 决策触发。"
+                "这是一个用于测试 SectorBreaker V3 Agent Kernel 的结构化知识库文档。它不是空模板，而是验证写作工具能够由 Agent 决策触发。"
                 "本文会保留 Obsidian 友好的结构，例如 [[领域边界]]、[[用户需求]] 和 [[待验证问题]]。"
                 + "测试内容用于模拟详实段落，确保写作工具不会把过薄文本保存为成功产物。"*20
                 + "\n\n"
@@ -224,25 +223,6 @@ def _partial_then_failing_kernel_writer_llm():
     return PartialThenFailingKernelWriterLLM()
 
 
-class FakeJobSourceProvider:
-    def __init__(self, jobs: list[JobPostingSource], available: bool = True) -> None:
-        self.jobs = jobs
-        self.available = available
-        self.requests: list[JobSourceQuery] = []
-
-    async def status(self) -> JobSourceStatus:
-        return JobSourceStatus(
-            provider="fake_boss",
-            configured=True,
-            available=self.available,
-            message="fake boss ready" if self.available else "fake boss unavailable",
-        )
-
-    async def search_jobs(self, query: JobSourceQuery) -> list[JobPostingSource]:
-        self.requests.append(query)
-        return self.jobs[: query.limit]
-
-
 def test_api_runs_research_and_exports_markdown(tmp_path: Path) -> None:
     client = TestClient(
         create_app(
@@ -269,7 +249,7 @@ def test_api_runs_research_and_exports_markdown(tmp_path: Path) -> None:
     run_id = run_response.json()["id"]
     assert run_response.json()["status"] == "running"
 
-    # Wait for background workflow to finish
+    # Wait for the background Agent Kernel to finish.
     run_result = _wait_for_run(client, run_id)
     assert run_result["status"] == "completed"
 
@@ -277,7 +257,7 @@ def test_api_runs_research_and_exports_markdown(tmp_path: Path) -> None:
     assert artifacts_response.status_code == 200
     assert len(artifacts_response.json()) >= 3
     artifacts = artifacts_response.json()
-    assert {artifact["schema_version"] for artifact in artifacts} == {"v2-agent-kernel"}
+    assert {artifact["schema_version"] for artifact in artifacts} == {"v3-knowledge-ops"}
     assert all(not artifact["id"].startswith("ART-V1-") for artifact in artifacts)
 
     events_text = client.get(f"/api/runs/{run_id}/events").text
@@ -285,8 +265,8 @@ def test_api_runs_research_and_exports_markdown(tmp_path: Path) -> None:
     assert "Knowledge Builder" not in events_text
     assert "Document Writer" not in events_text
     assert "已使用保底" not in events_text
-    assert "Thought Summary:" in events_text
-    assert "Action:" in events_text
+    assert '"gate":"agent_decide"' in events_text
+    assert '"gate":"tool_execution"' in events_text
     assert "Observation:" in events_text
     assert "State Update:" in events_text
 
@@ -448,7 +428,7 @@ def test_api_agent_kernel_failed_run_keeps_completed_artifacts(tmp_path: Path) -
     run_response = client.post(f"/api/projects/{project['id']}/runs", params={"auto_run": "true"})
     run_result = _wait_for_run(client, run_response.json()["id"])
 
-    assert run_result["status"] == "completed"
+    assert run_result["status"] == "failed"
     assert llm.writer_calls >= 4
     artifacts = client.get(f"/api/projects/{project['id']}/artifacts").json()
     assert len(artifacts) == 1
@@ -510,6 +490,9 @@ def test_api_agent_kernel_uploaded_report_reaches_writer_context(tmp_path: Path)
                 )
             return await super().complete_structured(messages, response_schema)
 
+        async def complete(self, messages):
+            return await self.complete_structured(messages, str)
+
     llm = ReportAwareLLM()
     client = TestClient(
         create_app(
@@ -541,7 +524,8 @@ def test_api_agent_kernel_uploaded_report_reaches_writer_context(tmp_path: Path)
     run_response = client.post(f"/api/projects/{project['id']}/runs", params={"auto_run": "true"})
     run_result = _wait_for_run(client, run_response.json()["id"])
 
-    assert run_result["status"] == "completed"
+    run_events = client.get(f"/api/runs/{run_response.json()['id']}/events").text
+    assert run_result["status"] == "completed", run_events
     assert llm.writer_prompts
     artifacts = client.get(f"/api/projects/{project['id']}/artifacts").json()
     assert any("多模型聚合和成本控制" in item["content"] for item in artifacts)
@@ -589,89 +573,6 @@ def test_api_rejects_opening_folder_outside_export_root(tmp_path: Path, monkeypa
     assert response.status_code == 400
 
 
-def test_api_accepts_talent_demand_project_mode(tmp_path: Path) -> None:
-    client = TestClient(
-        create_app(
-            database_path=tmp_path / "sectorbreaker.sqlite3",
-            export_root=tmp_path / "exports",
-            llm_provider=_default_fake_llm(),
-        )
-    )
-
-    project_response = client.post(
-        "/api/projects",
-        json={
-            "title": "大模型应用开发工程师需求",
-            "domain": "大模型应用开发工程师",
-            "market_scope": "china",
-            "depth": "quick",
-            "source_policy": "reliable_first",
-            "project_mode": "talent_demand",
-        },
-    )
-
-    assert project_response.status_code == 200
-    assert project_response.json()["project_mode"] == "talent_demand"
-
-    detail_response = client.get(f"/api/projects/{project_response.json()['id']}")
-    assert detail_response.status_code == 200
-    assert detail_response.json()["project_mode"] == "talent_demand"
-
-
-def test_api_talent_demand_run_uses_uploaded_jd_and_creates_talent_artifacts(tmp_path: Path) -> None:
-    client = TestClient(
-        create_app(
-            database_path=tmp_path / "sectorbreaker.sqlite3",
-            export_root=tmp_path / "exports",
-            llm_provider=_default_fake_llm(),
-        )
-    )
-    project = client.post(
-        "/api/projects",
-        json={
-            "title": "大模型应用开发工程师需求",
-            "domain": "大模型应用开发工程师",
-            "market_scope": "china",
-            "depth": "quick",
-            "source_policy": "reliable_first",
-            "project_mode": "talent_demand",
-        },
-    ).json()
-    document_response = client.post(
-        f"/api/projects/{project['id']}/documents",
-        json={
-            "channel": "user_upload",
-            "file_name": "jd.md",
-            "mime_type": "text/markdown",
-            "content": (
-                "岗位：大模型应用开发工程师\n"
-                "公司：示例科技\n"
-                "地点：北京\n"
-                "薪资：20-35K·14薪\n"
-                "经验要求：3-5年\n"
-                "职责：\n"
-                "1. 负责 RAG 知识库和 Agent 应用开发。\n"
-                "要求：熟悉 Python、LangGraph、FastAPI 和向量数据库。"
-            ),
-        },
-    )
-    assert document_response.status_code == 200
-
-    run_response = client.post(f"/api/projects/{project['id']}/runs", params={"auto_run": "true"})
-    run_result = _wait_for_run(client, run_response.json()["id"])
-
-    assert run_result["status"] == "completed"
-    artifacts = client.get(f"/api/projects/{project['id']}/artifacts").json()
-    paths = {artifact["content_path"] for artifact in artifacts}
-    assert "00-岗位需求总览.md" in paths
-    assert "02-技能需求矩阵.md" in paths
-    assert "skills/RAG.md" in paths
-
-    events = client.get(f"/api/runs/{run_response.json()['id']}/events").text
-    assert "Talent Source Scout" in events
-    assert "Source Coverage" in events
-
-
 def test_api_project_chat_uses_local_fts(tmp_path: Path) -> None:
     client = TestClient(
         create_app(
@@ -700,7 +601,7 @@ def test_api_project_chat_uses_local_fts(tmp_path: Path) -> None:
     assert chat_response.json()["citation_details"]
 
 
-def test_api_chat_uses_project_retrieval(tmp_path: Path) -> None:
+def test_api_chat_uses_uploaded_knowledge_retrieval(tmp_path: Path) -> None:
     client = TestClient(
         create_app(
             database_path=tmp_path / "sectorbreaker.sqlite3",
@@ -711,170 +612,32 @@ def test_api_chat_uses_project_retrieval(tmp_path: Path) -> None:
     project = client.post(
         "/api/projects",
         json={
-            "title": "人才需求",
-            "domain": "AI Agent 工程师",
+            "title": "Agent 工程知识库",
+            "domain": "AI Agent 工程",
             "market_scope": "china",
             "depth": "quick",
-            "project_mode": "talent_demand",
         },
     ).json()
     document = client.post(
         f"/api/projects/{project['id']}/documents",
         json={
             "channel": "user_upload",
-            "file_name": "jd.md",
+            "file_name": "rag-notes.md",
             "mime_type": "text/markdown",
-            "content": "岗位：AI Agent 工程师\n要求：熟悉 RAG、向量数据库、LangGraph 和 Python。",
+            "content": "RAG 实践通常需要向量数据库、LangGraph 和 Python，并应保留可追溯的来源。",
         },
     )
     assert document.status_code == 200
     run_response = client.post(f"/api/projects/{project['id']}/runs", params={"auto_run": "true"})
     _wait_for_run(client, run_response.json()["id"])
 
-    chat_response = client.post(f"/api/projects/{project['id']}/chat", json={"question": "RAG 有什么要求"})
+    chat_response = client.post(f"/api/projects/{project['id']}/chat", json={"question": "RAG 实践需要什么"})
 
     body = chat_response.json()
     assert chat_response.status_code == 200
     assert "RAG" in body["answer"]
     assert body["citations"]
     assert body["citation_details"][0]["source_id"] in body["citations"]
-
-
-def test_api_talent_demand_run_uses_boss_job_source_when_enabled(tmp_path: Path) -> None:
-    job_provider = FakeJobSourceProvider([
-        JobPostingSource(
-            title="AI Agent 工程师",
-            company="示例科技",
-            location="北京",
-            salary_text="25-40K",
-            experience_text="3-5年",
-            description="负责 RAG、Agent、LangGraph 和 Python 后端开发。",
-            skills=["RAG", "Agent", "LangGraph", "Python"],
-            url="https://example.com/boss-job",
-        )
-    ])
-    client = TestClient(
-        create_app(
-            database_path=tmp_path / "sectorbreaker.sqlite3",
-            export_root=tmp_path / "exports",
-            job_source_provider=job_provider,
-            search_provider=FakeSearchProvider(results=[]),
-            llm_provider=None,
-        )
-    )
-    config_response = client.post(
-        "/api/config/job-source",
-        json={
-            "enabled": True,
-            "provider": "boss_agent_cli",
-            "boss_keyword": "AI Agent 工程师",
-            "boss_city": "北京",
-            "boss_limit": 3,
-        },
-    )
-    assert config_response.status_code == 200
-    project = client.post(
-        "/api/projects",
-        json={
-            "title": "AI Agent 工程师需求",
-            "domain": "AI Agent 工程师",
-            "market_scope": "china",
-            "depth": "quick",
-            "project_mode": "talent_demand",
-        },
-    ).json()
-
-    run_response = client.post(f"/api/projects/{project['id']}/runs", params={"auto_run": "true"})
-    run_result = _wait_for_run(client, run_response.json()["id"])
-    evidence = client.get(f"/api/projects/{project['id']}/evidence").json()
-
-    assert run_result["status"] == "completed"
-    assert job_provider.requests
-    assert any(item["source_channel"] == "boss_job" for item in evidence)
-
-
-def test_api_run_uses_injected_search_and_llm_providers(tmp_path: Path) -> None:
-    search_provider = FakeSearchProvider(
-        results=[
-            {
-                "title": "宠物服务市场",
-                "url": "https://example.com/pet-services",
-                "snippet": "宠物服务需求增长。",
-            }
-        ]
-    )
-    client = TestClient(
-        create_app(
-            database_path=tmp_path / "sectorbreaker.sqlite3",
-            export_root=tmp_path / "exports",
-            search_provider=search_provider,
-            llm_provider=FakeLLMProvider(
-                response={
-                    "sections": ["行业边界", "市场现状"],
-                    "key_questions": ["谁付钱？"],
-                }
-            ),
-        )
-    )
-    project_id = client.post(
-        "/api/projects",
-        json={
-            "title": "Pet Services",
-            "domain": "宠物服务",
-            "market_scope": "china",
-            "depth": "quick",
-        },
-    ).json()["id"]
-
-    run_response = client.post(f"/api/projects/{project_id}/runs", params={"auto_run": "true"})
-    run_id = run_response.json()["id"]
-    run_result = _wait_for_run(client, run_id)
-    assert run_result["status"] == "completed"
-
-    evidence_response = client.get(f"/api/projects/{project_id}/evidence")
-    assert evidence_response.json()[1]["source_title"] == "宠物服务市场"
-    assert search_provider.search_requests
-
-
-def test_api_run_applies_source_policy_domain_constraints(tmp_path: Path) -> None:
-    search_provider = FakeSearchProvider(
-        results=[
-            {
-                "title": "官方政策信息",
-                "url": "https://example.org/policy",
-                "snippet": "政策环境和监管要求。",
-            }
-        ]
-    )
-    client = TestClient(
-        create_app(
-            database_path=tmp_path / "sectorbreaker.sqlite3",
-            export_root=tmp_path / "exports",
-            search_provider=search_provider,
-            llm_provider=_default_fake_llm(),
-        )
-    )
-    project_id = client.post(
-        "/api/projects",
-        json={
-            "title": "政策机会",
-            "domain": "政策机会",
-            "market_scope": "china",
-            "depth": "quick",
-            "source_policy": "reliable_only",
-        },
-    ).json()["id"]
-
-    run_response = client.post(f"/api/projects/{project_id}/runs", params={"auto_run": "true"})
-    run_result = _wait_for_run(client, run_response.json()["id"])
-
-    assert run_result["status"] == "completed"
-    assert search_provider.search_requests
-    first_request = search_provider.search_requests[0]
-    assert first_request.allowed_domains
-    assert "gov.cn" in first_request.allowed_domains
-    assert "medium.com" in (first_request.blocked_domains or [])
-
 
 def test_api_exposes_workflow_definition_and_source_policy(tmp_path: Path) -> None:
     client = TestClient(
@@ -1735,43 +1498,6 @@ def test_api_uploads_docx_document_file(tmp_path: Path) -> None:
     assert payload["citation_count"] == 1
 
 
-def test_api_pauses_for_supervisor_plan_confirmation(tmp_path: Path) -> None:
-    client = TestClient(
-        create_app(
-            database_path=tmp_path / "sectorbreaker.sqlite3",
-            export_root=tmp_path / "exports",
-            llm_provider=_default_fake_llm(),
-        )
-    )
-    project_id = client.post(
-        "/api/projects",
-        json={
-            "title": "编程教育",
-            "domain": "编程教育",
-            "market_scope": "china",
-            "depth": "quick",
-            "source_policy": "reliable_first",
-        },
-    ).json()["id"]
-
-    run = client.post(f"/api/projects/{project_id}/runs").json()
-    deadline = time.monotonic() + 5
-    result = run
-    while time.monotonic() < deadline:
-        result = client.get(f"/api/runs/{run['id']}").json()
-        if result["status"] == "waiting_for_human":
-            break
-        time.sleep(0.1)
-
-    assert result["status"] == "waiting_for_human"
-    assert result["current_gate"] == "supervisor_plan"
-
-    definition = client.get(f"/api/runs/{run['id']}/workflow-definition")
-    assert definition.status_code == 200
-    node_ids = {node["id"] for node in definition.json()["nodes"]}
-    assert "market_agent" in node_ids
-
-
 def test_api_exposes_run_snapshot_for_active_run(tmp_path: Path) -> None:
     client = TestClient(create_app(
         database_path=tmp_path / "sectorbreaker.sqlite3",
@@ -1822,7 +1548,7 @@ def test_api_exposes_active_run_for_project_restore(tmp_path: Path) -> None:
     assert active_run.json()["id"] == run["id"]
 
 
-def test_api_v1_run_creates_knowledge_system_artifacts(tmp_path: Path) -> None:
+def test_api_agent_kernel_run_creates_versioned_knowledge_artifacts(tmp_path: Path) -> None:
     search_provider = FakeSearchProvider(results=[{
         "title": "Agent frameworks trend",
         "url": "https://example.com/agent-frameworks",
@@ -1849,14 +1575,13 @@ def test_api_v1_run_creates_knowledge_system_artifacts(tmp_path: Path) -> None:
 
     artifacts = client.get(f"/api/projects/{project_id}/artifacts").json()
     paths = {item["content_path"] for item in artifacts}
-    assert "00-领域总览.md" in paths
-    assert "01-入门路线.md" in paths
-    assert "02-核心概念.md" in paths
-    assert "03-玩家与工具地图.md" in paths
-    assert "04-趋势与证据.md" in paths
-    assert "05-问题与机会.md" in paths
-    assert "99-待验证问题.md" in paths
-    assert search_provider.search_requests
+    assert paths == {
+        "01-L1 本源与需求.md",
+        "02-L2 角色与玩家.md",
+        "03-L3 原理与实操.md",
+    }
+    assert {item["schema_version"] for item in artifacts} == {"v3-knowledge-ops"}
+    assert all(item["active"] is True for item in artifacts)
     assert llm_provider.messages
 
 
@@ -1904,12 +1629,6 @@ def test_api_run_auto_includes_ingested_document_evidence(tmp_path: Path) -> Non
     assert "EV-DOC-" in "".join(evidence_ids)
     assert any(item_id.startswith(f"EV-DOC-{document_id}-") for item_id in evidence_ids)
 
-    artifacts_response = client.get(f"/api/projects/{project_id}/artifacts")
-    scope_artifact = next(item for item in artifacts_response.json() if item["id"] == "ART-SCOPE-ANALYSIS")
-
-    assert any(source_id.startswith(f"EV-DOC-{document_id}-") for source_id in scope_artifact["source_evidence_ids"])
-
-
 def test_api_run_auto_includes_uploaded_assistant_brief_documents(tmp_path: Path) -> None:
     client = TestClient(
         create_app(
@@ -1941,9 +1660,9 @@ def test_api_run_auto_includes_uploaded_assistant_brief_documents(tmp_path: Path
 
     assert run_result["status"] == "completed"
 
-    evidence_response = client.get(f"/api/projects/{project_id}/evidence")
-
-    assert any(item["source_type"] == "assistant_brief" for item in evidence_response.json())
+    events_text = client.get(f"/api/runs/{run_response.json()['id']}/events").text
+    assert '"gate":"external_materials"' in events_text
+    assert "brief.md" in events_text
 
 
 def test_api_continue_uses_latest_project_checkpoint_after_previous_continue(tmp_path: Path) -> None:

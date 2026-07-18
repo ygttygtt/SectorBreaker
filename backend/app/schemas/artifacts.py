@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 from enum import StrEnum
+from hashlib import sha256
 
 from pydantic import BaseModel, Field
 
@@ -32,17 +33,11 @@ class ArtifactType(StrEnum):
     TREND_EVIDENCE = "trend_evidence"
     PROBLEM_OPPORTUNITY_MAP = "problem_opportunity_map"
     UNRESOLVED_QUESTIONS = "unresolved_questions"
-    # V1.3 talent-demand intelligence
-    TALENT_DEMAND_OVERVIEW = "talent_demand_overview"
-    TALENT_ROLE_PROFILE = "talent_role_profile"
-    TALENT_SKILL_MATRIX = "talent_skill_matrix"
-    TALENT_COMPANY_DISTRIBUTION = "talent_company_distribution"
-    TALENT_SALARY_EXPERIENCE = "talent_salary_experience"
-    TALENT_CAPABILITY_MODEL = "talent_capability_model"
-    TALENT_PORTFOLIO_REQUIREMENTS = "talent_portfolio_requirements"
-    TALENT_UNRESOLVED_QUESTIONS = "talent_unresolved_questions"
     # Living knowledge-base growth
     FOLLOW_UP_NOTE = "follow_up_note"
+    VAULT_NOTE = "vault_note"
+    KNOWLEDGE_HEALTH_REPORT = "knowledge_health_report"
+    KNOWLEDGE_MAINTENANCE_PLAN = "knowledge_maintenance_plan"
 
 
 class Artifact(BaseModel):
@@ -55,4 +50,14 @@ class Artifact(BaseModel):
     source_evidence_ids: list[str] = Field(default_factory=list)
     schema_version: str = "1"
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    revision: int = Field(default=1, ge=1)
+    content_hash: str = ""
+    active: bool = True
+    supersedes: str | None = None
     superseded_by: str | None = None  # ID of the artifact that supersedes this one
+    run_id: str | None = None
+    change_set_id: str | None = None
+
+    def model_post_init(self, __context) -> None:  # type: ignore[override]
+        if not self.content_hash:
+            self.content_hash = "sha256:" + sha256(self.content.encode("utf-8")).hexdigest()

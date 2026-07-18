@@ -1,70 +1,60 @@
 # Testing Strategy
 
-## Testing Principles
+## Principles
 
-Tests should make the project safe for lower-context agents to modify. Prefer focused tests with clear fixtures over broad tests that require live APIs.
+Tests protect architecture boundaries, data integrity, reversible writes, and
+real user output. Fake providers are regression tools, not proof of product
+quality.
 
-## Required Test Types
+## Unit Tests
 
-### Unit Tests
+- V3 State and ArtifactMemory serialization/migration.
+- Artifact revision persistence and active/superseded filtering.
+- Unified lexical retrieval across evidence, segments, and active artifacts.
+- Vault import path safety, relative paths, limits, and idempotency.
+- Deterministic health findings and backlog deduplication.
+- AutonomyPolicy enforcement and hard budgets.
+- ChangeSet diff, base-hash conflict, apply, and rollback.
+- Specialist role/tool allowlists and typed output validation.
+- Export active-revision rules and `.sectorbreaker/` metadata.
 
-- Provider interfaces and environment-backed provider factories.
-- SQLite repositories, insertion ordering, and FTS retrieval.
-- Export writer.
-- Export writer must copy the repository-root `.obsidian/` default vault
-  configuration into every generated project vault.
-- Schema validation.
-- V1.6 Master Agent loop: multi-intent search planning, uploaded external
-  report evidence ingestion, coverage-driven retry/degrade/block decisions, and
-  zero-evidence blocking.
-- V2 Agent Kernel: failed runs must not persist partial artifacts, including the
-  case where an earlier document was written before a later write failed.
+## API Tests
 
-### Graph Tests
+- project create/list/detail with retired product fields rejected;
+- start/continue run and active artifact restore;
+- vault import/status;
+- audit/health/backlog;
+- maintenance run request contracts;
+- ChangeSet approve/apply/conflict/rollback;
+- chat/follow-up use unified retrieval;
+- job-source routes do not exist.
 
-- Quick and provider-injected research configurations.
-- Gate coverage pass and fail paths.
-- QA blocking unsupported claims.
+## Frontend Tests
 
-Still needed:
+- one knowledge-management landing experience, no TalentScope/Boss controls;
+- vault import and health summary;
+- maintenance backlog selection;
+- ChangeSet diff, approval, apply, conflict, and rollback states;
+- Agent brief and specialist activity;
+- export/open-folder flow.
 
-- Deep research configuration fixtures.
-- Missing evidence retry behavior.
-- Human interrupt and resume.
+## Architecture Tests
 
-### API Tests
+- production imports have one Agent Kernel owner;
+- retired enterprise modules/providers cannot be imported;
+- forbidden legacy and enterprise markers fail version isolation;
+- frontend workflow definition comes from backend truth;
+- specialists cannot apply ChangeSets directly.
 
-- Project create/list/detail.
-- Start run.
-- Export package creation.
-- Project Q&A.
+## Golden Tests
 
-Still needed:
+Stable fixtures cover imported vault structure, health report, active export,
+evidence ledger, and `.sectorbreaker` state. Intentional schema changes require
+fixture and changelog updates.
 
-- Project update/archive.
-- Resume run.
-- Stream event contract.
+## Real Acceptance
 
-### Frontend Tests
-
-- Run workbench state rendering.
-- API-backed project creation and run start.
-- Project Q&A.
-- Export action.
-- V1.6 workflow-node mapping: run events for `master_agent`,
-  `external_report_intake`, `source_collection`, `coverage_evaluation`,
-  `knowledge_structuring`, `document_writing`, and `artifact_review` must map to
-  visible graph nodes.
-
-Still needed:
-
-- Editable project creation form.
-- Full artifact viewer.
-
-### Golden Tests
-
-Exported Markdown structure must be compared against stable fixtures. Intentional export changes require fixture updates and changelog notes.
-
-## External Services
-
-No automated test should require live LLM or Tavily credentials by default. Use fake providers and deterministic fixtures.
+Before V3 readiness is claimed, use configured real providers and a real
+Obsidian vault to execute import, audit, research, verification, ChangeSet,
+approval, apply, export, open-in-Obsidian inspection, and rollback. Inspect
+content quality, evidence links, version markers, and absence of retired paths.

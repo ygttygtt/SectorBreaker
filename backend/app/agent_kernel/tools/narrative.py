@@ -79,7 +79,7 @@ async def generate_run_narrative(tool_call, context: KernelRuntimeContext) -> Ke
         content_path="docs/00-调研复盘.md",
         content=content,
         source_evidence_ids=list(dict.fromkeys(state.evidence_refs)),
-        schema_version="v2-agent-kernel",
+        schema_version="v3-knowledge-ops",
         created_at=datetime.now(UTC),
     )
     context.artifacts.append(artifact)

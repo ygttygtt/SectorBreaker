@@ -1,4 +1,4 @@
-"""Human-in-the-loop tool for the V2 Agent Kernel."""
+"""Human-in-the-loop tool for the V3 Agent Kernel."""
 
 from __future__ import annotations
 

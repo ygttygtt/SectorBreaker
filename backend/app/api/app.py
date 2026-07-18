@@ -20,21 +20,10 @@ from backend.app.config_store import get_runtime_config_path, load_runtime_confi
 from backend.app.documents import extract_uploaded_document_text
 from backend.app.exporters.markdown import MarkdownExporter
 from backend.app.evidence_builder import citation_to_evidence
-from backend.app.graph.workflow import (
-    search_constraints_for_policy,
-    _state_from_json,
-    _state_to_json,
-    _to_research_state,
-    next_gate,
-    run_research_workflow,
-    run_workflow_until_pause,
-)
-from backend.app.graph.planner import build_agent_kernel_workflow_definition, build_workflow_definition
+from backend.app.agent_kernel.workflow_definition import build_agent_kernel_workflow_definition
 from backend.app.providers.factory import (
     build_content_extraction_provider,
     build_content_extraction_provider_from_config,
-    build_job_source_provider,
-    build_job_source_provider_from_config,
     build_llm_provider,
     build_llm_provider_from_config,
     build_search_provider,
@@ -44,24 +33,23 @@ from backend.app.providers.factory import (
 from backend.app.providers.interfaces import (
     ChatMessage,
     ContentExtractionProvider,
-    JobSourceProvider,
-    JobSourceQuery,
     LLMProvider,
     SearchProvider,
     SearchQuery,
 )
 from backend.app.providers.openai_compatible import OpenAICompatibleLLMProvider
 from backend.app.providers.source_packs import SourceConnector, SourceRegistry
+from backend.app.providers.source_policy import search_constraints_for_policy
 from backend.app.providers.source_verification import HeuristicSourceVerificationProvider
 from backend.app.rag import ProjectRetriever
+from backend.app.knowledge_base import ChangeSetService, VaultKnowledgeService
+from backend.app.agent_state.models import AutonomyPolicy
 from backend.app.schemas import (
     Artifact,
     ArtifactType,
-    ProjectMode,
     ProjectDocumentCreate,
     ResearchProjectCreate,
     ResearchRun,
-    ResumeRequest,
     RunArtifactSummary,
     RunEvent,
     RunProgress,
@@ -69,10 +57,13 @@ from backend.app.schemas import (
     RunStatus,
     UserInput,
     V1RunStage,
+    ChangeSetProposalRequest,
+    MaintenanceRunRequest,
+    VaultImportRequest,
 )
 from backend.app.storage.sqlite import SQLiteRepository, init_database
-from backend.app.talent_demand.pipeline import run_talent_demand_pipeline
 from backend.app.agent_kernel import run_v2_agent_kernel_pipeline
+from backend.app.agent_kernel.models import KernelRunResult, KernelRunStatus
 
 LEGACY_PERSONAL_RUN_MARKERS = (
     "specialist_react_loop",
@@ -103,6 +94,34 @@ def assert_no_legacy_personal_run_event(event: RunEvent) -> None:
     for marker in LEGACY_PERSONAL_RUN_MARKERS:
         if marker in payload:
             raise RuntimeError(f"legacy event blocked: {marker}")
+
+
+def _finalize_kernel_run(
+    repository: SQLiteRepository,
+    run_id: str,
+    result: KernelRunResult,
+) -> None:
+    if result.status == KernelRunStatus.COMPLETED:
+        repository.update_run(
+            run_id,
+            status=RunStatus.COMPLETED,
+            current_gate="completed",
+            completed_at=datetime.now(UTC),
+        )
+        return
+    if result.status == KernelRunStatus.WAITING_FOR_HUMAN:
+        repository.update_run(
+            run_id,
+            status=RunStatus.WAITING_FOR_HUMAN,
+            current_gate="human_feedback",
+        )
+        return
+    repository.update_run(
+        run_id,
+        status=RunStatus.FAILED,
+        current_gate=result.status.value,
+        completed_at=datetime.now(UTC),
+    )
 
 
 class ChatRequest(BaseModel):
@@ -184,31 +203,6 @@ class SearchConfig(BaseModel):
     firecrawl_api_key: str | None = None
     firecrawl_endpoint: str = "https://api.firecrawl.dev/v1/scrape"
     jina_reader_endpoint_prefix: str = "https://r.jina.ai/http://"
-
-
-class JobSourceConfig(BaseModel):
-    enabled: bool = False
-    provider: str = "disabled"
-    boss_agent_cli_command: str = "boss"
-    boss_agent_cli_args_template: str | None = None
-    boss_agent_cli_timeout_seconds: int = Field(default=45, ge=5, le=180)
-    boss_keyword: str | None = None
-    boss_city: str | None = None
-    boss_limit: int = Field(default=8, ge=1, le=30)
-
-
-class JobSourceTestRequest(BaseModel):
-    keyword: str
-    city: str | None = None
-    limit: int = Field(default=3, ge=1, le=10)
-
-
-class JobSourceTestResult(BaseModel):
-    success: bool
-    message: str
-    status: dict
-    result_count: int = 0
-    results: list[dict] = Field(default_factory=list)
 
 
 class SearchTestRequest(BaseModel):
@@ -471,35 +465,6 @@ def _build_search_config_status(
     )
 
 
-def _build_project_document_inputs(
-    repository: SQLiteRepository,
-    project_id: str,
-) -> tuple[list[dict], list[dict], str | None]:
-    seed_evidence_items = [
-        item.model_dump(mode="json")
-        for item in repository.list_evidence_by_collector(project_id, "document_citation_ingestion")
-    ]
-
-    user_evidence_items: list[dict] = []
-    assistant_briefs: list[str] = []
-    for document in repository.list_documents(project_id):
-        if document.channel == "assistant_brief":
-            assistant_briefs.append(document.content)
-            continue
-        user_evidence_items.append(
-            {
-                "id": f"DOC-{document.id}",
-                "source_title": document.file_name or document.id,
-                "snippet": document.content[:1200],
-                "summary": "用户上传文档，作为研究线索与上下文补充。",
-                "confidence": 0.7,
-            }
-        )
-
-    assistant_brief = "\n\n".join(assistant_briefs).strip() or None
-    return seed_evidence_items, user_evidence_items, assistant_brief
-
-
 def _build_run_snapshot(
     run: ResearchRun,
     events: list[RunEvent],
@@ -568,25 +533,6 @@ def _connector_configured(connector: SourceConnector, active_search_config: Sear
     if not connector.required_env_keys:
         return True
     return all(runtime_key_presence.get(key, bool(os.getenv(key))) for key in connector.required_env_keys)
-
-
-def _job_source_query_for_project(domain: str, config: JobSourceConfig) -> JobSourceQuery:
-    return JobSourceQuery(
-        keyword=(config.boss_keyword or domain).strip(),
-        city=config.boss_city.strip() if config.boss_city else None,
-        limit=config.boss_limit,
-        filters={},
-    )
-
-
-def _job_source_status_dict(status) -> dict:
-    return {
-        "provider": status.provider,
-        "configured": status.configured,
-        "available": status.available,
-        "message": status.message,
-        "diagnostics": status.diagnostics or [],
-    }
 
 
 def _fallback_rag_answer(question: str, citation_details: list[dict]) -> str:
@@ -667,11 +613,12 @@ def create_app(
     export_root: Path,
     search_provider: SearchProvider | None = None,
     content_extraction_provider: ContentExtractionProvider | None = None,
-    job_source_provider: JobSourceProvider | None = None,
     llm_provider: LLMProvider | None = None,
 ) -> FastAPI:
     init_database(database_path)
     repository = SQLiteRepository(database_path)
+    vault_service = VaultKnowledgeService(repository)
+    change_set_service = ChangeSetService(repository)
     runtime_config_path = get_runtime_config_path(database_path)
     exporter = MarkdownExporter(export_root)
     runtime_config = load_runtime_config(runtime_config_path)
@@ -692,19 +639,6 @@ def create_app(
         firecrawl_api_key=runtime_config.get("firecrawl_api_key", os.getenv("FIRECRAWL_API_KEY")),
         firecrawl_endpoint=runtime_config.get("firecrawl_endpoint", os.getenv("FIRECRAWL_ENDPOINT", "https://api.firecrawl.dev/v1/scrape")),
         jina_reader_endpoint_prefix=runtime_config.get("jina_reader_endpoint_prefix", os.getenv("JINA_READER_ENDPOINT_PREFIX", "https://r.jina.ai/http://")),
-    )
-    active_job_source_config = JobSourceConfig(
-        enabled=bool(runtime_config.get("job_source_enabled", False)),
-        provider=runtime_config.get("job_source_provider", os.getenv("JOB_SOURCE_PROVIDER", "disabled")),
-        boss_agent_cli_command=runtime_config.get("boss_agent_cli_command", os.getenv("BOSS_AGENT_CLI_COMMAND", "boss")),
-        boss_agent_cli_args_template=runtime_config.get("boss_agent_cli_args_template", os.getenv("BOSS_AGENT_CLI_ARGS_TEMPLATE")),
-        boss_agent_cli_timeout_seconds=int(runtime_config.get(
-            "boss_agent_cli_timeout_seconds",
-            os.getenv("BOSS_AGENT_CLI_TIMEOUT_SECONDS", "45"),
-        )),
-        boss_keyword=runtime_config.get("boss_keyword"),
-        boss_city=runtime_config.get("boss_city"),
-        boss_limit=int(runtime_config.get("boss_limit", 8)),
     )
     active_search_provider = (
         search_provider
@@ -731,16 +665,6 @@ def create_app(
             jina_reader_endpoint_prefix=active_search_config.jina_reader_endpoint_prefix,
         )
     )
-    active_job_source_provider = (
-        job_source_provider
-        if job_source_provider is not None
-        else build_job_source_provider_from_config(
-            provider_name=active_job_source_config.provider,
-            boss_agent_cli_command=active_job_source_config.boss_agent_cli_command,
-            boss_agent_cli_args_template=active_job_source_config.boss_agent_cli_args_template,
-            boss_agent_cli_timeout_seconds=active_job_source_config.boss_agent_cli_timeout_seconds,
-        )
-    )
     if llm_provider is not None:
         active_llm_provider = llm_provider
     elif runtime_config.get("llm_base_url") and runtime_config.get("llm_api_key") and runtime_config.get("llm_model"):
@@ -755,7 +679,6 @@ def create_app(
     source_registry = build_source_registry()
     source_verifier = HeuristicSourceVerificationProvider(source_registry=source_registry)
     project_retriever = ProjectRetriever(repository)
-    injected_job_source_provider = job_source_provider is not None
     app = FastAPI(title="SectorBreaker")
 
     # ── Projects ──────────────────────────────────────────────────
@@ -786,41 +709,141 @@ def create_app(
             return None
         return run.model_dump(mode="json")
 
+    @app.post("/api/projects/{project_id}/vault/import")
+    def import_project_vault(project_id: str, payload: VaultImportRequest):
+        try:
+            project = repository.get_project(project_id)
+            record = vault_service.import_vault(project, payload)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="project not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return record.model_dump(mode="json")
+
+    @app.get("/api/projects/{project_id}/vault")
+    def get_project_vault(project_id: str):
+        try:
+            repository.get_project(project_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="project not found") from exc
+        return vault_service.status(project_id).model_dump(mode="json")
+
+    @app.post("/api/projects/{project_id}/audits")
+    def audit_project_vault(project_id: str):
+        try:
+            repository.get_project(project_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="project not found") from exc
+        report = vault_service.audit(project_id)
+        return report.model_dump(mode="json")
+
+    @app.get("/api/projects/{project_id}/health")
+    def get_project_health(project_id: str):
+        try:
+            repository.get_project(project_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="project not found") from exc
+        report = repository.latest_health_report(project_id)
+        if report is None:
+            raise HTTPException(status_code=404, detail="knowledge health report not found")
+        return report.model_dump(mode="json")
+
+    @app.get("/api/projects/{project_id}/maintenance-backlog")
+    def get_project_maintenance_backlog(project_id: str):
+        try:
+            repository.get_project(project_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="project not found") from exc
+        return [task.model_dump(mode="json") for task in repository.list_maintenance_tasks(project_id)]
+
+    @app.post("/api/projects/{project_id}/change-sets")
+    def propose_project_change_set(project_id: str, payload: ChangeSetProposalRequest):
+        try:
+            repository.get_project(project_id)
+            change_set = change_set_service.propose(project_id, payload)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="project or artifact not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return change_set.model_dump(mode="json")
+
+    @app.get("/api/projects/{project_id}/change-sets")
+    def list_project_change_sets(project_id: str):
+        try:
+            repository.get_project(project_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="project not found") from exc
+        return [item.model_dump(mode="json") for item in repository.list_change_sets(project_id)]
+
+    @app.post("/api/projects/{project_id}/change-sets/{change_set_id}/approve")
+    def approve_project_change_set(project_id: str, change_set_id: str):
+        try:
+            existing = repository.get_change_set(change_set_id)
+            if existing.project_id != project_id:
+                raise KeyError(change_set_id)
+            change_set = change_set_service.approve(change_set_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="change set not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return change_set.model_dump(mode="json")
+
+    @app.post("/api/projects/{project_id}/change-sets/{change_set_id}/apply")
+    def apply_project_change_set(project_id: str, change_set_id: str):
+        try:
+            change_set = repository.get_change_set(change_set_id)
+            if change_set.project_id != project_id:
+                raise KeyError(change_set_id)
+            change_set = change_set_service.apply(change_set_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="change set not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return change_set.model_dump(mode="json")
+
+    @app.post("/api/projects/{project_id}/change-sets/{change_set_id}/rollback")
+    def rollback_project_change_set(project_id: str, change_set_id: str):
+        try:
+            change_set = repository.get_change_set(change_set_id)
+            if change_set.project_id != project_id:
+                raise KeyError(change_set_id)
+            change_set = change_set_service.rollback(change_set_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="change set not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return change_set.model_dump(mode="json")
+
     @app.get("/api/projects/{project_id}/workflow-definition")
     def get_workflow_definition(project_id: str):
         try:
             project = repository.get_project(project_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="project not found") from exc
-        if project.project_mode == ProjectMode.DOMAIN_KNOWLEDGE:
-            return build_agent_kernel_workflow_definition().model_dump(mode="json")
-        definition = build_workflow_definition()
-        return definition.model_dump(mode="json")
+        if project.status.value == "archived":
+            raise HTTPException(status_code=400, detail="archived projects cannot be run")
+        return build_agent_kernel_workflow_definition().model_dump(mode="json")
 
     # ── Runs ──────────────────────────────────────────────────────
 
     @app.post("/api/projects/{project_id}/runs")
     async def run_project(project_id: str, background_tasks: BackgroundTasks, auto_run: bool = False):
-        """Create a run and start the workflow in the background.
+        """Create a run and start the Agent Kernel in the background.
 
-        The workflow runs gates sequentially. After each gate that requires
-        human review, it pauses and sets status to waiting_for_human.
+        ``auto_run`` remains as a request-compatibility flag; the production
+        owner is always the same Agent Kernel rather than a second workflow.
         """
         try:
             project = repository.get_project(project_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="project not found") from exc
+        if project.status.value == "archived":
+            raise HTTPException(status_code=400, detail="archived projects cannot be run")
 
         run = repository.create_run(project_id)
         repository.update_run(run.id, status=RunStatus.RUNNING)
-        seed_evidence_items, document_user_evidence_items, document_assistant_brief = _build_project_document_inputs(
-            repository,
-            project_id,
-        )
-
         async def emit_event(event: RunEvent) -> None:
-            if project.project_mode == ProjectMode.DOMAIN_KNOWLEDGE and auto_run:
-                assert_no_legacy_personal_run_event(event)
+            assert_no_legacy_personal_run_event(event)
             repository.add_run_event(event, run.id)
             repository.update_run(
                 run.id,
@@ -830,73 +853,15 @@ def create_app(
 
         async def run_in_background() -> None:
             try:
-                if auto_run:
-                    if project.project_mode == ProjectMode.TALENT_DEMAND:
-                        job_query = _job_source_query_for_project(project.domain, active_job_source_config)
-                        await run_talent_demand_pipeline(
-                            project=project,
-                            repository=repository,
-                            search_provider=active_search_provider,
-                            llm_provider=active_llm_provider,
-                            job_source_provider=active_job_source_provider if active_job_source_config.enabled else None,
-                            job_source_query=job_query if active_job_source_config.enabled else None,
-                            emit=emit_event,
-                        )
-                    else:
-                        await run_v2_agent_kernel_pipeline(
-                            project=project,
-                            repository=repository,
-                            search_provider=active_search_provider,
-                            llm_provider=active_llm_provider,
-                            emit=emit_event,
-                        )
-                    repository.update_run(
-                        run.id,
-                        status=RunStatus.COMPLETED,
-                        current_gate="completed",
-                        completed_at=datetime.now(UTC),
-                    )
-                    return
-
-                state, paused_gate, completed = await run_workflow_until_pause(
-                    project,
+                result = await run_v2_agent_kernel_pipeline(
+                    project=project,
+                    repository=repository,
                     search_provider=active_search_provider,
-                    content_extraction_provider=active_content_extraction_provider,
                     llm_provider=active_llm_provider,
-                    emitter=emit_event,
-                    seed_evidence_items=seed_evidence_items or None,
-                    user_evidence_items=document_user_evidence_items or None,
-                    assistant_brief=document_assistant_brief,
-                    auto_run=auto_run,
+                    emit=emit_event,
+                    run_id=run.id,
                 )
-
-                # Persist workflow state
-                repository.update_run(run.id, workflow_state=_state_to_json(state))
-
-                if completed:
-                    # All gates finished — persist results
-                    research_state = _to_research_state(state)
-                    for evidence in research_state.evidence:
-                        repository.add_evidence(evidence)
-                    for artifact in research_state.artifacts:
-                        repository.add_artifact(artifact)
-                    repository.update_run(
-                        run.id,
-                        status=RunStatus.COMPLETED,
-                        completed_at=datetime.now(UTC),
-                    )
-                elif paused_gate:
-                    # Paused for human review
-                    repository.update_run(
-                        run.id,
-                        status=RunStatus.WAITING_FOR_HUMAN,
-                        current_gate=paused_gate,
-                    )
-                    await emit_event(RunEvent(
-                        event_type="waiting_for_human",
-                        gate=paused_gate,
-                        message=f"等待人工审阅：{paused_gate}",
-                    ))
+                _finalize_kernel_run(repository, run.id, result)
             except Exception as exc:
                 error_message = str(exc)
                 safe_message = (
@@ -907,7 +872,7 @@ def create_app(
                 repository.add_run_event(RunEvent(
                     event_type="error",
                     gate="agent_decide" if error_message.startswith("legacy event blocked:") else "unknown",
-                    agent="V2 Agent Kernel",
+                    agent="V3 Agent Kernel",
                     message=safe_message,
                     severity="error",
                 ), run.id)
@@ -923,8 +888,8 @@ def create_app(
             project = repository.get_project(project_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="project not found") from exc
-        if project.project_mode != ProjectMode.DOMAIN_KNOWLEDGE:
-            raise HTTPException(status_code=400, detail="continue only supported for domain_knowledge mode")
+        if project.status.value == "archived":
+            raise HTTPException(status_code=400, detail="archived projects cannot be continued")
         resumed_state = repository.load_latest_resumable_project_checkpoint(project_id=project_id)
         if resumed_state is None:
             raise HTTPException(
@@ -941,7 +906,7 @@ def create_app(
 
         async def continue_in_background() -> None:
             try:
-                await run_v2_agent_kernel_pipeline(
+                result = await run_v2_agent_kernel_pipeline(
                     project=project,
                     repository=repository,
                     search_provider=active_search_provider,
@@ -950,12 +915,12 @@ def create_app(
                     run_id=run.id,
                     resume_state=resumed_state,
                 )
-                repository.update_run(run.id, status=RunStatus.COMPLETED, completed_at=datetime.now(UTC))
+                _finalize_kernel_run(repository, run.id, result)
             except Exception as exc:
                 repository.add_run_event(RunEvent(
                     event_type="error",
                     gate="agent_decide",
-                    agent="V2 Agent Kernel",
+                    agent="V3 Agent Kernel",
                     message=str(exc)[:800],
                     severity="error",
                 ), run.id)
@@ -963,6 +928,64 @@ def create_app(
 
         background_tasks.add_task(continue_in_background)
         return {"run_id": run.id, "status": "started", "resumed_from_checkpoint": True}
+
+    @app.post("/api/projects/{project_id}/maintenance-runs")
+    async def start_maintenance_run(
+        project_id: str,
+        payload: MaintenanceRunRequest,
+        background_tasks: BackgroundTasks,
+    ):
+        try:
+            project = repository.get_project(project_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="project not found") from exc
+        if project.status.value == "archived":
+            raise HTTPException(status_code=400, detail="archived projects cannot be maintained")
+        known_task_ids = {task.id for task in repository.list_maintenance_tasks(project_id)}
+        unknown = [task_id for task_id in payload.task_ids if task_id not in known_task_ids]
+        if unknown:
+            raise HTTPException(status_code=400, detail={"unknown_task_ids": unknown})
+
+        resumed_state = repository.load_latest_resumable_project_checkpoint(project_id=project_id)
+        run = repository.create_run(project_id)
+        repository.update_run(run.id, status=RunStatus.RUNNING)
+
+        async def emit_maintenance_event(event: RunEvent) -> None:
+            assert_no_legacy_personal_run_event(event)
+            repository.add_run_event(event, run.id)
+            repository.update_run(run.id, current_gate=event.gate, current_step=event.step)
+
+        async def maintain_in_background() -> None:
+            try:
+                result = await run_v2_agent_kernel_pipeline(
+                    project=project,
+                    repository=repository,
+                    search_provider=active_search_provider,
+                    llm_provider=active_llm_provider,
+                    emit=emit_maintenance_event,
+                    run_id=run.id,
+                    resume_state=resumed_state,
+                    maintenance_request=payload,
+                )
+                _finalize_kernel_run(repository, run.id, result)
+            except Exception as exc:
+                repository.add_run_event(RunEvent(
+                    event_type="error",
+                    gate="agent_decide",
+                    agent="V3 Knowledge Manager",
+                    message=str(exc)[:800],
+                    severity="error",
+                ), run.id)
+                repository.update_run(run.id, status=RunStatus.FAILED, completed_at=datetime.now(UTC))
+
+        background_tasks.add_task(maintain_in_background)
+        return {
+            "run_id": run.id,
+            "status": "started",
+            "resumed_from_checkpoint": resumed_state is not None,
+            "task_ids": payload.task_ids,
+            "execution_mode": payload.execution_mode,
+        }
 
     @app.get("/api/runs/{run_id}")
     def get_run(run_id: str):
@@ -988,149 +1011,10 @@ def create_app(
     @app.get("/api/runs/{run_id}/workflow-definition")
     def get_run_workflow_definition(run_id: str):
         try:
-            run = repository.get_run(run_id)
+            repository.get_run(run_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="run not found") from exc
-        plan = None
-        if run.workflow_state:
-            raw_state = _state_from_json(run.workflow_state)
-            if raw_state.get("supervisor_plan"):
-                from backend.app.schemas import SupervisorPlan
-                plan = SupervisorPlan(**raw_state["supervisor_plan"])
-        if plan is None:
-            try:
-                project = repository.get_project(run.project_id)
-            except KeyError as exc:
-                raise HTTPException(status_code=404, detail="project not found") from exc
-            if project.project_mode == ProjectMode.DOMAIN_KNOWLEDGE:
-                return build_agent_kernel_workflow_definition().model_dump(mode="json")
-        return build_workflow_definition(plan).model_dump(mode="json")
-
-    @app.post("/api/runs/{run_id}/resume")
-    async def resume_run(run_id: str, payload: ResumeRequest, background_tasks: BackgroundTasks):
-        """Resume workflow after human review.
-
-        Stores user inputs and continues execution from the next gate.
-        """
-        try:
-            run = repository.get_run(run_id)
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail="run not found") from exc
-
-        if run.status != RunStatus.WAITING_FOR_HUMAN:
-            raise HTTPException(status_code=400, detail=f"run is not waiting for human review (status: {run.status})")
-
-        # Store user inputs
-        if payload.guidance:
-            repository.add_user_input(UserInput(
-                id=f"ui-{uuid4().hex}",
-                run_id=run_id,
-                gate=run.current_gate or "unknown",
-                input_type="guidance",
-                content=payload.guidance,
-            ))
-        if payload.evidence_data:
-            repository.add_user_input(UserInput(
-                id=f"ui-{uuid4().hex}",
-                run_id=run_id,
-                gate=run.current_gate or "unknown",
-                input_type="evidence_data",
-                content=payload.evidence_data,
-            ))
-        if payload.assistant_brief:
-            repository.add_user_input(UserInput(
-                id=f"ui-{uuid4().hex}",
-                run_id=run_id,
-                gate=run.current_gate or "unknown",
-                input_type="assistant_brief",
-                content=payload.assistant_brief,
-            ))
-
-        # Load workflow state and resume
-        try:
-            project = repository.get_project(run.project_id)
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail="project not found") from exc
-
-        state = _state_from_json(run.workflow_state) if run.workflow_state else None
-        seed_evidence_items, document_user_evidence_items, document_assistant_brief = _build_project_document_inputs(
-            repository,
-            project.id,
-        )
-
-        repository.update_run(run_id, status=RunStatus.RUNNING)
-
-        async def emit_event(event: RunEvent) -> None:
-            repository.add_run_event(event, run_id)
-
-        async def resume_in_background() -> None:
-            try:
-                user_inputs = repository.list_user_inputs(run_id)
-                guidance = "\n".join(
-                    f"[{inp.gate}] {inp.content}" for inp in user_inputs if inp.input_type == "guidance"
-                )
-                evidence_items = [
-                    {"source_title": "用户补充", "snippet": inp.content}
-                    for inp in user_inputs if inp.input_type == "evidence_data"
-                ]
-                evidence_items.extend(document_user_evidence_items)
-                assistant_brief = "\n\n".join(
-                    inp.content for inp in user_inputs if inp.input_type == "assistant_brief"
-                )
-                if document_assistant_brief:
-                    assistant_brief = (
-                        f"{document_assistant_brief}\n\n{assistant_brief}".strip()
-                        if assistant_brief
-                        else document_assistant_brief
-                    )
-
-                new_state, paused_gate, completed = await run_workflow_until_pause(
-                    project,
-                    search_provider=active_search_provider,
-                    content_extraction_provider=active_content_extraction_provider,
-                    llm_provider=active_llm_provider,
-                    emitter=emit_event,
-                    state=state,
-                    user_guidance=guidance or None,
-                    user_evidence_items=evidence_items or None,
-                    seed_evidence_items=seed_evidence_items or None,
-                    assistant_brief=assistant_brief or None,
-                )
-
-                repository.update_run(run_id, workflow_state=_state_to_json(new_state))
-
-                if completed:
-                    research_state = _to_research_state(new_state)
-                    for evidence in research_state.evidence:
-                        repository.add_evidence(evidence)
-                    for artifact in research_state.artifacts:
-                        repository.add_artifact(artifact)
-                    repository.update_run(
-                        run_id,
-                        status=RunStatus.COMPLETED,
-                        completed_at=datetime.now(UTC),
-                    )
-                elif paused_gate:
-                    repository.update_run(
-                        run_id,
-                        status=RunStatus.WAITING_FOR_HUMAN,
-                        current_gate=paused_gate,
-                    )
-                    await emit_event(RunEvent(
-                        event_type="waiting_for_human",
-                        gate=paused_gate,
-                        message=f"等待人工审阅：{paused_gate}",
-                    ))
-            except Exception as exc:
-                await emit_event(RunEvent(
-                    event_type="error", gate="unknown",
-                    message=f"工作流恢复失败：{exc}",
-                ))
-                repository.update_run(run_id, status=RunStatus.FAILED, completed_at=datetime.now(UTC))
-
-        background_tasks.add_task(resume_in_background)
-
-        return {"status": "resumed", "run_id": run_id}
+        return build_agent_kernel_workflow_definition().model_dump(mode="json")
 
     @app.get("/api/runs/{run_id}/trace")
     def export_run_trace(run_id: str):
@@ -1409,7 +1293,20 @@ def create_app(
         artifacts = repository.list_artifacts(project_id)
         latest_run = repository.get_latest_run(project_id)
         run_events = repository.list_run_events(latest_run.id) if latest_run is not None else []
-        return exporter.export_project(project, artifacts, evidence, run_events=run_events).model_dump(mode="json")
+        agent_state = repository.load_latest_resumable_project_checkpoint(project_id=project_id)
+        health_snapshot = repository.latest_health_report(project_id)
+        maintenance_backlog = repository.list_maintenance_tasks(project_id)
+        change_sets = repository.list_change_sets(project_id)
+        return exporter.export_project(
+            project,
+            artifacts,
+            evidence,
+            run_events=run_events,
+            agent_state=agent_state,
+            health_snapshot=health_snapshot,
+            maintenance_backlog=maintenance_backlog,
+            change_sets=change_sets,
+        ).model_dump(mode="json")
 
     @app.post("/api/exports/open-folder")
     def open_export_folder(payload: OpenExportFolderRequest):
@@ -1438,6 +1335,9 @@ def create_app(
                 "snippet": item.snippet,
                 "score": item.score,
                 "url": item.url,
+                "relative_path": item.relative_path,
+                "content_hash": item.content_hash,
+                "verification_status": item.verification_status,
             }
             for item in citations
         ]
@@ -1690,82 +1590,6 @@ def create_app(
             "configured": active_search_provider is not None,
         }
 
-    @app.get("/api/config/job-source")
-    async def get_job_source_config():
-        status = await active_job_source_provider.status()
-        return {
-            **_job_source_status_dict(status),
-            "enabled": active_job_source_config.enabled,
-            "boss_keyword": active_job_source_config.boss_keyword,
-            "boss_city": active_job_source_config.boss_city,
-            "boss_limit": active_job_source_config.boss_limit,
-        }
-
-    @app.post("/api/config/job-source")
-    async def update_job_source_config(payload: JobSourceConfig):
-        nonlocal active_job_source_config, active_job_source_provider
-        active_job_source_config = payload
-        persisted_config = load_runtime_config(runtime_config_path)
-        save_runtime_config(
-            runtime_config_path,
-            {
-                **persisted_config,
-                "job_source_enabled": payload.enabled,
-                "job_source_provider": payload.provider,
-                "boss_agent_cli_command": payload.boss_agent_cli_command,
-                "boss_agent_cli_args_template": payload.boss_agent_cli_args_template,
-                "boss_agent_cli_timeout_seconds": payload.boss_agent_cli_timeout_seconds,
-                "boss_keyword": payload.boss_keyword,
-                "boss_city": payload.boss_city,
-                "boss_limit": payload.boss_limit,
-            },
-        )
-        if not injected_job_source_provider:
-            active_job_source_provider = build_job_source_provider_from_config(
-                provider_name=payload.provider,
-                boss_agent_cli_command=payload.boss_agent_cli_command,
-                boss_agent_cli_args_template=payload.boss_agent_cli_args_template,
-                boss_agent_cli_timeout_seconds=payload.boss_agent_cli_timeout_seconds,
-            )
-        status = await active_job_source_provider.status()
-        return {
-            "success": True,
-            "message": status.message,
-            "status": _job_source_status_dict(status),
-        }
-
-    @app.post("/api/config/job-source/test")
-    async def test_job_source(payload: JobSourceTestRequest):
-        status = await active_job_source_provider.status()
-        if not status.available:
-            return JobSourceTestResult(
-                success=False,
-                message=status.message,
-                status=_job_source_status_dict(status),
-            ).model_dump(mode="json")
-        jobs = await active_job_source_provider.search_jobs(JobSourceQuery(
-            keyword=payload.keyword,
-            city=payload.city,
-            limit=payload.limit,
-        ))
-        return JobSourceTestResult(
-            success=bool(jobs),
-            message=f"采集到 {len(jobs)} 条职位样本" if jobs else "未采集到职位样本",
-            status=_job_source_status_dict(status),
-            result_count=len(jobs),
-            results=[
-                {
-                    "title": item.title,
-                    "company": item.company,
-                    "location": item.location,
-                    "salary_text": item.salary_text,
-                    "experience_text": item.experience_text,
-                    "url": item.url,
-                }
-                for item in jobs[: payload.limit]
-            ],
-        ).model_dump(mode="json")
-
     @app.post("/api/config/search/test")
     async def test_search_connection(payload: SearchTestRequest):
         if active_search_provider is None:
@@ -1777,6 +1601,8 @@ def create_app(
             ).model_dump(mode="json")
 
         providers = _search_provider_names(active_search_provider)
+        effective_allowed_domains: list[str] = []
+        effective_blocked_domains: list[str] = []
 
         try:
             policy_allowed_domains, policy_blocked_domains = search_constraints_for_policy(

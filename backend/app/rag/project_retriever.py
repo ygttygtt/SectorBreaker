@@ -16,6 +16,9 @@ class ProjectRagCitation:
     snippet: str
     score: float
     url: str | None = None
+    relative_path: str | None = None
+    content_hash: str | None = None
+    verification_status: str | None = None
 
 
 class ProjectRetriever:
@@ -50,6 +53,7 @@ class ProjectRetriever:
                 snippet=_shorten(result.snippet, 360),
                 score=1.0 + result.score,
                 url=evidence.source_url if evidence else None,
+                verification_status=evidence.verification_status.value if evidence else None,
             ))
         return candidates
 
@@ -62,6 +66,7 @@ class ProjectRetriever:
                 snippet=_shorten(item.summary or item.snippet or item.raw_excerpt or item.source_title, 360),
                 score=_score(query, " ".join([item.source_title, item.snippet, item.summary or ""])),
                 url=item.source_url,
+                verification_status=item.verification_status.value,
             )
             for item in self.repository.list_evidence(project_id)
             if _score(query, " ".join([item.source_title, item.snippet, item.summary or ""])) > 0
@@ -76,8 +81,9 @@ class ProjectRetriever:
                     source_id=document.id,
                     source_type=f"document:{document.channel}",
                     title=document.file_name or document.id,
-                    snippet=_shorten(document.content, 360),
+                    snippet=_shorten_around_query(document.content, query, 360),
                     score=doc_score * 0.9,
+                    relative_path=document.file_name,
                 ))
             for segment in self.repository.list_document_segments(document.id):
                 seg_score = _score(query, segment.text)
@@ -87,8 +93,9 @@ class ProjectRetriever:
                     source_id=segment.id,
                     source_type=f"document_segment:{document.channel}",
                     title=segment.heading or document.file_name or document.id,
-                    snippet=_shorten(segment.text, 360),
+                    snippet=_shorten_around_query(segment.text, query, 360),
                     score=seg_score,
+                    relative_path=document.file_name,
                 ))
         return candidates
 
@@ -102,8 +109,10 @@ class ProjectRetriever:
                 source_id=artifact.id,
                 source_type="artifact",
                 title=artifact.title,
-                snippet=_shorten(artifact.content, 360),
+                snippet=_shorten_around_query(artifact.content, query, 360),
                 score=score * 0.85,
+                relative_path=artifact.content_path,
+                content_hash=artifact.content_hash,
             ))
         return candidates
 
@@ -134,3 +143,20 @@ def _shorten(text: str, max_chars: int) -> str:
         return normalized
     return normalized[: max_chars - 1].rstrip(" ,.;:，。") + "…"
 
+
+def _shorten_around_query(text: str, query: str, max_chars: int) -> str:
+    normalized = " ".join((text or "").split())
+    if len(normalized) <= max_chars:
+        return normalized
+    lowered = normalized.casefold()
+    positions = [lowered.find(term) for term in _terms(query)]
+    positions = [position for position in positions if position >= 0]
+    if not positions:
+        return _shorten(normalized, max_chars)
+    hit = min(positions)
+    start = max(0, hit - max_chars // 3)
+    end = min(len(normalized), start + max_chars)
+    if end - start < max_chars:
+        start = max(0, end - max_chars)
+    snippet = normalized[start:end].strip(" ,.;:，。")
+    return ("…" if start else "") + snippet + ("…" if end < len(normalized) else "")

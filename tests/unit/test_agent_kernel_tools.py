@@ -211,7 +211,7 @@ def test_write_layer_document_falls_back_to_sections_after_full_document_errors(
 
     assert observation.success is True
     assert len(context.artifacts) == 1
-    assert context.artifacts[0].schema_version == "v2-agent-kernel"
+    assert context.artifacts[0].schema_version == "v3-knowledge-ops"
     assert "## 分节内容" in context.artifacts[0].content
     assert observation.state_delta.artifact_ids == [context.artifacts[0].id]
 
@@ -285,7 +285,7 @@ def test_write_explainer_card_creates_observable_knowledge_card() -> None:
     assert observation.success is True
     assert len(context.artifacts) == 1
     artifact = context.artifacts[0]
-    assert artifact.schema_version == "v2-agent-kernel-card"
+    assert artifact.schema_version == "v3-knowledge-ops"
     assert artifact.content_path == "concepts/反向代理.md"
     assert artifact.source_evidence_ids == ["EV-KERNEL-1"]
     assert observation.state_delta.artifact_ids == [artifact.id]
@@ -350,7 +350,7 @@ def test_write_vault_index_links_main_docs_and_cards() -> None:
 
     assert observation.success is True
     index_artifact = context.artifacts[-1]
-    assert index_artifact.schema_version == "v2-agent-kernel-index"
+    assert index_artifact.schema_version == "v3-knowledge-ops"
     assert index_artifact.content_path == "00-知识库导航.md"
     assert "[[01-API中转站-本源与需求]]" in index_artifact.content
     assert "[[反向代理]]" in index_artifact.content

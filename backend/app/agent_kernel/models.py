@@ -1,4 +1,4 @@
-"""Typed contracts for the V2 Agent Kernel."""
+"""Typed contracts for the V3 Agent Kernel."""
 
 from __future__ import annotations
 
@@ -78,6 +78,7 @@ class KernelStateDelta(BaseModel):
     superseded_claim_ids: list[str] = Field(default_factory=list)
     resolved_open_question_ids: list[str] = Field(default_factory=list)
     phase_reflection: str = ""
+    delegation_notes: list[str] = Field(default_factory=list)
 
     def is_empty(self) -> bool:
         return not (
@@ -100,6 +101,7 @@ class KernelStateDelta(BaseModel):
             or self.superseded_claim_ids
             or self.resolved_open_question_ids
             or self.phase_reflection
+            or self.delegation_notes
         )
 
 

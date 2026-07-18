@@ -34,6 +34,10 @@ from backend.app.schemas import (
     SourceQuality,
     UserInput,
     VerificationStatus,
+    ChangeSet,
+    KnowledgeHealthReport,
+    MaintenanceTask,
+    VaultImportRecord,
 )
 
 MIGRATIONS_DIR = Path(__file__).with_name("migrations")
@@ -160,12 +164,30 @@ class SQLiteRepository:
 
     def add_artifact(self, artifact: Artifact) -> None:
         with self._connect() as connection:
+            existing = connection.execute(
+                "SELECT id FROM artifacts WHERE id = ?",
+                (artifact.id,),
+            ).fetchone()
+            if existing is None and artifact.supersedes:
+                predecessor = connection.execute(
+                    "SELECT revision FROM artifacts WHERE id = ? AND project_id = ?",
+                    (artifact.supersedes, artifact.project_id),
+                ).fetchone()
+                if predecessor is None:
+                    raise ValueError(f"superseded artifact not found: {artifact.supersedes}")
+                artifact.revision = int(predecessor["revision"] or 1) + 1
+                connection.execute(
+                    "UPDATE artifacts SET active = 0, superseded_by = ? WHERE id = ?",
+                    (artifact.id, artifact.supersedes),
+                )
             connection.execute(
                 """
                 INSERT OR REPLACE INTO artifacts (
                     id, project_id, artifact_type, title, content_path, content,
-                    source_evidence_ids, schema_version, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    source_evidence_ids, schema_version, created_at, revision,
+                    content_hash, active, supersedes, superseded_by, run_id,
+                    change_set_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     artifact.id,
@@ -177,16 +199,204 @@ class SQLiteRepository:
                     json.dumps(artifact.source_evidence_ids, ensure_ascii=False),
                     artifact.schema_version,
                     artifact.created_at.isoformat(),
+                    artifact.revision,
+                    artifact.content_hash,
+                    1 if artifact.active else 0,
+                    artifact.supersedes,
+                    artifact.superseded_by,
+                    artifact.run_id,
+                    artifact.change_set_id,
                 ),
             )
 
-    def list_artifacts(self, project_id: str) -> list[Artifact]:
+    def list_artifacts(self, project_id: str, *, include_superseded: bool = False) -> list[Artifact]:
+        with self._connect() as connection:
+            if include_superseded:
+                rows = connection.execute(
+                    "SELECT * FROM artifacts WHERE project_id = ? ORDER BY content_path, revision",
+                    (project_id,),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    "SELECT * FROM artifacts WHERE project_id = ? AND active = 1 ORDER BY content_path, revision",
+                    (project_id,),
+                ).fetchall()
+        return [self._row_to_artifact(row) for row in rows]
+
+    def get_artifact(self, artifact_id: str) -> Artifact:
+        with self._connect() as connection:
+            row = connection.execute("SELECT * FROM artifacts WHERE id = ?", (artifact_id,)).fetchone()
+        if row is None:
+            raise KeyError(f"artifact not found: {artifact_id}")
+        return self._row_to_artifact(row)
+
+    def list_artifact_history(self, project_id: str, content_path: str) -> list[Artifact]:
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM artifacts WHERE project_id = ? ORDER BY id",
-                (project_id,),
+                "SELECT * FROM artifacts WHERE project_id = ? AND content_path = ? ORDER BY revision",
+                (project_id, content_path),
             ).fetchall()
         return [self._row_to_artifact(row) for row in rows]
+
+    def set_artifact_active(self, artifact_id: str, active: bool) -> None:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE artifacts SET active = ? WHERE id = ?",
+                (1 if active else 0, artifact_id),
+            )
+        if cursor.rowcount == 0:
+            raise KeyError(f"artifact not found: {artifact_id}")
+
+    def save_vault_import(self, record: VaultImportRecord) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO vault_imports (
+                    id, project_id, source_path, note_count, total_bytes,
+                    snapshot_hash, imported_paths, skipped_paths, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record.id,
+                    record.project_id,
+                    record.source_path,
+                    record.note_count,
+                    record.total_bytes,
+                    record.snapshot_hash,
+                    json.dumps(record.imported_paths, ensure_ascii=False),
+                    json.dumps(record.skipped_paths, ensure_ascii=False),
+                    record.created_at.isoformat(),
+                ),
+            )
+
+    def latest_vault_import(self, project_id: str) -> VaultImportRecord | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM vault_imports WHERE project_id = ? ORDER BY created_at DESC LIMIT 1",
+                (project_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return VaultImportRecord(
+            id=row["id"],
+            project_id=row["project_id"],
+            source_path=row["source_path"],
+            note_count=row["note_count"],
+            total_bytes=row["total_bytes"],
+            snapshot_hash=row["snapshot_hash"],
+            imported_paths=json.loads(row["imported_paths"] or "[]"),
+            skipped_paths=json.loads(row["skipped_paths"] or "[]"),
+            created_at=datetime.fromisoformat(row["created_at"]),
+        )
+
+    def save_health_report(self, report: KnowledgeHealthReport) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO knowledge_health_reports (
+                    id, project_id, vault_import_id, snapshot_hash, report_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    report.id,
+                    report.project_id,
+                    report.vault_import_id,
+                    report.snapshot_hash,
+                    report.model_dump_json(),
+                    report.generated_at.isoformat(),
+                ),
+            )
+
+    def latest_health_report(self, project_id: str) -> KnowledgeHealthReport | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT report_json FROM knowledge_health_reports WHERE project_id = ? ORDER BY created_at DESC LIMIT 1",
+                (project_id,),
+            ).fetchone()
+        return KnowledgeHealthReport.model_validate_json(row["report_json"]) if row else None
+
+    def upsert_maintenance_task(self, task: MaintenanceTask) -> MaintenanceTask:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT task_json FROM maintenance_tasks WHERE project_id = ? AND fingerprint = ?",
+                (task.project_id, task.fingerprint),
+            ).fetchone()
+            if row is not None:
+                existing = MaintenanceTask.model_validate_json(row["task_json"])
+                if existing.status.value not in {"done", "dismissed"}:
+                    return existing
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO maintenance_tasks (
+                    id, project_id, fingerprint, status, task_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    task.id,
+                    task.project_id,
+                    task.fingerprint,
+                    task.status.value,
+                    task.model_dump_json(),
+                    task.created_at.isoformat(),
+                    task.updated_at.isoformat(),
+                ),
+            )
+        return task
+
+    def list_maintenance_tasks(self, project_id: str) -> list[MaintenanceTask]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT task_json FROM maintenance_tasks WHERE project_id = ? ORDER BY updated_at DESC",
+                (project_id,),
+            ).fetchall()
+        return [MaintenanceTask.model_validate_json(row["task_json"]) for row in rows]
+
+    def save_maintenance_task(self, task: MaintenanceTask) -> None:
+        task.updated_at = datetime.now(UTC)
+        with self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE maintenance_tasks
+                SET status = ?, task_json = ?, updated_at = ?
+                WHERE id = ? AND project_id = ?
+                """,
+                (task.status.value, task.model_dump_json(), task.updated_at.isoformat(), task.id, task.project_id),
+            )
+
+    def save_change_set(self, change_set: ChangeSet) -> None:
+        now = datetime.now(UTC).isoformat()
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO change_sets (
+                    id, project_id, task_id, status, change_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    change_set.id,
+                    change_set.project_id,
+                    change_set.task_id,
+                    change_set.status.value,
+                    change_set.model_dump_json(),
+                    change_set.created_at.isoformat(),
+                    now,
+                ),
+            )
+
+    def get_change_set(self, change_set_id: str) -> ChangeSet:
+        with self._connect() as connection:
+            row = connection.execute("SELECT change_json FROM change_sets WHERE id = ?", (change_set_id,)).fetchone()
+        if row is None:
+            raise KeyError(f"change set not found: {change_set_id}")
+        return ChangeSet.model_validate_json(row["change_json"])
+
+    def list_change_sets(self, project_id: str) -> list[ChangeSet]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT change_json FROM change_sets WHERE project_id = ? ORDER BY created_at DESC",
+                (project_id,),
+            ).fetchall()
+        return [ChangeSet.model_validate_json(row["change_json"]) for row in rows]
 
     def search_project(self, project_id: str, query: str, limit: int) -> list[RetrievalResult]:
         with self._connect() as connection:
@@ -404,6 +614,7 @@ class SQLiteRepository:
 
     @staticmethod
     def _row_to_artifact(row: sqlite3.Row) -> Artifact:
+        row_keys = set(row.keys())
         return Artifact(
             id=row["id"],
             project_id=row["project_id"],
@@ -414,6 +625,13 @@ class SQLiteRepository:
             source_evidence_ids=json.loads(row["source_evidence_ids"]),
             schema_version=row["schema_version"],
             created_at=datetime.fromisoformat(row["created_at"]),
+            revision=int(row["revision"] or 1) if "revision" in row_keys else 1,
+            content_hash=row["content_hash"] if "content_hash" in row_keys else "",
+            active=bool(row["active"]) if "active" in row_keys else True,
+            supersedes=row["supersedes"] if "supersedes" in row_keys else None,
+            superseded_by=row["superseded_by"] if "superseded_by" in row_keys else None,
+            run_id=row["run_id"] if "run_id" in row_keys else None,
+            change_set_id=row["change_set_id"] if "change_set_id" in row_keys else None,
         )
 
     @staticmethod

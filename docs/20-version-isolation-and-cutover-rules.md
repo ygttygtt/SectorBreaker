@@ -126,3 +126,33 @@ ART-V1-
 
 If these markers appear in a new personal auto-run, treat it as an architecture
 regression, not a cosmetic bug.
+
+## V3 Enterprise Retirement Rule
+
+V3 has one knowledge-management product path. The retired enterprise
+talent-demand experiment and Boss/job-source integration must not remain
+reachable from production imports, APIs, frontend modes, provider factories, or
+schemas.
+
+Forbidden V3 production markers include:
+
+```text
+backend.app.talent_demand
+backend.app.providers.job_sources
+run_talent_demand_pipeline
+JobSourceProvider
+build_job_source_provider
+talent_demand
+TalentScope
+talent-v1
+boss_job
+/api/config/job-source
+```
+
+Historical migration SQL or explicitly archived documentation may mention the
+retired experiment. Production Python/TypeScript may not. Existing enterprise
+database rows are archived and normalized by migration before public enums and
+runtime branches are removed.
+
+Before V3 readiness is claimed, `tools/check_version_isolation.py` must prove
+both old workflow isolation and enterprise retirement.

@@ -5,6 +5,7 @@ import asyncio
 from pathlib import Path
 
 from backend.app.agent_kernel.models import ToolCall
+from backend.app.agent_kernel.pipeline import run_v2_agent_kernel_pipeline
 from backend.app.agent_kernel.tool_registry import KernelRuntimeContext
 from backend.app.agent_kernel.tools.artifacts import revise_layer_document
 from backend.app.agent_state.models import SectorBreakerState
@@ -66,7 +67,7 @@ def _make_context(repo: SQLiteRepository, llm=None) -> KernelRuntimeContext:
     )
 
 
-def test_revise_layer_document_creates_new_supersedes_old(tmp_path: Path) -> None:
+def test_revise_layer_document_proposes_changeset_without_mutating_artifacts(tmp_path: Path) -> None:
     repo = _make_repo(tmp_path)
     old_artifact = _make_old_artifact()
     revised_content = (
@@ -84,6 +85,7 @@ def test_revise_layer_document_creates_new_supersedes_old(tmp_path: Path) -> Non
     )
     llm = FakeLLMProvider(response=revised_content)
     context = _make_context(repo, llm)
+    repo.add_artifact(old_artifact)
     context.artifacts = [old_artifact]
 
     tool_call = ToolCall(
@@ -98,12 +100,13 @@ def test_revise_layer_document_creates_new_supersedes_old(tmp_path: Path) -> Non
     observation = asyncio.run(revise_layer_document(tool_call, context))
 
     assert observation.success is True
-    assert len(context.artifacts) == 2
-    new_art = next(a for a in context.artifacts if a.id != "ART-KERNEL-L1-old001")
-    old_art = next(a for a in context.artifacts if a.id == "ART-KERNEL-L1-old001")
-    assert new_art.id.startswith("ART-KERNEL-REV-")
-    assert old_art.superseded_by == new_art.id
-    assert "Revised" in new_art.content
+    assert observation.requires_human is True
+    assert len(context.artifacts) == 1
+    assert context.artifacts[0].superseded_by is None
+    change_sets = repo.list_change_sets("proj-001")
+    assert len(change_sets) == 1
+    assert change_sets[0].operations[0].base_hash == old_artifact.content_hash
+    assert "Revised" in change_sets[0].operations[0].after_content
 
 
 def test_revise_layer_document_fails_without_llm(tmp_path: Path) -> None:
@@ -135,3 +138,58 @@ def test_revise_layer_document_fails_for_missing_artifact(tmp_path: Path) -> Non
     observation = asyncio.run(revise_layer_document(tool_call, context))
     assert observation.success is False
     assert "artifact" in observation.error.lower()
+
+
+def test_continuation_loads_active_artifact_and_proposes_revision(tmp_path: Path) -> None:
+    repo = _make_repo(tmp_path)
+    project = _make_project()
+    old_artifact = _make_old_artifact()
+    repo.add_artifact(old_artifact)
+    revised_content = (
+        "# What and Why Revised\n\n## Definition\n\n"
+        + "Evidence-linked revision content. " * 70
+        + "[^EV-KERNEL-001]\n\n## Boundaries\n\n"
+        + "This section records scope, limitations, and open questions. " * 35
+    )
+
+    class RevisionPolicyLLM:
+        async def complete_structured(self, messages, response_schema):
+            return response_schema.model_validate({
+                "thought_summary": "Revise the active prior-run document through review.",
+                "action_type": "write_artifact",
+                "tool_call": {
+                    "tool_name": "revise_layer_document",
+                    "args": {
+                        "artifact_id": old_artifact.id,
+                        "layer_id": "L1_what_why",
+                        "revision_goal": "Add evidence and boundaries",
+                    },
+                    "reason": "The active ArtifactMemory shows a thin prior revision.",
+                },
+            })
+
+        async def complete(self, messages):
+            return revised_content
+
+    state = SectorBreakerState.initialize(
+        project_id=project.id,
+        domain=project.domain,
+        user_goal="continue",
+    )
+    state.evidence_refs = ["EV-KERNEL-001"]
+
+    result = asyncio.run(run_v2_agent_kernel_pipeline(
+        project=project,
+        repository=repo,
+        search_provider=None,
+        llm_provider=RevisionPolicyLLM(),  # type: ignore[arg-type]
+        resume_state=state,
+        run_id="run-continue",
+    ))
+
+    assert result.status.value == "waiting_for_human"
+    assert state.artifact_memory[0].artifact_id == old_artifact.id
+    change_sets = repo.list_change_sets(project.id)
+    assert len(change_sets) == 1
+    assert change_sets[0].operations[0].base_hash == old_artifact.content_hash
+    assert repo.list_artifacts(project.id)[0].id == old_artifact.id

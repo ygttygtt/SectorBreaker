@@ -121,7 +121,7 @@ def test_write_explainer_cards_batch_creates_multiple_cards() -> None:
     assert observation.success is True
     assert len(observation.artifact_ids) == 2
     assert len(context.artifacts) == 2
-    assert {artifact.schema_version for artifact in context.artifacts} == {"v2-agent-kernel-card"}
+    assert {artifact.schema_version for artifact in context.artifacts} == {"v3-knowledge-ops"}
     assert observation.state_delta.artifact_ids == observation.artifact_ids
     # 并发验证：至少有 2 个 LLM 调用同时在飞
     assert llm.max_active >= 2, f"Expected concurrent calls but max_active={llm.max_active}"

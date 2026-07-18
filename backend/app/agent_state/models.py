@@ -1,4 +1,4 @@
-"""Structured state and memory models for SectorBreaker V2.
+"""Structured state and memory models for SectorBreaker V3.
 
 These models intentionally sit outside the older ``ResearchState``. The older
 state tracks workflow progress; this module tracks the Agent's cognition:
@@ -308,6 +308,35 @@ class TaskMemory(BaseModel):
         return text[:max_chars]
 
 
+class ArtifactMemory(BaseModel):
+    artifact_id: str
+    content_path: str
+    title: str
+    revision: int = Field(default=1, ge=1)
+    content_hash: str = ""
+    active: bool = True
+    supersedes: str | None = None
+    superseded_by: str | None = None
+    review_status: str = "draft"
+    known_gaps: list[str] = Field(default_factory=list)
+    last_modified_run_id: str | None = None
+
+
+class AutonomyPolicy(BaseModel):
+    execution_mode: str = "plan_only"
+    allow_network_search: bool = True
+    allow_create: bool = True
+    allow_update: bool = False
+    allow_move: bool = False
+    allow_delete: bool = False
+    require_evidence_for_fact_change: bool = True
+    max_files_per_run: int = Field(default=8, ge=1, le=100)
+    max_changed_bytes: int = Field(default=200_000, ge=1)
+    max_search_calls: int = Field(default=16, ge=0)
+    max_writer_calls: int = Field(default=16, ge=0)
+    allowed_write_prefixes: list[str] = Field(default_factory=lambda: ["docs/", "cards/", "followups/"])
+
+
 class SharedKnowledge(BaseModel):
     entities: list[EntityRecord] = Field(default_factory=list)
     claims: list[KnowledgeClaim] = Field(default_factory=list)
@@ -369,13 +398,21 @@ class ContextPack(BaseModel):
 
 
 class SectorBreakerState(BaseModel):
-    state_version: str = "2"
+    state_version: str = "3"
     meta_context: MetaContext
     knowledge_schema: KnowledgeSchema
     shared_knowledge: SharedKnowledge = Field(default_factory=SharedKnowledge)
     evidence_refs: list[str] = Field(default_factory=list)
     working_memory: dict[str, TaskMemory] = Field(default_factory=dict)
     decision_log: list[AgentDecision] = Field(default_factory=list)
+    artifact_memory: list[ArtifactMemory] = Field(default_factory=list)
+    vault_import_id: str | None = None
+    latest_health_report_id: str | None = None
+    maintenance_task_ids: list[str] = Field(default_factory=list)
+    maintenance_task_summaries: list[str] = Field(default_factory=list)
+    active_maintenance_objective: str = ""
+    delegation_log: list[str] = Field(default_factory=list)
+    autonomy_policy: AutonomyPolicy = Field(default_factory=AutonomyPolicy)
     human_feedback: list[str] = Field(default_factory=list)
     current_layer_id: KnowledgeLayerId | str | None = None
     current_task_id: str | None = None

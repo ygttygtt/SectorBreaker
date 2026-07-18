@@ -1,4 +1,4 @@
-"""Context selection for V2 Agent calls.
+"""Context selection for V3 Agent calls.
 
 The builder is deliberately deterministic. It decides what should enter an LLM
 prompt and what should stay in storage/audit logs.

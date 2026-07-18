@@ -1,4 +1,4 @@
-"""Agent Kernel public exports for SectorBreaker V2."""
+"""Agent Kernel public exports for SectorBreaker V3."""
 
 from backend.app.agent_kernel.pipeline import run_v2_agent_kernel_pipeline
 

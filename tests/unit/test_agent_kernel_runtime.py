@@ -2,7 +2,7 @@ import asyncio
 from datetime import UTC, datetime
 
 from backend.app.agent_kernel.context import KernelContextBuilder
-from backend.app.agent_kernel.models import AgentActionType, AgentDecision, KernelObservation, KernelRunStatus, KernelStateDelta, ToolCall
+from backend.app.agent_kernel.models import AgentActionType, AgentDecision, KernelLoopConfig, KernelObservation, KernelRunStatus, KernelStateDelta, ToolCall
 from backend.app.agent_kernel.runtime import AgentKernelRuntime
 from backend.app.agent_kernel.tool_registry import KernelRuntimeContext, ToolRegistry
 from backend.app.agent_state import SectorBreakerState
@@ -285,12 +285,12 @@ def test_agent_kernel_runtime_executes_ordered_tool_calls_and_updates_state_betw
     assert result.status == KernelRunStatus.BLOCKED
     assert seen_scores == [0.25]
     # V3: action event message 不再以 "Action:" 开头（改用 user_notice 或 tool_name），
-    # 用 agent="V2 Tool Executor" 过滤 ACTION 事件（区别于 OBSERVATION 事件的 agent=tool_name）。
+    # 用 agent="V3 Tool Executor" 过滤 ACTION 事件（区别于 OBSERVATION 事件的 agent=tool_name）。
     action_agents = [
         event.agent for event in events
-        if event.gate == "tool_execution" and event.agent == "V2 Tool Executor"
+        if event.gate == "tool_execution" and event.agent == "V3 Tool Executor"
     ]
-    assert action_agents == ["V2 Tool Executor", "V2 Tool Executor"]
+    assert action_agents == ["V3 Tool Executor", "V3 Tool Executor"]
     assert any("coverage_updates+1" in event.message for event in events)
 
 
@@ -318,3 +318,57 @@ def test_kernel_context_includes_artifact_memory() -> None:
     assert "## Artifact Memory" in context
     assert '"artifact_count": 1' in context
     assert "API 中转站本源" in context
+
+
+def test_agent_kernel_runtime_hard_blocks_search_past_budget() -> None:
+    class SearchTwicePolicy:
+        async def decide(self, **kwargs):
+            return AgentDecision(
+                thought_summary="执行两次搜索验证硬预算。",
+                action_type=AgentActionType.CALL_TOOL,
+                tool_calls=[
+                    ToolCall(tool_name="search_web", args={"query": "first"}, reason="first"),
+                    ToolCall(tool_name="search_web", args={"query": "second"}, reason="second"),
+                ],
+            )
+
+    class FakeRepository:
+        def list_evidence(self, project_id):
+            return []
+
+        def list_documents(self, project_id):
+            return []
+
+        def list_artifacts(self, project_id):
+            return []
+
+    dispatched: list[str] = []
+
+    async def fake_search(tool_call, context):
+        dispatched.append(tool_call.args["query"])
+        context.search_call_count += 1
+        return KernelObservation(tool_name="search_web", success=True, summary="searched")
+
+    registry = ToolRegistry()
+    from backend.app.agent_kernel.models import ToolSpec
+
+    registry.register(ToolSpec(name="search_web", description="fake"), fake_search)
+    state = SectorBreakerState.initialize(project_id="project-kernel", domain="API中转站", user_goal="建库")
+    context = KernelRuntimeContext(
+        project=_project(),
+        repository=FakeRepository(),  # type: ignore[arg-type]
+        state=state,
+        search_provider=None,
+        llm_provider=None,
+        emit_event=lambda event: asyncio.sleep(0),
+    )
+
+    result = asyncio.run(AgentKernelRuntime(
+        policy=SearchTwicePolicy(),  # type: ignore[arg-type]
+        registry=registry,
+        config=KernelLoopConfig(max_iterations=2, max_search_calls=1, max_writer_calls=1),
+    ).run(context))
+
+    assert result.status == KernelRunStatus.WAITING_FOR_HUMAN
+    assert dispatched == ["first"]
+    assert any("search budget exhausted" in (event.data.get("error") or "") for event in result.trace)

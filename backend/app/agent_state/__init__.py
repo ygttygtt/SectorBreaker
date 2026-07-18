@@ -1,9 +1,11 @@
-"""State and memory primitives for the V2 Agent architecture."""
+"""State and memory primitives for the V3 Agent architecture."""
 
 from backend.app.agent_state.context_pack import ContextPackBuilder
 from backend.app.agent_state.models import (
     AgentAction,
     AgentDecision,
+    ArtifactMemory,
+    AutonomyPolicy,
     ContextPack,
     EntityRecord,
     KnowledgeClaim,
@@ -28,6 +30,8 @@ from backend.app.agent_state.report_internalizer import (
 __all__ = [
     "AgentAction",
     "AgentDecision",
+    "ArtifactMemory",
+    "AutonomyPolicy",
     "ContextPack",
     "ContextPackBuilder",
     "EntityRecord",

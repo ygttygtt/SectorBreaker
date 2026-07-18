@@ -1,4 +1,4 @@
-"""LLM policy for the V2 Agent Kernel."""
+"""LLM policy for the V3 Agent Kernel."""
 
 from __future__ import annotations
 
@@ -147,7 +147,7 @@ def load_prompt(name: str) -> str:
         return path.read_text(encoding="utf-8")
     return (
         f"# Missing Prompt: {name}\n"
-        "你是 SectorBreaker V2 Master Agent。读取 State，选择 Tools，观察结果，更新记忆。"
+        "你是 SectorBreaker V3 Master Agent。读取 State，选择 Tools，观察结果，更新记忆。"
         "不要把 L1-L5 当成死流程。必须输出结构化 JSON action。"
     )
 

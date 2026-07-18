@@ -1,4 +1,4 @@
-"""State-update tools for the V2 Agent Kernel."""
+"""State-update tools for the V3 Agent Kernel."""
 
 from __future__ import annotations
 

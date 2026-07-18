@@ -1,20 +1,20 @@
-"""Production entry point for the V2 Agent Kernel personal knowledge path."""
+"""Production entry point for the V3 knowledge-management Agent Kernel."""
 
 from __future__ import annotations
 
 import os
 from collections.abc import Awaitable, Callable
 
-from backend.app.agent_kernel.models import KernelLoopConfig, KernelRunStatus
+from backend.app.agent_kernel.models import KernelLoopConfig, KernelRunResult, KernelRunStatus
 from backend.app.agent_kernel.policy import LLMAgentPolicy
 from backend.app.agent_kernel.runtime import AgentKernelRuntime
 from backend.app.agent_kernel.schema_planner import build_adaptive_schema
 from backend.app.agent_kernel.tool_registry import KernelRuntimeContext
 from backend.app.agent_kernel.tools import build_default_tool_registry
-from backend.app.agent_state import ReportInternalizer, SectorBreakerState
+from backend.app.agent_state import ArtifactMemory, ReportInternalizer, SectorBreakerState
 from backend.app.agent_state.models import AgentAction, AgentDecision
 from backend.app.providers.interfaces import LLMProvider, SearchProvider
-from backend.app.schemas import Artifact, ResearchProject, RunEvent
+from backend.app.schemas import Artifact, MaintenanceRunRequest, ResearchProject, RunEvent
 from backend.app.storage.sqlite import SQLiteRepository
 
 
@@ -27,8 +27,9 @@ async def run_v2_agent_kernel_pipeline(
     emit: Callable[[RunEvent], Awaitable[None]] | None = None,
     run_id: str | None = None,
     resume_state: SectorBreakerState | None = None,
-) -> list[Artifact]:
-    """Run the real V2 Agent Kernel loop and persist generated artifacts."""
+    maintenance_request: MaintenanceRunRequest | None = None,
+) -> KernelRunResult:
+    """Run the Agent Kernel, persist durable outputs, and return its terminal status."""
 
     async def emit_event(event: RunEvent) -> None:
         if emit is not None:
@@ -38,10 +39,11 @@ async def run_v2_agent_kernel_pipeline(
 
     if resume_state is not None:
         state = resume_state
+        state.state_version = "3"
         await emit_event(RunEvent(
             event_type="node_started",
             gate="initialize_state",
-            agent="V2 Agent Kernel",
+            agent="V3 Agent Kernel",
             message=(
                 "Resuming from existing State checkpoint: "
                 + str(len(state.shared_knowledge.source_memories)) + " sources, "
@@ -50,7 +52,7 @@ async def run_v2_agent_kernel_pipeline(
             ),
             data={
                 "pipeline": "agent_kernel",
-                "schema_version": "v2-agent-kernel",
+                "schema_version": "v3-knowledge-ops",
                 "resumed": True,
                 "knowledge_schema_strategy": state.knowledge_schema.strategy,
             },
@@ -75,11 +77,11 @@ async def run_v2_agent_kernel_pipeline(
         await emit_event(RunEvent(
             event_type="node_started",
             gate="initialize_state",
-            agent="V2 Agent Kernel",
+            agent="V3 Agent Kernel",
             message="Agent Kernel started: using State + Tools + ReAct loop.",
             data={
                 "pipeline": "agent_kernel",
-                "schema_version": "v2-agent-kernel",
+                "schema_version": "v3-knowledge-ops",
                 "knowledge_schema_strategy": state.knowledge_schema.strategy,
                 "knowledge_schema_reason": state.knowledge_schema.generated_reason,
                 "state": state.model_dump(mode="json"),
@@ -92,7 +94,34 @@ async def run_v2_agent_kernel_pipeline(
             emit_event=emit_event,
         )
 
+    if maintenance_request is not None:
+        latest_import = repository.latest_vault_import(project.id)
+        latest_health = repository.latest_health_report(project.id)
+        state.vault_import_id = latest_import.id if latest_import else state.vault_import_id
+        state.latest_health_report_id = latest_health.id if latest_health else state.latest_health_report_id
+        state.active_maintenance_objective = maintenance_request.objective.strip()
+        state.maintenance_task_ids = list(dict.fromkeys(maintenance_request.task_ids))
+        selected_tasks = [
+            task for task in repository.list_maintenance_tasks(project.id)
+            if task.id in state.maintenance_task_ids
+        ]
+        state.maintenance_task_summaries = [
+            f"{task.id} | {task.task_type} | {task.objective} | paths={','.join(task.target_paths)}"
+            for task in selected_tasks
+        ]
+        policy_data = {
+            **state.autonomy_policy.model_dump(),
+            **maintenance_request.autonomy_policy,
+            "execution_mode": maintenance_request.execution_mode,
+        }
+        state.autonomy_policy = state.autonomy_policy.model_validate(policy_data)
+        if state.active_maintenance_objective:
+            state.meta_context.user_goal = state.active_maintenance_objective
+
     registry = build_default_tool_registry()
+    active_artifacts = repository.list_artifacts(project.id)
+    initial_artifact_ids = {artifact.id for artifact in active_artifacts}
+    _sync_artifact_memory(state, active_artifacts)
 
     # Forward-declare so the closure can reference runtime_context after creation
     _runtime_context_holder: list[KernelRuntimeContext] = []
@@ -102,6 +131,11 @@ async def run_v2_agent_kernel_pipeline(
         if ctx is None:
             return
         try:
+            artifact = next((item for item in ctx.artifacts if item.id == artifact_id), None)
+            if artifact is None:
+                return
+            repository.add_artifact(artifact)
+            _sync_artifact_memory(ctx.state, repository.list_artifacts(project.id))
             repository.save_run_state_checkpoint(
                 run_id=_run_id,
                 project_id=project.id,
@@ -120,23 +154,41 @@ async def run_v2_agent_kernel_pipeline(
         search_provider=search_provider,
         llm_provider=llm_provider,
         emit_event=emit_event,
+        artifacts=list(active_artifacts),
+        initial_artifact_ids=initial_artifact_ids,
+        run_id=_run_id,
         on_artifact_written=_checkpoint_on_artifact,
     )
     _runtime_context_holder.append(runtime_context)
 
+    loop_config = _kernel_config_for_project(project)
+    loop_config.max_search_calls = min(loop_config.max_search_calls, state.autonomy_policy.max_search_calls)
+    loop_config.max_writer_calls = min(loop_config.max_writer_calls, state.autonomy_policy.max_writer_calls)
+    state.autonomy_policy.max_search_calls = loop_config.max_search_calls
+    state.autonomy_policy.max_writer_calls = loop_config.max_writer_calls
     runtime = AgentKernelRuntime(
         policy=LLMAgentPolicy(llm_provider),
         registry=registry,
-        config=_kernel_config_for_project(project),
+        config=loop_config,
     )
     result = await runtime.run(runtime_context)
 
     # Save final state for either continuation or diagnostics.
-    final_checkpoint_type = (
-        "run_end_completed"
-        if result.status == KernelRunStatus.COMPLETED or runtime_context.artifacts
-        else "run_end"
+    new_artifacts = [
+        artifact for artifact in runtime_context.artifacts
+        if artifact.id not in runtime_context.initial_artifact_ids
+    ]
+    final_checkpoint_type = "run_end_completed" if result.status == KernelRunStatus.COMPLETED else (
+        "run_end_partial" if new_artifacts else "run_end"
     )
+
+    # Durable Artifact revisions must exist before a checkpoint references the
+    # final State. The per-artifact callback normally persists them earlier;
+    # this idempotent pass is the hard safety boundary if that callback failed.
+    for artifact in new_artifacts:
+        repository.add_artifact(artifact)
+    if new_artifacts:
+        _sync_artifact_memory(runtime_context.state, repository.list_artifacts(project.id))
     try:
         repository.save_run_state_checkpoint(
             run_id=_run_id,
@@ -151,22 +203,20 @@ async def run_v2_agent_kernel_pipeline(
     await emit_event(RunEvent(
         event_type="node_completed" if result.status == KernelRunStatus.COMPLETED else "node_degraded",
         gate="export" if result.status == KernelRunStatus.COMPLETED else "agent_decide",
-        agent="V2 Agent Kernel",
+        agent="V3 Agent Kernel",
         message="Agent Kernel run finished: " + result.status.value + ". " + result.stop_reason,
         severity="info" if result.status == KernelRunStatus.COMPLETED else "warning",
         data=result.model_dump(mode="json"),
     ))
-    for artifact in runtime_context.artifacts:
-        repository.add_artifact(artifact)
-    if runtime_context.artifacts:
+    if new_artifacts:
         if result.failed_writes:
             await emit_event(RunEvent(
                 event_type="node_degraded",
                 gate="artifact_writing",
-                agent="V2 Agent Kernel",
+                agent="V3 Agent Kernel",
                 message=(
                     "本轮已生成 "
-                    + str(len(runtime_context.artifacts))
+                    + str(len(new_artifacts))
                     + " 篇文档；"
                     + str(len(result.failed_writes))
                     + " 项写作未成功，可在下一轮继续补全。"
@@ -174,10 +224,29 @@ async def run_v2_agent_kernel_pipeline(
                 severity="warning",
                 data={"failed_writes": result.failed_writes},
             ))
-        return runtime_context.artifacts
+        return result
+    if result.status == KernelRunStatus.WAITING_FOR_HUMAN:
+        return result
     if result.status != KernelRunStatus.COMPLETED:
-        raise RuntimeError("V2 Agent Kernel produced no artifacts: " + result.status.value + " / " + result.stop_reason)
-    return runtime_context.artifacts
+        raise RuntimeError("V3 Agent Kernel produced no artifacts: " + result.status.value + " / " + result.stop_reason)
+    return result
+
+
+def _sync_artifact_memory(state: SectorBreakerState, artifacts: list[Artifact]) -> None:
+    state.artifact_memory = [
+        ArtifactMemory(
+            artifact_id=artifact.id,
+            content_path=artifact.content_path,
+            title=artifact.title,
+            revision=artifact.revision,
+            content_hash=artifact.content_hash,
+            active=artifact.active,
+            supersedes=artifact.supersedes,
+            superseded_by=artifact.superseded_by,
+            last_modified_run_id=artifact.run_id,
+        )
+        for artifact in artifacts
+    ]
 
 
 def _kernel_config_for_project(project: ResearchProject) -> KernelLoopConfig:
@@ -221,7 +290,7 @@ async def _internalize_uploaded_documents(
         await emit_event(RunEvent(
             event_type="node_progress",
             gate="external_materials",
-            agent="V2 Agent Kernel",
+            agent="V3 Agent Kernel",
             message="No uploaded materials found; Agent starts from current State and search tools.",
         ))
         return
@@ -229,7 +298,7 @@ async def _internalize_uploaded_documents(
     await emit_event(RunEvent(
         event_type="node_started",
         gate="external_materials",
-        agent="V2 Report Internalizer",
+        agent="V3 Report Internalizer",
         message="Writing uploaded materials into Agent State: " + str(len(documents)) + " documents.",
     ))
     for document in documents:
@@ -238,7 +307,7 @@ async def _internalize_uploaded_documents(
         await emit_event(RunEvent(
             event_type="node_progress",
             gate="external_materials",
-            agent="V2 Report Internalizer",
+            agent="V3 Report Internalizer",
             message=(
                 "Internalized: " + (document.file_name or document.id)
                 + ", claims=" + str(len(report.claims))

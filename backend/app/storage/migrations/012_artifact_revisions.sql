@@ -1,0 +1,7 @@
+ALTER TABLE artifacts ADD COLUMN revision INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE artifacts ADD COLUMN content_hash TEXT NOT NULL DEFAULT '';
+ALTER TABLE artifacts ADD COLUMN active INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE artifacts ADD COLUMN supersedes TEXT;
+ALTER TABLE artifacts ADD COLUMN superseded_by TEXT;
+ALTER TABLE artifacts ADD COLUMN run_id TEXT;
+ALTER TABLE artifacts ADD COLUMN change_set_id TEXT;

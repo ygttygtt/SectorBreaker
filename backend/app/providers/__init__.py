@@ -6,10 +6,6 @@ from backend.app.providers.interfaces import (
     CounterevidenceProvider,
     DocumentSegment,
     ExtractedPage,
-    JobPostingSource,
-    JobSourceProvider,
-    JobSourceQuery,
-    JobSourceStatus,
     LLMProvider,
     ReportIngestionProvider,
     RetrievalProvider,
@@ -32,13 +28,11 @@ from backend.app.providers.brave import BraveSearchProvider
 from backend.app.providers.exa import ExaSearchProvider
 from backend.app.providers.factory import (
     build_content_extraction_provider,
-    build_job_source_provider,
     build_llm_provider,
     build_search_provider,
     build_source_registry,
     build_source_verification_provider,
 )
-from backend.app.providers.job_sources import BossAgentCliProvider, DisabledJobSourceProvider
 from backend.app.providers.counterevidence import HeuristicCounterevidenceProvider
 from backend.app.providers.multi_search import MultiSearchProvider
 from backend.app.providers.openai_compatible import OpenAICompatibleLLMProvider
@@ -65,15 +59,8 @@ __all__ = [
     "DocumentSegment",
     "ExtractedPage",
     "HttpContentExtractionProvider",
-    "BossAgentCliProvider",
-    "DisabledJobSourceProvider",
-    "JobPostingSource",
-    "JobSourceProvider",
-    "JobSourceQuery",
-    "JobSourceStatus",
     "JinaReaderContentExtractionProvider",
     "build_content_extraction_provider",
-    "build_job_source_provider",
     "build_default_source_registry",
     "build_llm_provider",
     "build_search_provider",

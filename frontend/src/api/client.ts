@@ -9,7 +9,7 @@ export interface Project {
   market_scope: string;
   depth: string;
   source_policy?: string;
-  project_mode?: "domain_knowledge" | "talent_demand";
+  project_mode?: "domain_knowledge";
   status: string;
 }
 
@@ -19,7 +19,7 @@ export interface CreateProjectPayload {
   market_scope: string;
   depth: string;
   source_policy: string;
-  project_mode?: "domain_knowledge" | "talent_demand";
+  project_mode?: "domain_knowledge";
 }
 
 export interface RunResponse {
@@ -279,44 +279,6 @@ export interface SearchRuntimeConfig {
   jina_reader_endpoint_prefix?: string;
 }
 
-export interface JobSourceStatus {
-  provider: string;
-  configured: boolean;
-  available: boolean;
-  enabled?: boolean;
-  message: string;
-  diagnostics?: string[];
-  boss_keyword?: string | null;
-  boss_city?: string | null;
-  boss_limit?: number;
-}
-
-export interface JobSourceRuntimeConfig {
-  enabled: boolean;
-  provider: string;
-  boss_agent_cli_command?: string;
-  boss_agent_cli_args_template?: string | null;
-  boss_agent_cli_timeout_seconds?: number;
-  boss_keyword?: string | null;
-  boss_city?: string | null;
-  boss_limit?: number;
-}
-
-export interface JobSourceTestResult {
-  success: boolean;
-  message: string;
-  status: JobSourceStatus;
-  result_count: number;
-  results: Array<{
-    title: string;
-    company?: string | null;
-    location?: string | null;
-    salary_text?: string | null;
-    experience_text?: string | null;
-    url?: string | null;
-  }>;
-}
-
 export interface ProjectDocument {
   id: string;
   project_id: string;
@@ -400,6 +362,144 @@ export interface EvidencePreview {
   verification_status: string;
 }
 
+export interface VaultImportRequest {
+  source_path: string;
+  max_files?: number;
+  max_total_bytes?: number;
+}
+
+export interface VaultImportRecord {
+  id: string;
+  project_id: string;
+  source_path: string;
+  note_count: number;
+  total_bytes: number;
+  snapshot_hash: string;
+  imported_paths: string[];
+  skipped_paths: string[];
+  created_at: string;
+}
+
+export interface VaultNoteSummary {
+  artifact_id: string;
+  relative_path: string;
+  title: string;
+  revision: number;
+  content_hash: string;
+  wikilinks: string[];
+  tags: string[];
+}
+
+export interface VaultStatus {
+  project_id: string;
+  latest_import: VaultImportRecord | null;
+  active_note_count: number;
+  notes: VaultNoteSummary[];
+}
+
+export type HealthFindingType =
+  | "broken_link"
+  | "orphan_note"
+  | "duplicate_title"
+  | "missing_frontmatter"
+  | "missing_evidence_metadata"
+  | "unresolved_marker";
+
+export interface HealthFinding {
+  id: string;
+  finding_type: HealthFindingType;
+  severity: "info" | "warning" | "blocking";
+  target_paths: string[];
+  explanation: string;
+  suggested_action: string;
+  detector: string;
+  auto_fixable: boolean;
+}
+
+export interface KnowledgeHealthReport {
+  id: string;
+  project_id: string;
+  vault_import_id: string | null;
+  snapshot_hash: string;
+  metrics: Record<string, number>;
+  findings: HealthFinding[];
+  generated_at: string;
+}
+
+export type MaintenanceTaskStatus = "open" | "planned" | "running" | "blocked" | "done" | "dismissed";
+
+export interface MaintenanceTask {
+  id: string;
+  project_id: string;
+  fingerprint: string;
+  finding_ids: string[];
+  task_type: string;
+  objective: string;
+  target_paths: string[];
+  priority: number;
+  status: MaintenanceTaskStatus;
+  assigned_specialist: string | null;
+  required_evidence_types: string[];
+  approval_required: boolean;
+  change_set_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ChangeSetStatus = "proposed" | "approved" | "applied" | "conflicted" | "rolled_back" | "denied";
+
+export interface ChangeOperation {
+  operation: "create" | "update";
+  path: string;
+  base_hash: string;
+  before_content: string;
+  after_content: string;
+  unified_diff: string;
+  factual_change: boolean;
+}
+
+export interface ChangeSet {
+  id: string;
+  project_id: string;
+  task_id: string | null;
+  status: ChangeSetStatus;
+  summary: string;
+  evidence_ids: string[];
+  operations: ChangeOperation[];
+  created_by_agent: string;
+  created_at: string;
+  approved_at: string | null;
+  applied_at: string | null;
+  rolled_back_at: string | null;
+  applied_artifact_ids: string[];
+  rollback_artifact_ids: string[];
+  error: string | null;
+}
+
+export interface ChangeSetProposalPayload {
+  task_id?: string | null;
+  summary: string;
+  path: string;
+  after_content: string;
+  evidence_ids?: string[];
+  factual_change?: boolean;
+}
+
+export interface MaintenanceRunPayload {
+  objective?: string;
+  task_ids?: string[];
+  execution_mode?: "plan_only" | "apply_safe" | "require_review";
+  autonomy_policy?: Record<string, unknown>;
+}
+
+export interface MaintenanceRunResponse {
+  run_id: string;
+  status: string;
+  resumed_from_checkpoint: boolean;
+  task_ids: string[];
+  execution_mode: string;
+}
+
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
@@ -471,6 +571,60 @@ export const api = {
     return requestJson<Artifact[]>(`/api/projects/${projectId}/artifacts`);
   },
 
+  // Knowledge-base control plane
+  importVault(projectId: string, data: VaultImportRequest) {
+    return requestJson<VaultImportRecord>(`/api/projects/${projectId}/vault/import`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  getVaultStatus(projectId: string) {
+    return requestJson<VaultStatus>(`/api/projects/${projectId}/vault`);
+  },
+
+  auditVault(projectId: string) {
+    return requestJson<KnowledgeHealthReport>(`/api/projects/${projectId}/audits`, { method: "POST" });
+  },
+
+  getKnowledgeHealth(projectId: string) {
+    return requestJson<KnowledgeHealthReport>(`/api/projects/${projectId}/health`);
+  },
+
+  listMaintenanceBacklog(projectId: string) {
+    return requestJson<MaintenanceTask[]>(`/api/projects/${projectId}/maintenance-backlog`);
+  },
+
+  startMaintenanceRun(projectId: string, data: MaintenanceRunPayload) {
+    return requestJson<MaintenanceRunResponse>(`/api/projects/${projectId}/maintenance-runs`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  listChangeSets(projectId: string) {
+    return requestJson<ChangeSet[]>(`/api/projects/${projectId}/change-sets`);
+  },
+
+  proposeChangeSet(projectId: string, data: ChangeSetProposalPayload) {
+    return requestJson<ChangeSet>(`/api/projects/${projectId}/change-sets`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  approveChangeSet(projectId: string, changeSetId: string) {
+    return requestJson<ChangeSet>(`/api/projects/${projectId}/change-sets/${changeSetId}/approve`, { method: "POST" });
+  },
+
+  applyChangeSet(projectId: string, changeSetId: string) {
+    return requestJson<ChangeSet>(`/api/projects/${projectId}/change-sets/${changeSetId}/apply`, { method: "POST" });
+  },
+
+  rollbackChangeSet(projectId: string, changeSetId: string) {
+    return requestJson<ChangeSet>(`/api/projects/${projectId}/change-sets/${changeSetId}/rollback`, { method: "POST" });
+  },
+
   // Chat
   askQuestion(projectId: string, question: string) {
     return requestJson<ChatResponse>(`/api/projects/${projectId}/chat`, {
@@ -505,29 +659,6 @@ export const api = {
 
   getSearchConfig() {
     return requestJson<SearchConfigStatus>("/api/config/search");
-  },
-
-  getJobSourceConfig() {
-    return requestJson<JobSourceStatus>("/api/config/job-source");
-  },
-
-  updateJobSourceConfig(data: JobSourceRuntimeConfig) {
-    return requestJson<{ success: boolean; message: string; status: JobSourceStatus }>("/api/config/job-source", {
-      method: "POST",
-      body: JSON.stringify({
-        boss_agent_cli_command: "boss",
-        boss_agent_cli_timeout_seconds: 45,
-        boss_limit: 8,
-        ...data,
-      }),
-    });
-  },
-
-  testJobSource(data: { keyword: string; city?: string | null; limit?: number }) {
-    return requestJson<JobSourceTestResult>("/api/config/job-source/test", {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
   },
 
   updateSearchConfig(data: SearchRuntimeConfig) {

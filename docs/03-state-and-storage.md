@@ -1,224 +1,139 @@
 # State And Storage
 
-## Storage Principles
+## Principles
 
-SQLite stores structured state and metadata. Files store human-readable research artifacts. Generated runtime data is not committed.
+SQLite stores structured control-plane state and metadata. Markdown stores the
+human-readable knowledge base. Runtime data, imported mirrors, indexes, and
+exports are not committed.
+
+The first V3 release treats imported source vaults as read-only inputs and
+manages revisions in project storage/export. Direct synchronization is later
+work.
 
 ## Core Entities
 
 ### ResearchProject
 
-- `id`
-- `title`
-- `domain`
-- `market_scope`
-- `depth`
-- `source_policy`
-- `project_mode`
-- `status`
-- `created_at`
-- `updated_at`
+- id, title, domain, market scope, depth, source policy, status;
+- one surviving knowledge-management product path;
+- creation/update timestamps.
+
+The historical `project_mode` database column may remain for migration
+compatibility, but the public V3 contract has no enterprise mode selector.
 
 ### ResearchRun
 
-- `id`
-- `project_id`
-- `graph_state_version`
-- `current_gate`
-- `status`
-- `checkpoint_id`
-- `started_at`
-- `completed_at`
+- id, project id, status, current gate/step;
+- checkpoint and completion metadata;
+- run events and user inputs.
 
-### EvidenceItem
+### EvidenceItem / EvidenceClaim
 
-- `id`
-- `project_id`
-- `source_url`
-- `source_title`
-- `source_type`
-- `source_channel`
-- `source_policy`
-- `raw_excerpt`
-- `snippet`
-- `summary`
-- `claims`
-- `source_quality`
-- `claim_strength`
-- `bias_risk`
-- `recency`
-- `corroborating_evidence_ids`
-- `conflicting_evidence_ids`
-- `needs_counterevidence`
-- `collected_by`
-- `used_by_artifact_ids`
-- `confidence`
-- `verification_status`
-- `collected_at`
+Evidence retains source channel, source quality, verification status, claim
+strength, bias/conflict metadata, and artifact usage. Verified claims require
+acceptable evidence.
 
-V1.4 adds `source_channel="boss_job"` for structured recruitment samples
-collected through the enterprise talent-demand job-source provider.
+### ProjectDocument / DocumentSegment
 
-### EvidenceClaim
+Uploaded reports and imported vault notes are stored as documents and segments
+for retrieval. Imported vault documents preserve their relative Markdown path
+in `file_name` and use channel `vault_note`.
 
-- `claim_id`
-- `text`
-- `claim_type`
-- `support_level`
-- `requires_verification`
-- `verification_status`
-- `evidence_ids`
-- `counterevidence_ids`
-- `notes`
+### Artifact Revision
 
-### Artifact
+- id, project id, type, title, relative content path, content;
+- evidence ids and schema version;
+- revision number and content hash;
+- active status;
+- supersedes / superseded_by ids;
+- originating run and ChangeSet ids;
+- creation timestamp.
 
-- `id`
-- `project_id`
-- `artifact_type`
-- `schema_version`
-- `title`
-- `content_path`
-- `source_evidence_ids`
-- `created_at`
+Artifact revisions are immutable. Retrieval and export use active revisions by
+default.
 
-## Graph State
+### VaultImport
 
-`ResearchState` should include:
+- id, project id, source path;
+- note count and snapshot hash;
+- created timestamp.
 
-- project configuration;
-- current gate;
-- coverage checklist;
-- task queue;
-- supervisor plan;
-- evidence index;
-- draft artifacts;
-- QA issues;
-- QA report;
-- human review decisions;
-- export manifest.
+### KnowledgeHealthReport
 
-## V2 Agent State And Memory
+- id, project/import ids and snapshot hash;
+- metrics and typed findings JSON;
+- generated timestamp.
 
-V2 introduces a separate Agent cognition state under
-`backend/app/agent_state/`. This does not replace the older `ResearchState`
-immediately; it provides the durable models needed for the next LangGraph-native
-ReAct rebuild.
+### MaintenanceTask
 
-Core models:
+- id, project id, finding ids, type, objective, target paths;
+- priority, status, specialist, approval requirement;
+- evidence requirements and ChangeSet reference;
+- timestamps.
 
-- `SectorBreakerState`: top-level task state with `meta_context`,
-  `knowledge_schema`, `shared_knowledge`, `evidence_refs`, `working_memory`,
-  `decision_log`, and `human_feedback`.
-- `KnowledgeSchema` / `KnowledgeLayer`: dynamic L0-L5 practical cognition
-  schema, including optional prerequisite basics, What/Why, Who, How,
-  Money/Incentives, and Risks/Boundaries.
-- `SharedKnowledge`: curated entities, claims, relationships, open questions,
-  and source memories that are safe to reuse across nodes.
-- `TaskMemory`: short-lived local ReAct working memory for one task or
-  specialist Agent. It stores attempts and reflections, then compresses them
-  before crossing node boundaries.
-- `ContextPack`: the curated prompt payload created by `ContextPackBuilder`;
-  it includes relevant goals, layer criteria, claims, evidence snippets, open
-  questions, and compressed working memory while excluding raw dumps and noise.
+### ChangeSet
 
-Design rule: long documents, raw pages, rejected sources, and event logs stay in
-storage/audit surfaces. LLM calls receive `ContextPack`, not the whole state.
+- id, project/task ids, status, summary, evidence ids;
+- operations JSON including path, base hash, before/after content, and diff;
+- approval/apply/rollback timestamps and actor.
 
-V2 governance update: Agent Kernel state is no longer append-only. Deltas may
-hide/delete noisy source memories, hide/delete/supersede or update claims,
-resolve open questions, update layer coverage scores/status, and record phase
-reflections. `ContextPackBuilder` must filter hidden, inactive, rejected, and
-superseded memories before prompt construction. Adaptive schemas may use string
-layer ids in addition to the original L0-L5 enum ids.
+## SectorBreakerState V3
 
-## V2 Agent Kernel Checkpoints
+V3 extends the current structured State with:
 
-V2.0 persists `SectorBreakerState` snapshots in SQLite
-`run_state_checkpoints` so a finished knowledge base can be reopened and
-expanded by a later Agent Kernel run.
+- meta context and adaptive knowledge schema;
+- shared entities, claims, relationships, source memories, and open questions;
+- working memory and decision log;
+- ArtifactMemory for active and historical note revisions;
+- current vault import and health snapshot refs;
+- maintenance task refs and active objective;
+- delegation log;
+- AutonomyPolicy.
 
-Checkpoint fields:
+LLM calls receive a curated ContextPack, never the entire database, raw vault,
+or event history.
 
-- `id`
-- `run_id`
-- `project_id`
-- `state_json`
-- `checkpoint_type`
-- `artifact_id`
-- `iteration`
-- `created_at`
-
-Continuation must be project-scoped, not only run-scoped. A normal first run may
-save checkpoints under `run_id=project_id`, while later `/continue` runs save
-under their own run ids. The default continuation query must therefore load the
-latest resumable checkpoint by `project_id`.
+## Checkpoint Rules
 
 Resumable checkpoint types:
 
-- `artifact_write`: state captured after a successful artifact write.
-- `run_end_completed`: state captured after a completed Kernel run.
+- `artifact_write`: durable artifact revision and matching State are available;
+- `run_end_completed`: run completed with durable active artifacts.
 
-Diagnostic checkpoint type:
+Diagnostic/partial types:
 
-- `run_end`: state captured after a non-completed Kernel run. It is useful for
-  debugging but must not be the default source for `/continue`.
+- `run_end_partial`: useful work exists but completion was not reached;
+- `run_end`: failed/blocked diagnostics only.
 
-## Source Policy
+Default continuation loads only explicitly resumable checkpoints. It also loads
+active project artifacts into runtime context before any revise operation.
 
-`source_policy` values:
+Artifact persistence and the checkpoint that references it must share a safe
+transaction boundary or be ordered artifact-first.
 
-- `open_web`: broad exploration; weak sources are allowed but downgraded.
-- `reliable_first`: reliable sources first, open web as fallback.
-- `reliable_only`: only reliable public/official/company-disclosure/user-trusted sources may support facts.
-- `user_materials_only`: no open search unless the user later changes policy.
+## Retrieval Indexing
 
-## File Layout
+The current evidence-only FTS and Python scans are replaced by one lexical
+retrieval service covering:
 
-Generated project files should use:
+- evidence;
+- documents and segments;
+- active artifacts / imported vault notes.
 
-```text
-exports/<project-slug>/
-  manifest.json
-  00-研究框架/
-  01-行业地图/
-  02-市场现状/
-  03-玩家与交易单位/
-  04-内容与渠道/
-  05-机会地图/
-  99-待验证问题/
-```
+Index rows retain source type, parent id, relative path, content hash, and
+active status. Superseded revisions are excluded or removed from the active
+index.
 
-## Versioning
+Embeddings and vector indexes are derived data and must record model/version,
+dimension, and content hash when introduced later.
 
-State, artifacts, and exports must carry schema versions. Breaking schema changes require migration notes and tests.
+## Migration Rules
 
-## Project Mode
+- Existing enterprise talent projects are archived and normalized so removing
+  the enum does not break row deserialization.
+- Enterprise-only artifacts and Boss evidence are removed from active storage or
+  exported by a one-time migration before cleanup.
+- Historical migration files remain immutable.
+- Breaking State/artifact changes require migration tests and version notes.
 
-`project_mode` is additive and defaults to `domain_knowledge` for old payloads
-and old database rows.
-
-Supported values:
-
-- `domain_knowledge`: the existing learning-oriented V1/V1.2 knowledge-base path.
-- `talent_demand`: the V1.3 talent-demand intelligence path.
-
-SQLite migration `009_project_mode.sql` adds the column with default
-`domain_knowledge`.
-
-## V1.4 Runtime Job Source Config
-
-Boss/job-source settings are local runtime configuration, not committed state.
-They are stored with the existing runtime config file and include:
-
-- `job_source_enabled`
-- `job_source_provider`
-- `boss_agent_cli_command`
-- `boss_agent_cli_args_template`
-- `boss_agent_cli_timeout_seconds`
-- `boss_keyword`
-- `boss_city`
-- `boss_limit`
-
-Project RAG currently reuses existing SQLite evidence/documents/artifacts tables
-and FTS evidence index. No vector database migration is required for V1.4.
+See `docs/23-autonomous-knowledge-management-v3.md` for full V3 contracts.

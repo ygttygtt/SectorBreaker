@@ -30,6 +30,17 @@ def test_project_create_normalizes_domain_and_defaults() -> None:
     assert project.depth == ResearchDepth.QUICK
 
 
+def test_project_create_rejects_retired_enterprise_mode() -> None:
+    with pytest.raises(ValidationError):
+        ResearchProjectCreate(
+            title="Retired enterprise mode",
+            domain="knowledge management",
+            market_scope=MarketScope.CHINA,
+            depth=ResearchDepth.QUICK,
+            project_mode="talent_demand",
+        )
+
+
 def test_verified_evidence_requires_source_url() -> None:
     with pytest.raises(ValidationError):
         EvidenceItem(

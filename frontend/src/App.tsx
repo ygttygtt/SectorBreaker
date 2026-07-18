@@ -10,6 +10,7 @@ import {
   ExternalLink,
   FileText,
   Filter,
+  FolderInput,
   Loader2,
   Network,
   Play,
@@ -22,6 +23,7 @@ import {
 import "./styles.css";
 import { ToastContainer, useToast } from "./components/Toast";
 import { ConfigPanel } from "./components/ConfigPanel";
+import { KnowledgeManagementPanel } from "./components/KnowledgeManagementPanel";
 import { Logo } from "./components/Logo";
 import { LogStream } from "./components/LogStream";
 import { WorkflowEditor, type NodeStatus } from "./components/WorkflowEditor";
@@ -67,11 +69,6 @@ const eventNodeMap: Record<string, string> = {
   evidence_ledger: "evidence_ledger",
   artifact_review: "artifact_review",
   quality_review: "artifact_review",
-  talent_source_intake: "talent_source_intake",
-  jd_signal_extraction: "claim_extractor",
-  skill_normalization: "skill_normalization",
-  source_coverage: "source_coverage",
-  talent_synthesis: "talent_synthesis",
   market_agent: "market_agent",
   player_agent: "player_agent",
   transaction_agent: "transaction_agent",
@@ -358,7 +355,7 @@ export function buildAgentBriefCards(events: RunEvent[], limit = 8): AgentBriefC
         importance: "primary",
         timestamp: event.timestamp,
       };
-    } else if (event.gate === "artifact_writing" || event.agent === "V2 Artifact Writer") {
+    } else if (event.gate === "artifact_writing" || event.agent === "V3 Artifact Writer") {
       card = {
         id: `${event.timestamp}-${index}-writing`,
         label: raw.includes("已写作") ? "写作完成" : "正在写作",
@@ -391,17 +388,13 @@ export function buildAgentBriefCards(events: RunEvent[], limit = 8): AgentBriefC
 
 function isKnowledgeCard(artifact: Artifact) {
   return artifact.schema_version === "v1-card"
-    || artifact.schema_version === "talent-v1-card"
     || artifact.content_path.startsWith("concepts/")
     || artifact.content_path.startsWith("architectures/")
     || artifact.content_path.startsWith("tools/")
-    || artifact.content_path.startsWith("questions/")
-    || artifact.content_path.startsWith("skills/")
-    || artifact.content_path.startsWith("roles/")
-    || artifact.content_path.startsWith("companies/");
+    || artifact.content_path.startsWith("questions/");
 }
 
-type ProjectMode = "domain_knowledge" | "talent_demand";
+type ProjectMode = "domain_knowledge";
 
 const MODE_CONFIG: Record<ProjectMode, {
   eyebrow: string;
@@ -427,71 +420,7 @@ const MODE_CONFIG: Record<ProjectMode, {
     reportToggle: "可选：粘贴 Gemini / Kimi / Qwen / DeepSeek 报告",
     reportHelp: "支持 Markdown / TXT / Word / PDF。系统会把它拆成低可信线索，再结合搜索证据生成知识库。",
   },
-  talent_demand: {
-    eyebrow: "TalentScope 企业版延伸",
-    title: "把岗位样本和招聘材料，沉淀成人才需求情报。",
-    subtitle: "面向 HR、课程团队、招聘研究和就业分析：从 JD、Boss 样本、外部报告和搜索补充中抽取岗位画像与技能矩阵。",
-    modeTitle: "人才需求情报台",
-    modeDescription: "企业侧垂直场景：岗位画像、技能频次、经验薪资信号、能力模型、作品集要求。",
-    fieldLabel: "目标岗位 / 能力方向",
-    placeholder: "例如：大模型应用开发工程师、AI Agent 工程师",
-    cta: "开始生成人才需求情报",
-    reportToggle: "可选：上传外部招聘/行业调研报告",
-    reportHelp: "支持 Markdown / TXT / Word / PDF。外部 AI DeepSearch 报告会作为已有研究材料进入证据账本。",
-  },
 };
-
-type BossCollectionSettings = {
-  enabled: boolean;
-  city: string;
-  limit: number;
-};
-
-type SourceCoverageMatrix = {
-  total_evidence?: number;
-  uploaded_jd_count?: number;
-  uploaded_report_count?: number;
-  boss_job_count?: number;
-  search_result_count?: number;
-  extracted_page_count?: number;
-  occupation_standard_count?: number;
-  salary_signal_count?: number;
-  experience_signal_count?: number;
-  skill_signal_count?: number;
-  weak_or_unverified_count?: number;
-  gaps?: string[];
-};
-
-function asSourceCoverageMatrix(value: unknown): SourceCoverageMatrix | null {
-  if (!value || typeof value !== "object") return null;
-  const record = value as Record<string, unknown>;
-  if ("source_coverage" in record) return asSourceCoverageMatrix(record.source_coverage);
-  if (!("total_evidence" in record) && !("skill_signal_count" in record)) return null;
-  return record as SourceCoverageMatrix;
-}
-
-function extractSourceCoverage(events: RunEvent[], artifacts: Artifact[]): SourceCoverageMatrix | null {
-  const eventCoverage = [...events].reverse()
-    .map((event) => asSourceCoverageMatrix(event.data))
-    .find(Boolean);
-  if (eventCoverage) return eventCoverage;
-  const overview = artifacts.find((artifact) => artifact.content_path === "00-岗位需求总览.md" && artifact.content);
-  const match = overview?.content?.match(/```json source_coverage\s*([\s\S]*?)```/);
-  if (!match) return null;
-  try {
-    return asSourceCoverageMatrix(JSON.parse(match[1])) ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function gapLabel(value: string) {
-  if (value === "low_sample") return "样本数量偏低";
-  if (value === "no_salary_signal") return "缺少薪资信号";
-  if (value === "no_experience_signal") return "缺少经验信号";
-  if (value === "search_only_evidence") return "主要依赖搜索摘要";
-  return value;
-}
 
 function resultQualityMetrics(
   artifacts: Artifact[],
@@ -566,6 +495,7 @@ function formatElapsed(startedAt: number | null) {
 
 function LandingView({
   onStart,
+  onAdoptVault,
   onOpenSettings,
   isLoading,
   llmConfigured,
@@ -579,11 +509,8 @@ function LandingView({
     assistantBrief: string,
     autoRun?: boolean,
     assistantBriefFile?: File | null,
-    projectMode?: ProjectMode,
-    jdText?: string,
-    jdFile?: File | null,
-    bossSettings?: BossCollectionSettings,
   ) => void;
+  onAdoptVault: (domain: string, sourcePolicy: string, vaultPath: string) => void;
   onOpenSettings: () => void;
   isLoading: boolean;
   llmConfigured: boolean;
@@ -592,15 +519,10 @@ function LandingView({
   extractionProviders: string[];
 }) {
   const [domain, setDomain] = useState("");
-  const [projectMode, setProjectMode] = useState<ProjectMode>("domain_knowledge");
   const [sourcePolicy, setSourcePolicy] = useState("reliable_first");
-  const [jdText, setJdText] = useState("");
-  const [jdFile, setJdFile] = useState<File | null>(null);
-  const [bossEnabled, setBossEnabled] = useState(false);
-  const [bossCity, setBossCity] = useState("北京");
-  const [bossLimit, setBossLimit] = useState(8);
   const [assistantBrief, setAssistantBrief] = useState("");
   const [assistantBriefFile, setAssistantBriefFile] = useState<File | null>(null);
+  const [vaultPath, setVaultPath] = useState("");
   const [showBrief, setShowBrief] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -620,21 +542,17 @@ function LandingView({
       assistantBrief.trim(),
       true,
       assistantBriefFile,
-      projectMode,
-      jdText.trim(),
-      jdFile,
-      { enabled: bossEnabled, city: bossCity.trim(), limit: bossLimit },
     );
   }
-  const mode = MODE_CONFIG[projectMode];
+  const mode = MODE_CONFIG.domain_knowledge;
 
   return (
-    <div ref={containerRef} className={`landing-pro landing-pro--${projectMode === "talent_demand" ? "enterprise" : "personal"}`}>
+    <div ref={containerRef} className="landing-pro landing-pro--personal">
       <section className="landing-panel landing-panel--main">
         <div className="landing-brand">
           <Logo size={44} />
           <div>
-            <h1>{projectMode === "talent_demand" ? "TalentScope" : "SectorBreaker"}</h1>
+            <h1>SectorBreaker</h1>
             <p>{mode.eyebrow}</p>
           </div>
         </div>
@@ -642,22 +560,20 @@ function LandingView({
           <h2>{mode.title}</h2>
           <p>{mode.subtitle}</p>
         </div>
-        {projectMode === "domain_knowledge" && (
-          <div className="knowledge-value-grid">
-            <div>
-              <strong>结构化留存</strong>
-              <span>不是一次性报告，而是可导入 Obsidian 的层级化知识库。</span>
-            </div>
-            <div>
-              <strong>证据驱动</strong>
-              <span>搜索、上传材料与 Agent 判断会进入状态与证据链。</span>
-            </div>
-            <div>
-              <strong>可持续增长</strong>
-              <span>后续可围绕已有知识库继续提问、补证和扩展。</span>
-            </div>
+        <div className="knowledge-value-grid">
+          <div>
+            <strong>自治管理</strong>
+            <span>发现知识缺口，规划研究、验证和维护任务。</span>
           </div>
-        )}
+          <div>
+            <strong>证据驱动</strong>
+            <span>搜索、上传材料与 Agent 判断进入状态与证据链。</span>
+          </div>
+          <div>
+            <strong>持续演化</strong>
+            <span>知识库可以继续补证、修订、扩展和回滚。</span>
+          </div>
+        </div>
         {!llmConfigured && (
           <button className="landing-warning" onClick={onOpenSettings} type="button">
             <Settings size={16} />
@@ -682,24 +598,6 @@ function LandingView({
             </div>
           </div>
         )}
-        <div className="mode-switch" role="group" aria-label="项目模式">
-          <button
-            className={projectMode === "domain_knowledge" ? "mode-card mode-card--active" : "mode-card"}
-            type="button"
-            onClick={() => setProjectMode("domain_knowledge")}
-          >
-            <strong>个人版 · 领域建库</strong>
-            <span>{MODE_CONFIG.domain_knowledge.modeDescription}</span>
-          </button>
-          <button
-            className={projectMode === "talent_demand" ? "mode-card mode-card--active" : "mode-card"}
-            type="button"
-            onClick={() => setProjectMode("talent_demand")}
-          >
-            <strong>企业版 · {MODE_CONFIG.talent_demand.modeTitle}</strong>
-            <span>{MODE_CONFIG.talent_demand.modeDescription}</span>
-          </button>
-        </div>
         <label className="field-label" htmlFor="domain">{mode.fieldLabel}</label>
         <div className="landing-input-wrap">
           <Search size={18} className="landing-input-icon" />
@@ -712,66 +610,6 @@ function LandingView({
             autoFocus
           />
         </div>
-        {projectMode === "talent_demand" && (
-          <div className="talent-input-panel">
-            <div className="panel-title">
-              <FileText size={16} />
-              <span>人才需求材料</span>
-            </div>
-            <p>优先上传或粘贴真实 JD / 岗位说明 / 外部调研报告；搜索只作为补充，不默认抓取登录型招聘网站。</p>
-            <textarea
-              className="assistant-brief-input"
-              value={jdText}
-              onChange={(event) => setJdText(event.target.value)}
-              placeholder="可粘贴一段或多段 JD：岗位、公司、地点、薪资、经验、职责、技能要求……"
-              rows={6}
-            />
-            <label className="file-upload-card">
-              <strong>上传 JD / 岗位材料</strong>
-              <span>支持 `.md` / `.txt` / `.docx` / `.pdf`，会作为 user_upload 信源进入 Evidence Ledger。</span>
-              <input
-                type="file"
-                aria-label="上传 JD 或岗位材料文件"
-                accept=".md,.markdown,.txt,.docx,.pdf,text/markdown,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                onChange={(event) => setJdFile(event.target.files?.[0] ?? null)}
-              />
-              {jdFile && <em>{jdFile.name}</em>}
-            </label>
-            <div className="boss-source-panel">
-              <label className="toggle-chip boss-source-toggle">
-                <input
-                  type="checkbox"
-                  checked={bossEnabled}
-                  onChange={(event) => setBossEnabled(event.target.checked)}
-                />
-                <span>启用 Boss 直聘职位样本采集</span>
-              </label>
-              <p>企业版专用。未安装本地 Boss CLI 时会在运行日志中降级提示，不影响上传 JD / 外部报告流程。</p>
-              <div className="boss-source-grid">
-                <label>
-                  <span>城市</span>
-                  <input
-                    value={bossCity}
-                    onChange={(event) => setBossCity(event.target.value)}
-                    placeholder="例如：北京、上海、深圳"
-                    disabled={!bossEnabled}
-                  />
-                </label>
-                <label>
-                  <span>样本数</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={30}
-                    value={bossLimit}
-                    onChange={(event) => setBossLimit(Number(event.target.value) || 8)}
-                    disabled={!bossEnabled}
-                  />
-                </label>
-              </div>
-            </div>
-          </div>
-        )}
         <div className="source-policy-grid">
           {sourcePolicies.map((item) => (
             <button
@@ -784,6 +622,17 @@ function LandingView({
               <span>{item.desc}</span>
             </button>
           ))}
+        </div>
+        <label className="field-label" htmlFor="vault-path">已有 Obsidian / Markdown Vault（可选）</label>
+        <div className="landing-input-wrap">
+          <FolderInput size={18} className="landing-input-icon" />
+          <input
+            id="vault-path"
+            className="landing-input"
+            value={vaultPath}
+            onChange={(event) => setVaultPath(event.target.value)}
+            placeholder="例如 D:\\Knowledge\\MyVault；接管时不会修改源目录"
+          />
         </div>
         <button className="brief-toggle" type="button" onClick={() => setShowBrief((value) => !value)}>
           <Sparkles size={15} />
@@ -816,6 +665,15 @@ function LandingView({
             {isLoading ? <Loader2 size={16} className="spinner" /> : <Play size={16} />}
             {mode.cta}
           </button>
+          <button
+            className="secondary"
+            disabled={!domain.trim() || !vaultPath.trim() || isLoading}
+            onClick={() => onAdoptVault(domain.trim(), sourcePolicy, vaultPath.trim())}
+            type="button"
+          >
+            {isLoading ? <Loader2 size={16} className="spinner" /> : <FolderInput size={16} />}
+            接管现有 Vault
+          </button>
           <button className="secondary" onClick={onOpenSettings} type="button">
             <Settings size={16} />
             LLM 设置
@@ -825,9 +683,9 @@ function LandingView({
       <aside className="landing-panel landing-panel--flow">
         <div className="panel-title">
           <Network size={16} />
-          <span>{projectMode === "talent_demand" ? "企业情报运行图" : "领域建库运行图"}</span>
+          <span>知识库自治运行图</span>
         </div>
-        <WorkflowEditor isCompact showControls={false} fillHeight variant={projectMode} />
+        <WorkflowEditor isCompact showControls={false} fillHeight variant="domain_knowledge" />
       </aside>
     </div>
   );
@@ -1249,6 +1107,7 @@ function ResultView({
   exportManifest,
   setExportManifest,
   onNewResearch,
+  onMaintenanceStarted,
   toastError,
   toastSuccess,
 }: {
@@ -1263,6 +1122,7 @@ function ResultView({
   exportManifest: ExportManifest | null;
   setExportManifest: (m: ExportManifest | null) => void;
   onNewResearch: () => void;
+  onMaintenanceStarted: (runId: string) => void;
   toastError: (msg: string) => void;
   toastSuccess: (msg: string) => void;
 }) {
@@ -1292,7 +1152,6 @@ function ResultView({
     () => resultQualityMetrics(artifacts, evidence, events, exportManifest),
     [artifacts, evidence, events, exportManifest],
   );
-  const sourceCoverage = useMemo(() => extractSourceCoverage(events, artifacts), [artifacts, events]);
 
   async function askQuestion() {
     if (!question.trim()) return;
@@ -1362,11 +1221,18 @@ function ResultView({
         <div className="topbar-brand"><Logo size={24} animate={false} /><strong>SectorBreaker</strong></div>
         <div className="topbar-project">
           <span>{project.domain}</span>
-          <b>{project.project_mode === "talent_demand" ? "人才需求情报完成" : "研究完成"}</b>
+          <b>知识库运行完成</b>
         </div>
         <button className="secondary btn-sm" onClick={onNewResearch} type="button"><Play size={14} />新研究</button>
       </header>
       <main className="result-pro-grid">
+        <KnowledgeManagementPanel
+          projectId={project.id}
+          onMaintenanceStarted={onMaintenanceStarted}
+          onArtifactsChanged={async () => setArtifacts(await api.listArtifacts(project.id))}
+          onError={toastError}
+          onSuccess={toastSuccess}
+        />
         <section className="result-card result-card--wide result-card--trace">
           <h3><Clock3 size={16} />运行轨迹</h3>
           {traceEvents.length > 0 ? (
@@ -1395,27 +1261,6 @@ function ResultView({
           </div>
           {!exportManifest && <p className="result-empty">点击导出生成 Obsidian Vault，导出后会写入 README、证据账本、主文档、知识卡片和 `.sectorbreaker` 流档状态包。</p>}
         </section>
-        {sourceCoverage && (
-          <section className="result-card result-card--wide source-coverage-card">
-            <h3><Database size={16} />信源覆盖矩阵</h3>
-            <div className="quality-grid source-coverage-grid">
-              <div><strong>{sourceCoverage.total_evidence ?? 0}</strong><span>总证据</span></div>
-              <div><strong>{sourceCoverage.uploaded_jd_count ?? 0}</strong><span>上传 JD</span></div>
-              <div><strong>{sourceCoverage.uploaded_report_count ?? 0}</strong><span>外部报告</span></div>
-              <div><strong>{sourceCoverage.boss_job_count ?? 0}</strong><span>Boss 样本</span></div>
-              <div><strong>{sourceCoverage.search_result_count ?? 0}</strong><span>搜索来源</span></div>
-              <div><strong>{sourceCoverage.skill_signal_count ?? 0}</strong><span>技能信号</span></div>
-              <div><strong>{sourceCoverage.salary_signal_count ?? 0}</strong><span>薪资信号</span></div>
-              <div><strong>{sourceCoverage.experience_signal_count ?? 0}</strong><span>经验信号</span></div>
-              <div><strong>{sourceCoverage.weak_or_unverified_count ?? 0}</strong><span>弱/未验证</span></div>
-            </div>
-            {sourceCoverage.gaps && sourceCoverage.gaps.length > 0 && (
-              <div className="coverage-gap-list">
-                {sourceCoverage.gaps.map((gap) => <span key={gap}>{gapLabel(gap)}</span>)}
-              </div>
-            )}
-          </section>
-        )}
         <section className="result-card">
           <h3><FileText size={16} />产物</h3>
           <ul className="result-artifact-list">
@@ -1707,10 +1552,6 @@ export function App() {
     assistantBrief: string,
     autoRun = true,
     assistantBriefFile: File | null = null,
-    projectMode: ProjectMode = "domain_knowledge",
-    jdText = "",
-    jdFile: File | null = null,
-    bossSettings: BossCollectionSettings = { enabled: false, city: "", limit: 8 },
   ) {
     setIsLoading(true);
     try {
@@ -1720,32 +1561,10 @@ export function App() {
         market_scope: "mixed",
         depth: "quick",
         source_policy: sourcePolicy,
-        project_mode: projectMode,
+        project_mode: "domain_knowledge",
       });
       setProject(proj);
       setRunSnapshot(null);
-      if (projectMode === "talent_demand" && jdText) {
-        await api.createDocument(proj.id, {
-          channel: "user_upload",
-          file_name: "pasted-jd.md",
-          mime_type: "text/markdown",
-          content: jdText,
-        });
-      }
-      if (projectMode === "talent_demand" && jdFile) {
-        await api.uploadDocument(proj.id, { channel: "user_upload", file: jdFile });
-      }
-      if (projectMode === "talent_demand") {
-        await api.updateJobSourceConfig({
-          enabled: bossSettings.enabled,
-          provider: bossSettings.enabled ? "boss_agent_cli" : "disabled",
-          boss_keyword: domain,
-          boss_city: bossSettings.city || null,
-          boss_limit: bossSettings.limit,
-          boss_agent_cli_command: "boss",
-          boss_agent_cli_timeout_seconds: 45,
-        });
-      }
       if (assistantBrief) {
         await api.createDocument(proj.id, {
           channel: "assistant_brief",
@@ -1767,6 +1586,38 @@ export function App() {
       }
     } catch (err) {
       error(err instanceof Error ? err.message : "启动研究失败");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function adoptVault(domain: string, sourcePolicy: string, vaultPath: string) {
+    setIsLoading(true);
+    try {
+      const proj = await api.createProject({
+        title: domain,
+        domain,
+        market_scope: "mixed",
+        depth: "quick",
+        source_policy: sourcePolicy,
+        project_mode: "domain_knowledge",
+      });
+      await api.importVault(proj.id, { source_path: vaultPath });
+      await api.auditVault(proj.id);
+      const [artifactData, evidenceData] = await Promise.all([
+        api.listArtifacts(proj.id),
+        api.listEvidence(proj.id),
+      ]);
+      clearRememberedRun();
+      setProject(proj);
+      setRunId(null);
+      setRunSnapshot(null);
+      setArtifacts(artifactData);
+      setEvidence(evidenceData);
+      setPhase("result");
+      success("Vault 已接管并完成首次健康审计");
+    } catch (err) {
+      error(err instanceof Error ? err.message : "Vault 接管失败");
     } finally {
       setIsLoading(false);
     }
@@ -1830,6 +1681,7 @@ export function App() {
       {phase === "landing" && (
         <LandingView
           onStart={startResearch}
+          onAdoptVault={adoptVault}
           onOpenSettings={() => setShowConfig(true)}
           isLoading={isLoading}
           llmConfigured={llmConfigured}
@@ -1879,6 +1731,15 @@ export function App() {
           exportManifest={exportManifest}
           setExportManifest={setExportManifest}
           onNewResearch={resetToLanding}
+          onMaintenanceStarted={(maintenanceRunId) => {
+            setRunId(maintenanceRunId);
+            rememberRun(project.id, maintenanceRunId);
+            setRunSnapshot(null);
+            setWorkflowDefinition(null);
+            setReviewingGate(null);
+            resetEvents();
+            setPhase("researching");
+          }}
           toastError={error}
           toastSuccess={success}
         />

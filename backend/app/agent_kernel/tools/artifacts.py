@@ -1,4 +1,4 @@
-"""Artifact writing tools for the V2 Agent Kernel."""
+"""Artifact writing tools for the V3 Agent Kernel."""
 
 from __future__ import annotations
 
@@ -11,8 +11,9 @@ from uuid import uuid4
 from backend.app.agent_kernel.models import KernelObservation, KernelStateDelta, ToolSpec
 from backend.app.agent_kernel.tool_registry import KernelRuntimeContext, ToolRegistry, schema
 from backend.app.agent_state.models import KnowledgeLayerId
+from backend.app.knowledge_base import ChangeSetService
 from backend.app.providers.interfaces import ChatMessage
-from backend.app.schemas import Artifact, ArtifactType, RunEvent
+from backend.app.schemas import Artifact, ArtifactType, ChangeSetProposalRequest, RunEvent
 
 
 _LAYER_ARTIFACT_TYPES: dict[str, ArtifactType] = {
@@ -110,8 +111,9 @@ def register_artifact_tools(registry: ToolRegistry) -> None:
         ToolSpec(
             name="revise_layer_document",
             description=(
-                "Revise an existing main layer document using new State knowledge. "
-                "The old artifact is marked superseded; a new improved version is saved."
+                "Draft a complete revision of an existing document from current State knowledge, "
+                "then create a base-hash protected ChangeSet for human or policy review. "
+                "This tool never activates the revision directly."
             ),
             args_schema=schema({
                 "artifact_id": {"type": "string", "description": "ID of the artifact to revise"},
@@ -139,6 +141,9 @@ async def write_layer_document(tool_call, context: KernelRuntimeContext) -> Kern
             summary="写作失败：没有配置 LLM Provider，不能生成真实文档。",
             error="llm provider not configured",
         )
+    budget_error = _creation_budget_error(context)
+    if budget_error:
+        return _budget_observation("write_layer_document", budget_error)
     context.writer_call_count += 1
     layer_id = _layer_id(tool_call.args.get("layer_id"), context.state.current_layer_id)
     if layer_id is None:
@@ -174,6 +179,9 @@ async def write_layer_document(tool_call, context: KernelRuntimeContext) -> Kern
                 "heading_count": cleaned.count("\n## ") + cleaned.count("\n### "),
             },
         )
+    budget_error = _creation_budget_error(context, additional_bytes=len(cleaned.encode("utf-8")))
+    if budget_error:
+        return _budget_observation("write_layer_document", budget_error)
 
     artifact = Artifact(
         id=f"ART-KERNEL-{layer_key.upper()}-{uuid4().hex[:8]}",
@@ -183,14 +191,15 @@ async def write_layer_document(tool_call, context: KernelRuntimeContext) -> Kern
         content_path=f"{_artifact_index(layer_id)}-{_safe_filename(title)}.md",
         content=cleaned,
         source_evidence_ids=list(dict.fromkeys(context.state.evidence_refs)),
-        schema_version="v2-agent-kernel",
+        schema_version="v3-knowledge-ops",
         created_at=datetime.now(UTC),
+        run_id=context.run_id,
     )
     context.artifacts.append(artifact)
     return KernelObservation(
         tool_name="write_layer_document",
         success=True,
-        summary=f"已写作 V2 层级文档：{title}（{len(cleaned)} 字符）。",
+        summary=f"已写作 V3 知识文档：{title}（{len(cleaned)} 字符）。",
         data={"artifact": artifact.model_dump(mode="json")},
         state_delta=KernelStateDelta(artifact_ids=[artifact.id]),
         artifact_ids=[artifact.id],
@@ -205,6 +214,12 @@ async def write_explainer_card(tool_call, context: KernelRuntimeContext) -> Kern
             summary="解释卡写作失败：没有配置 LLM Provider。",
             error="llm provider not configured",
         )
+    budget_error = _creation_budget_error(context)
+    if budget_error:
+        return _budget_observation("write_explainer_card", budget_error)
+    if context.writer_call_count >= context.state.autonomy_policy.max_writer_calls:
+        return _budget_observation("write_explainer_card", "writer budget exhausted")
+    context.writer_call_count += 1
     title = str(tool_call.args.get("title") or "").strip()
     focus = str(tool_call.args.get("focus") or title).strip()
     if not title and focus:
@@ -238,6 +253,9 @@ async def write_explainer_card(tool_call, context: KernelRuntimeContext) -> Kern
             error="llm card writing failed after retries",
             data={"attempts": len(errors), "errors": errors, "generated_chars": len(cleaned)},
         )
+    budget_error = _creation_budget_error(context, additional_bytes=len(cleaned.encode("utf-8")))
+    if budget_error:
+        return _budget_observation("write_explainer_card", budget_error)
 
     artifact = _build_artifact(
         context,
@@ -247,7 +265,7 @@ async def write_explainer_card(tool_call, context: KernelRuntimeContext) -> Kern
         content_path=f"{_card_folder(card_kind)}/{_safe_filename(title)}.md",
         content=cleaned,
         source_evidence_ids=list(dict.fromkeys(context.state.evidence_refs)),
-        schema_version="v2-agent-kernel-card",
+        schema_version="v3-knowledge-ops",
     )
     context.artifacts.append(artifact)
     summary = f"已写作解释性知识卡：{title}（{card_kind}，{len(cleaned)} 字符）。"
@@ -281,13 +299,17 @@ async def write_explainer_cards_batch(tool_call, context: KernelRuntimeContext) 
             summary="批量解释卡写作失败：没有提供 cards。",
             error="missing cards",
         )
-    cards = [card for card in raw_cards[:6] if isinstance(card, dict)]
+    remaining_files = context.state.autonomy_policy.max_files_per_run - len(context.new_artifacts())
+    remaining_writers = context.state.autonomy_policy.max_writer_calls - context.writer_call_count
+    allowed_count = max(0, min(6, remaining_files, remaining_writers))
+    cards = [card for card in raw_cards[:allowed_count] if isinstance(card, dict)]
     if not cards:
         return KernelObservation(
             tool_name="write_explainer_cards_batch",
             success=False,
-            summary="批量解释卡写作失败：cards 格式无效。",
-            error="invalid cards",
+            summary="批量解释卡写作被硬预算阻断，或 cards 格式无效。",
+            error="batch card budget exhausted or invalid cards",
+            requires_human=allowed_count == 0,
         )
 
     async def write_one(card: dict) -> KernelObservation:
@@ -345,7 +367,13 @@ async def write_vault_index(tool_call, context: KernelRuntimeContext) -> KernelO
             summary="知识库导航写作失败：当前没有任何 artifact 可索引。",
             error="no artifacts to index",
         )
+    budget_error = _creation_budget_error(context)
+    if budget_error:
+        return _budget_observation("write_vault_index", budget_error)
     content = _render_vault_index_markdown(context, title=title, index_goal=index_goal)
+    budget_error = _creation_budget_error(context, additional_bytes=len(content.encode("utf-8")))
+    if budget_error:
+        return _budget_observation("write_vault_index", budget_error)
     artifact = _build_artifact(
         context,
         artifact_id=f"ART-KERNEL-INDEX-{uuid4().hex[:8]}",
@@ -354,7 +382,7 @@ async def write_vault_index(tool_call, context: KernelRuntimeContext) -> KernelO
         content_path="00-知识库导航.md",
         content=content,
         source_evidence_ids=list(dict.fromkeys(context.state.evidence_refs)),
-        schema_version="v2-agent-kernel-index",
+        schema_version="v3-knowledge-ops",
     )
     context.artifacts.append(artifact)
     summary = f"已写作知识库导航页：{title}（连接 {len(context.artifacts) - 1} 个已有产物）。"
@@ -414,6 +442,7 @@ async def revise_layer_document(tool_call, context: KernelRuntimeContext) -> Ker
             summary=f"修订失败：找不到 artifact_id={artifact_id}。",
             error="artifact not found",
         )
+    context.writer_call_count += 1
     layer_id = tool_call.args.get("layer_id") or old_artifact.content_path or artifact_id
     context_text = _build_writer_context(context, layer_id=layer_id, title=old_artifact.title)
     revision_prompt = (
@@ -451,30 +480,41 @@ async def revise_layer_document(tool_call, context: KernelRuntimeContext) -> Ker
             summary=f"LLM 修订输出内容不足，未保存：{old_artifact.title}",
             error="revised content too thin",
         )
-    new_artifact = Artifact(
-        id=f"ART-KERNEL-REV-{uuid4().hex[:8]}",
-        project_id=context.project.id,
-        artifact_type=old_artifact.artifact_type,
-        title=old_artifact.title,
-        content_path=old_artifact.content_path,
-        content=cleaned,
-        source_evidence_ids=list(dict.fromkeys(context.state.evidence_refs)),
-        schema_version="v2-agent-kernel",
-        created_at=datetime.now(UTC),
+    evidence_ids = list(dict.fromkeys(context.state.evidence_refs))
+    try:
+        change_set = ChangeSetService(context.repository).propose(
+            context.project.id,
+            ChangeSetProposalRequest(
+                summary=f"修订 {old_artifact.title}：{revision_goal}",
+                path=old_artifact.content_path,
+                after_content=cleaned,
+                evidence_ids=evidence_ids,
+                factual_change=True,
+            ),
+            actor="master_agent",
+        )
+    except Exception as exc:
+        return KernelObservation(
+            tool_name="revise_layer_document",
+            success=False,
+            summary=f"修订稿已生成，但 ChangeSet 创建失败：{old_artifact.title}",
+            error=f"{type(exc).__name__}: {str(exc)[:300]}",
+        )
+    summary = (
+        f"已生成文档修订提案：{old_artifact.title}（{len(cleaned)} 字符），"
+        f"ChangeSet={change_set.id}，尚未应用。"
     )
-    for i, a in enumerate(context.artifacts):
-        if a.id == artifact_id:
-            context.artifacts[i] = a.model_copy(update={"superseded_by": new_artifact.id})
-            break
-    context.artifacts.append(new_artifact)
-    summary = f"已修订文档：{old_artifact.title}（{len(cleaned)} 字符），旧版 {artifact_id} 已标记 superseded。"
     return KernelObservation(
         tool_name="revise_layer_document",
         success=True,
         summary=summary,
-        data={"new_artifact_id": new_artifact.id, "old_artifact_id": artifact_id},
-        state_delta=KernelStateDelta(artifact_ids=[new_artifact.id]),
-        artifact_ids=[new_artifact.id],
+        data={
+            "change_set": change_set.model_dump(mode="json"),
+            "old_artifact_id": artifact_id,
+            "base_hash": old_artifact.content_hash,
+        },
+        state_delta=KernelStateDelta(task_notes=[summary]),
+        requires_human=True,
     )
 
 
@@ -498,7 +538,7 @@ async def _write_document_in_sections(
     context_text: str,
 ) -> tuple[str, list[str]]:
     base_instruction = (
-        "你是 SectorBreaker V2 Artifact Writer。"
+        "你是 SectorBreaker V3 Artifact Writer。"
         "你的任务是基于给定 State 摘要写 Obsidian Markdown。"
         "必须具体、详实、引用 evidence id；资料不足时标注 partial/unverified 和待补证任务。"
         "不要输出 JSON，不要输出代码块，不要编造无证据事实。"
@@ -617,7 +657,7 @@ async def _write_card_document(
 ) -> tuple[str, list[str]]:
     errors: list[str] = []
     prompt = (
-        "你是 SectorBreaker V2 Explainer Card Writer。"
+        "你是 SectorBreaker V3 Explainer Card Writer。"
         "你的任务是把主文档中读者可能不懂、但又影响理解的概念/流程/风险/工具写成独立 Obsidian 卡片。"
         "必须基于 State 摘要和 evidence id，不要输出 JSON，不要输出代码块，不要编造无证据事实。\n\n"
         "# 卡片任务\n"
@@ -726,7 +766,7 @@ def _frontmatter(*, title: str, layer_id: KnowledgeLayerId | str, context: Kerne
     layer_key = _layer_value(layer_id)
     return (
         "---\n"
-        'schema_version: "v2-agent-kernel"\n'
+        'schema_version: "v3-knowledge-ops"\n'
         'type: "layer_artifact"\n'
         f'layer_id: "{layer_key}"\n'
         'status: "draft"\n'
@@ -742,7 +782,7 @@ def _card_frontmatter(*, title: str, card_kind: str, context: KernelRuntimeConte
     evidence_lines = "\n".join(f'  - "{item}"' for item in list(dict.fromkeys(context.state.evidence_refs))[:20])
     return (
         "---\n"
-        'schema_version: "v2-agent-kernel-card"\n'
+        'schema_version: "v3-knowledge-ops"\n'
         'type: "knowledge_card"\n'
         f'card_kind: "{card_kind}"\n'
         'status: "draft"\n'
@@ -759,7 +799,7 @@ def _load_prompt(name: str) -> str:
     if path.exists():
         return path.read_text(encoding="utf-8")
     return (
-        "你是 SectorBreaker V2 写作者。必须基于 State 写详实的 Obsidian Markdown，"
+        "你是 SectorBreaker V3 写作者。必须基于 State 写详实的 Obsidian Markdown，"
         "引用 evidence id，使用 wikilinks，不要写空模板。"
     )
 
@@ -838,12 +878,17 @@ def _build_writer_context(context: KernelRuntimeContext, *, layer_id: KnowledgeL
 def _render_vault_index_markdown(context: KernelRuntimeContext, *, title: str, index_goal: str) -> str:
     artifacts = list(context.artifacts)
     generated_at = datetime.now(UTC).strftime("%Y-%m-%d")
-    main_docs = [item for item in artifacts if item.schema_version == "v2-agent-kernel"]
-    cards = [item for item in artifacts if item.schema_version == "v2-agent-kernel-card"]
+    main_types = set(_LAYER_ARTIFACT_TYPES.values())
+    card_folders = {"concepts", "tools", "players", "risks", "processes", "questions", "notes", "cards"}
+    cards = [
+        item for item in artifacts
+        if Path(item.content_path).parts and Path(item.content_path).parts[0] in card_folders
+    ]
+    main_docs = [item for item in artifacts if item.artifact_type in main_types and item not in cards]
     other = [item for item in artifacts if item not in main_docs and item not in cards]
     lines = [
         "---",
-        'schema_version: "v2-agent-kernel-index"',
+        'schema_version: "v3-knowledge-ops"',
         'type: "vault_index"',
         'status: "draft"',
         f'generated_at: "{generated_at}"',
@@ -906,7 +951,7 @@ async def _complete_text_with_heartbeat(
             await context.emit_event(RunEvent(
                 event_type="node_progress",
                 gate="artifact_writing",
-                agent="V2 Artifact Writer",
+                agent="V3 Artifact Writer",
                 message=f"仍在写作：{title}，LLM 正在生成 Markdown 正文（第 {attempt} 次，已等待约 {waited} 秒）",
                 severity="info",
             ))
@@ -966,6 +1011,28 @@ def _build_artifact(
         source_evidence_ids=source_evidence_ids,
         schema_version=schema_version,
         created_at=datetime.now(UTC),
+        run_id=context.run_id,
+    )
+
+
+def _creation_budget_error(context: KernelRuntimeContext, *, additional_bytes: int = 0) -> str:
+    new_artifacts = context.new_artifacts()
+    policy = context.state.autonomy_policy
+    if len(new_artifacts) >= policy.max_files_per_run:
+        return "max_files_per_run exhausted"
+    changed_bytes = sum(len(item.content.encode("utf-8")) for item in new_artifacts) + additional_bytes
+    if changed_bytes > policy.max_changed_bytes:
+        return "max_changed_bytes exhausted"
+    return ""
+
+
+def _budget_observation(tool_name: str, error: str) -> KernelObservation:
+    return KernelObservation(
+        tool_name=tool_name,
+        success=False,
+        summary=f"写入预算已阻断操作：{error}。",
+        error=error,
+        requires_human=True,
     )
 
 

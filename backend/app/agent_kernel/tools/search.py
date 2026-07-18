@@ -1,4 +1,4 @@
-"""Search tool for the V2 Agent Kernel."""
+"""Search tool for the V3 Agent Kernel."""
 
 from __future__ import annotations
 
@@ -16,11 +16,13 @@ from backend.app.agent_state.models import (
     TrustLevel,
 )
 from backend.app.providers.interfaces import SearchQuery
+from backend.app.providers.source_policy import search_constraints_for_policy
 from backend.app.schemas import (
     ClaimStrength,
     EvidenceItem,
     SourceChannel,
     SourceQuality,
+    SourcePolicy,
     VerificationStatus,
 )
 
@@ -50,6 +52,17 @@ def register_search_tools(registry: ToolRegistry) -> None:
 
 
 async def search_web(tool_call, context: KernelRuntimeContext) -> KernelObservation:
+    if (
+        not context.state.autonomy_policy.allow_network_search
+        or context.project.source_policy == SourcePolicy.USER_MATERIALS_ONLY
+    ):
+        return KernelObservation(
+            tool_name="search_web",
+            success=False,
+            summary="搜索被 AutonomyPolicy 或项目 source_policy 阻断。",
+            error="network search is not permitted",
+            requires_human=True,
+        )
     if context.search_provider is None:
         return KernelObservation(
             tool_name="search_web",
@@ -70,6 +83,12 @@ async def search_web(tool_call, context: KernelRuntimeContext) -> KernelObservat
     context.search_call_count += 1
     total_result_budget = max(1, min(max_results, 16))
     per_query_limit = max(3, min(8, ceil(total_result_budget / len(queries))))
+    allowed_domains, blocked_domains = search_constraints_for_policy(
+        {
+            "market_scope": context.project.market_scope.value,
+            "source_policy": context.project.source_policy.value,
+        }
+    )
     results = []
     query_diagnostics = []
     seen_result_urls: set[str] = set()
@@ -78,8 +97,8 @@ async def search_web(tool_call, context: KernelRuntimeContext) -> KernelObservat
             query=query,
             market_scope=context.project.market_scope.value,
             max_results=per_query_limit,
-            allowed_domains=None,
-            blocked_domains=[],
+            allowed_domains=allowed_domains,
+            blocked_domains=blocked_domains,
         ))
         accepted_for_query = 0
         for result in query_results:
@@ -128,7 +147,7 @@ async def search_web(tool_call, context: KernelRuntimeContext) -> KernelObservat
             summary=result.snippet,
             source_quality=SourceQuality.UNKNOWN,
             claim_strength=ClaimStrength.OPINION,
-            collected_by="v2_agent_kernel.search_web",
+            collected_by="v3_agent_kernel.search_web",
             confidence=0.45,
             verification_status=VerificationStatus.UNVERIFIED,
         )

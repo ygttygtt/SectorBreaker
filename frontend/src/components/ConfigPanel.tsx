@@ -652,7 +652,7 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
                 <option value="exa">exa：语义搜索</option>
                 <option value="multi">multi：聚合多个 provider</option>
               </select>
-              <span className="form-hint">人才需求模式不会默认抓取登录型招聘网站；请优先上传 JD/报告，搜索只作为补充。</span>
+              <span className="form-hint">上传材料会优先进入项目知识状态；开放搜索用于补证和发现缺口。</span>
             </div>
 
             <div className="form-group">

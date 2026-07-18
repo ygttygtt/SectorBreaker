@@ -1,4 +1,4 @@
-"""Bounded ReAct runtime for the V2 Agent Kernel."""
+"""Bounded ReAct runtime for the V3 Agent Kernel."""
 
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ class AgentKernelRuntime:
                 },
             )
             trace.append(thought)
-            await self._emit(context, thought, gate="agent_decide", agent="V2 Master Agent")
+            await self._emit(context, thought, gate="agent_decide", agent="V3 Master Agent")
 
             if decision.action_type == AgentActionType.FINISH:
                 if not context.artifacts:
@@ -68,7 +68,7 @@ class AgentKernelRuntime:
                         data={"stop_reason": decision.stop_reason},
                     )
                     trace.append(blocked)
-                    await self._emit(context, blocked, gate="agent_decide", agent="V2 Master Agent", severity="error")
+                    await self._emit(context, blocked, gate="agent_decide", agent="V3 Master Agent", severity="error")
                     return self._result(KernelRunStatus.BLOCKED, context, trace, iteration, "finish_without_artifacts")
                 done = KernelTraceEvent(
                     kind=TraceEventKind.DECISION,
@@ -76,7 +76,7 @@ class AgentKernelRuntime:
                     data=decision.model_dump(mode="json"),
                 )
                 trace.append(done)
-                await self._emit(context, done, gate="export", agent="V2 Master Agent")
+                await self._emit(context, done, gate="export", agent="V3 Master Agent")
                 return self._result(KernelRunStatus.COMPLETED, context, trace, iteration, decision.stop_reason)
 
             if decision.action_type == AgentActionType.BLOCK:
@@ -86,7 +86,7 @@ class AgentKernelRuntime:
                     data=decision.model_dump(mode="json"),
                 )
                 trace.append(blocked)
-                await self._emit(context, blocked, gate="agent_decide", agent="V2 Master Agent", severity="error")
+                await self._emit(context, blocked, gate="agent_decide", agent="V3 Master Agent", severity="error")
                 return self._result(KernelRunStatus.BLOCKED, context, trace, iteration, decision.stop_reason)
 
             tool_calls = self._tool_calls_for_decision(decision)
@@ -120,7 +120,7 @@ class AgentKernelRuntime:
                     },
                 )
                 trace.append(action_event)
-                await self._emit(context, action_event, gate="tool_execution", agent="V2 Tool Executor")
+                await self._emit(context, action_event, gate="tool_execution", agent="V3 Tool Executor")
                 budget_observation = self._budget_check(tool_call, context)
                 observation = budget_observation or await self.registry.dispatch(tool_call, context)
                 consecutive_failed_tools, early_result = await self._handle_observation(
@@ -145,16 +145,40 @@ class AgentKernelRuntime:
 
     def _budget_check(self, tool_call, context: KernelRuntimeContext) -> KernelObservation | None:
         name = tool_call.tool_name
+        if name == "search_web" and context.search_call_count >= self.config.max_search_calls:
+            return KernelObservation(
+                tool_name=name,
+                success=False,
+                summary=f"搜索预算已用尽（{self.config.max_search_calls} 次），需要调整计划或请求用户授权。",
+                error="search budget exhausted",
+                requires_human=True,
+            )
+        writer_tools = {
+            "write_layer_document",
+            "revise_layer_document",
+            "write_explainer_card",
+            "write_explainer_cards_batch",
+            "write_vault_index",
+            "generate_run_narrative",
+        }
+        if name in writer_tools and context.writer_call_count >= self.config.max_writer_calls:
+            return KernelObservation(
+                tool_name=name,
+                success=False,
+                summary=f"写作预算已用尽（{self.config.max_writer_calls} 次），需要调整计划或请求用户授权。",
+                error="writer budget exhausted",
+                requires_human=True,
+            )
         return None
 
     async def _decide_with_heartbeat(self, context: KernelRuntimeContext, **kwargs) -> AgentDecision:
         task = asyncio.create_task(self.policy.decide(**kwargs))
         waited = 0
         while not task.done():
-            await asyncio.sleep(10)
-            waited += 10
-            if task.done():
+            done, _ = await asyncio.wait({task}, timeout=10)
+            if task in done:
                 break
+            waited += 10
             await self._emit(
                 context,
                 KernelTraceEvent(
@@ -166,7 +190,7 @@ class AgentKernelRuntime:
                     data={"heartbeat": True, "waited_seconds": waited},
                 ),
                 gate="agent_decide",
-                agent="V2 Master Agent",
+                agent="V3 Master Agent",
             )
         return await task
 
@@ -218,7 +242,7 @@ class AgentKernelRuntime:
             data=observation.state_delta.model_dump(mode="json"),
         )
         trace.append(state_event)
-        await self._emit(context, state_event, gate="state_update", agent="V2 State Reducer")
+        await self._emit(context, state_event, gate="state_update", agent="V3 State Reducer")
 
         # Fire checkpoint callback after successful artifact write
         if observation.success and observation.artifact_ids and context.on_artifact_written is not None:
@@ -248,13 +272,13 @@ class AgentKernelRuntime:
                 context,
                 failed,
                 gate="artifact_writing",
-                agent="V2 Artifact Writer",
+                agent="V3 Artifact Writer",
                 severity=severity,
             )
             consecutive_failed_tools += 1
             if consecutive_failed_tools >= self.config.max_consecutive_failed_tools:
                 return consecutive_failed_tools, self._result(
-                    KernelRunStatus.MAX_ITERATIONS if context.artifacts else KernelRunStatus.FAILED,
+                    KernelRunStatus.MAX_ITERATIONS if context.new_artifacts() else KernelRunStatus.FAILED,
                     context,
                     trace,
                     iteration,
@@ -337,7 +361,7 @@ class AgentKernelRuntime:
             stop_reason=reason,
             iterations=iterations,
             failed_writes=list(self._failed_writes),
-            partial_success=bool(context.artifacts and self._failed_writes),
+            partial_success=bool(context.new_artifacts() and self._failed_writes),
         )
 
     @staticmethod

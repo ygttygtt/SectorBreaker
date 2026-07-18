@@ -2,184 +2,94 @@
 
 ## Principle
 
-External services must be replaceable. Graph nodes and API handlers should depend on interfaces, not vendor SDKs.
+External and replaceable capabilities live behind interfaces. API handlers,
+Agent policies, specialists, and graph nodes do not call vendor SDKs directly.
 
 ## LLMProvider
 
-V1 default: OpenAI-compatible chat completion endpoint, created by
-`backend.app.providers.factory.build_llm_provider()` when all required
-environment variables exist.
-
-Configuration:
-
-- `LLM_BASE_URL`
-- `LLM_API_KEY`
-- `LLM_MODEL`
-- `LLM_MAX_TOKENS` (optional, default `4096`)
-
 Required behavior:
 
-- plain text completion for Markdown/artifact writing;
-- structured output support;
-- tolerate OpenAI-compatible gateways that wrap JSON bodies with keepalive/SSE
-  lines such as `: keepalive`, `event:` or `data:`;
-- no API keys in logs.
-
-Upgrade target:
-
-- retry with bounded attempts;
-- clear provider error mapping;
-- schema-specific validation models instead of raw `dict`.
+- plain-text completion for Markdown drafting;
+- structured completion for Agent decisions, specialist results, and State
+  deltas;
+- bounded retries and clear error mapping;
+- no secrets in logs or trace;
+- OpenAI-compatible local or remote endpoints.
 
 ## SearchProvider
 
-V1 default: Tavily, created by `build_search_provider()` when `TAVILY_API_KEY`
-exists.
+Required method:
 
-When no search provider is configured, the product must show an explicit
-unconfigured warning to the user. Silent fallback is not acceptable because
-real-world web evidence is a core system dependency.
+```text
+search(SearchQuery) -> list[SearchResult]
+```
 
-Required methods:
-
-- `search(SearchQuery) -> list[SearchResult]`
-
-Search results must include:
-
-- title;
-- url;
-- snippet;
-- published date when available;
-- provider metadata.
-
-Current real providers:
-
-- Tavily
-- Serper
-- Brave Search API
-- Exa
-
-Upgrade direction:
-
-- support multiple interchangeable providers behind the same boundary;
-- allow provider routing or fallback without changing graph nodes;
-- keep search discovery separate from page extraction and source verification.
-
-Recommended follow-up interfaces are documented in
-`docs/14-search-and-report-ingestion-design.md`:
-
-- `ContentExtractionProvider`
-- `ReportIngestionProvider`
-- `SourceVerificationProvider`
-- `CounterevidenceProvider`
-
-These should be added as separate interfaces rather than overloading
-`SearchProvider` with unrelated responsibilities.
+Current adapters may include Tavily, Serper, Brave, Exa, or a configured
+aggregate. Search discovery remains separate from content extraction and source
+verification.
 
 ## ContentExtractionProvider
 
-Current baseline:
-
-- `backend.app.providers.factory.build_content_extraction_provider()`
-- default local fallback: `HttpContentExtractionProvider`
-- optional configured providers:
-  - `FirecrawlContentExtractionProvider`
-  - `JinaReaderContentExtractionProvider`
-
-Configuration:
-
-- `CONTENT_EXTRACTION_PROVIDER` with values `http`, `firecrawl`, or `jina`
-- `FIRECRAWL_API_KEY`
-- `FIRECRAWL_ENDPOINT`
-- `JINA_READER_ENDPOINT_PREFIX`
-
-Required methods:
-
-- `extract_url(url) -> ExtractedPage`
-
-Current workflow usage:
-
-- verification search results can be extracted into page text before source
-  reassessment and evidence writeback;
-- the extractor remains replaceable, so stronger page-processing providers can be
-  swapped in without changing graph nodes.
-
-## JobSourceProvider
-
-V1.4 adds a recruitment-source provider boundary for the enterprise
-`talent_demand` path. It is intentionally separate from `SearchProvider` because
-job-board collection returns structured postings rather than generic web search
-results.
-
-Required methods:
-
-- `status() -> JobSourceStatus`
-- `search_jobs(JobSourceQuery) -> list[JobPostingSource]`
-
-Current adapter:
-
-- `BossAgentCliProvider`: invokes a local Boss-compatible CLI and parses JSON or
-  JSONL job output.
-- `DisabledJobSourceProvider`: explicit unavailable fallback.
-
-Configuration:
-
-- `JOB_SOURCE_PROVIDER=disabled|boss_agent_cli`
-- `BOSS_AGENT_CLI_COMMAND`
-- `BOSS_AGENT_CLI_ARGS_TEMPLATE`
-- `BOSS_AGENT_CLI_TIMEOUT_SECONDS`
-
-The provider must not store cookies or secrets in the repository. Missing CLI,
-login, or runtime failures are degraded source conditions, not fatal workflow
-errors.
+Extracts readable content from already-discovered public URLs. Current adapters
+may use local HTTP extraction, Firecrawl, or Jina Reader. It must return source
+metadata and explicit failures.
 
 ## RetrievalProvider
 
-V1 default: SQLite FTS.
+V3 has one project retrieval boundary used by both chat and Agent tools.
 
-Required methods:
+Required input:
 
-- `search_project(project_id, query, limit)`
+- project id and query;
+- source type/path filters;
+- active maintenance task/role context;
+- limit and diversity options.
 
-V2 upgrade target: embeddings plus vector retrieval through the same interface.
+Required output:
 
-V1.4 project RAG uses a lightweight `ProjectRetriever` over evidence,
-documents, document segments, and generated artifacts. It keeps the public chat
-API compatible while adding citation details.
+- source and parent ids;
+- source type, title, and relative path;
+- hit-local snippet;
+- lexical/vector/fused score metadata;
+- evidence quality and verification status;
+- optional URL and content hash.
+
+The first V3 implementation is local lexical retrieval. It must index evidence,
+document segments, and active artifacts. It replaces the separate chat-side and
+Kernel-side keyword implementations.
+
+## EmbeddingProvider (Later)
+
+The optional local-first upgrade supports:
+
+- batch embedding;
+- model name/version and vector dimension;
+- offline local models where configured;
+- content-hash based incremental indexing;
+- explicit unavailable status.
+
+No Agent or API contract may depend directly on a specific embedding library.
+
+## VectorStoreProvider (Later)
+
+Vector storage is a rebuildable derived index. SQLite and Markdown remain the
+source of truth. Hybrid retrieval uses rank fusion rather than comparing raw
+lexical and vector scores directly.
+
+## SourceVerificationProvider
+
+Evaluates source quality, verification status, corroboration, conflict, and
+counterevidence needs. It must not silently upgrade generated or marketing
+content into verified fact support.
 
 ## Exporter
 
-Required methods:
+Exports active artifact revisions, evidence, health/backlog/ChangeSet metadata,
+trace summary, and the default `.obsidian/` configuration. Superseded revisions
+remain in storage/history but are excluded from the normal vault view.
 
-- `export_project(project, artifacts, evidence)`
+## Removed Provider Boundary
 
-Exporters must write a manifest containing export version, artifact list, source evidence list, and generated timestamp.
-
-## SourceRegistry
-
-`SourceRegistry` is local evidence-governance metadata, not a search provider.
-It declares source packs, connector types, reliable domains, blocked domains,
-API-key requirements, and manual-review boundaries.
-
-Connector types:
-
-- `official_api`: GitHub, arXiv, Semantic Scholar, Stack Exchange, HN APIs, SEC, or other documented official APIs.
-- `commercial_api`: QCC, Tianyancha, CNINFO Data Service, licensed exchange/data feeds.
-- `library_adapter`: AKShare/Tushare-style adapters, always with provenance and lower authority than original disclosures.
-- `search_domain_pack`: authoritative public domains discovered through Tavily/Serper/Brave/Exa.
-- `extraction_fallback`: Firecrawl/Jina/HTTP/Apify fetches text from already-discovered public URLs.
-- `manual_review`: high-trust but hard-to-automate sources such as GSXT claims that may involve CAPTCHA or legal/process constraints.
-
-Built-in packs:
-
-- `company_china_pack`: China company disclosure and business registration sources
-- `tech_frontier_pack`: Technical frontier official APIs (GitHub, arXiv, etc.)
-
-Factory:
-
-- `build_source_registry()` creates the default registry
-- `build_source_verification_provider()` creates a verifier with injected registry
-
-API endpoint:
-
-- `GET /api/config/sources` returns the full registry status with connector configuration state
+`JobSourceProvider`, Boss CLI adapters, and recruitment-specific provider
+configuration are retired and must not remain in production imports or API
+routes.

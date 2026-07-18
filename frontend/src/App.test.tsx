@@ -12,9 +12,6 @@ const {
   mockGetActiveRun,
   mockGetSearchConfig,
   mockUpdateSearchConfig,
-  mockUpdateJobSourceConfig,
-  mockGetJobSourceConfig,
-  mockTestJobSource,
   mockTestSearchConnection,
   mockResumeRun,
   mockCreateDocument,
@@ -22,6 +19,7 @@ const {
   mockListArtifacts,
   mockListEvidence,
   mockAskQuestion,
+  mockGrowKnowledge,
   mockExportProject,
   mockOpenExportFolder,
   mockGetWorkflow,
@@ -30,6 +28,17 @@ const {
   mockUpsertLLMPreset,
   mockApplyLLMPreset,
   mockDeleteLLMPreset,
+  mockGetVaultStatus,
+  mockImportVault,
+  mockAuditVault,
+  mockGetKnowledgeHealth,
+  mockListMaintenanceBacklog,
+  mockStartMaintenanceRun,
+  mockListChangeSets,
+  mockProposeChangeSet,
+  mockApproveChangeSet,
+  mockApplyChangeSet,
+  mockRollbackChangeSet,
 } = vi.hoisted(() => ({
   mockEventsState: { current: [] as Array<Record<string, unknown>> },
   mockGetLLMConfig: vi.fn().mockResolvedValue({ configured: true, base_url: "http://test", model: "test" }),
@@ -135,27 +144,6 @@ const {
     message: "搜索配置已更新",
     configured: true,
   }),
-  mockGetJobSourceConfig: vi.fn().mockResolvedValue({
-    provider: "disabled",
-    configured: false,
-    available: false,
-    enabled: false,
-    message: "未启用招聘信源 Provider。",
-    diagnostics: [],
-    boss_limit: 8,
-  }),
-  mockUpdateJobSourceConfig: vi.fn().mockResolvedValue({
-    success: true,
-    message: "招聘信源配置已更新",
-    status: { provider: "disabled", configured: false, available: false, message: "disabled" },
-  }),
-  mockTestJobSource: vi.fn().mockResolvedValue({
-    success: false,
-    message: "未启用招聘信源 Provider。",
-    status: { provider: "disabled", configured: false, available: false, message: "disabled" },
-    result_count: 0,
-    results: [],
-  }),
   mockResumeRun: vi.fn().mockResolvedValue({ status: "resumed", run_id: "run-1" }),
   mockCreateDocument: vi.fn().mockResolvedValue({
     id: "doc-text-1",
@@ -235,6 +223,7 @@ const {
     },
   ]),
   mockAskQuestion: vi.fn().mockResolvedValue({ answer: "建议先看研究框架。", citations: ["EV-USER-SCOPE"] }),
+  mockGrowKnowledge: vi.fn().mockResolvedValue({ answer: "建议先看研究框架。", citations: ["EV-USER-SCOPE"] }),
   mockExportProject: vi.fn().mockResolvedValue({
     export_version: "1", project_id: "project-1",
     artifact_paths: ["00-研究框架/research-frame.md"], evidence_ids: ["EV-USER-SCOPE"],
@@ -242,6 +231,30 @@ const {
   }),
   mockOpenExportFolder: vi.fn().mockResolvedValue({ success: true, export_dir: "E:\\QianFengStudy\\PythonProject\\SectorBreaker\\exports\\demo" }),
   mockGetWorkflow: vi.fn().mockResolvedValue({ schema_version: "1", nodes: [], edges: [] }),
+  mockGetVaultStatus: vi.fn().mockResolvedValue({
+    project_id: "project-1",
+    latest_import: null,
+    active_note_count: 1,
+    notes: [],
+  }),
+  mockImportVault: vi.fn().mockResolvedValue({
+    id: "VI-1", project_id: "project-1", source_path: "D:\\Vault", note_count: 2, total_bytes: 100,
+    snapshot_hash: "abc123", imported_paths: ["index.md"], skipped_paths: [], created_at: new Date().toISOString(),
+  }),
+  mockAuditVault: vi.fn().mockResolvedValue({
+    id: "KHR-1", project_id: "project-1", vault_import_id: "VI-1", snapshot_hash: "abc123",
+    metrics: { active_notes: 2, findings: 1, broken_links: 1 }, findings: [], generated_at: new Date().toISOString(),
+  }),
+  mockGetKnowledgeHealth: vi.fn().mockRejectedValue(new Error("not audited")),
+  mockListMaintenanceBacklog: vi.fn().mockResolvedValue([]),
+  mockStartMaintenanceRun: vi.fn().mockResolvedValue({
+    run_id: "run-maintenance-1", status: "started", resumed_from_checkpoint: true, task_ids: [], execution_mode: "plan_only",
+  }),
+  mockListChangeSets: vi.fn().mockResolvedValue([]),
+  mockProposeChangeSet: vi.fn(),
+  mockApproveChangeSet: vi.fn(),
+  mockApplyChangeSet: vi.fn(),
+  mockRollbackChangeSet: vi.fn(),
 }));
 
 let onCompleteRef: (() => Promise<void> | void) | null = null;
@@ -268,9 +281,6 @@ vi.mock("./api/client", () => ({
     applyLLMPreset: mockApplyLLMPreset,
     deleteLLMPreset: mockDeleteLLMPreset,
     getSearchConfig: mockGetSearchConfig,
-    getJobSourceConfig: mockGetJobSourceConfig,
-    updateJobSourceConfig: mockUpdateJobSourceConfig,
-    testJobSource: mockTestJobSource,
     updateSearchConfig: mockUpdateSearchConfig,
     testSearchConnection: mockTestSearchConnection,
     getSourceRegistryStatus: mockGetSourceRegistryStatus,
@@ -279,12 +289,24 @@ vi.mock("./api/client", () => ({
     listArtifacts: mockListArtifacts,
     listEvidence: mockListEvidence,
     askQuestion: mockAskQuestion,
+    growKnowledge: mockGrowKnowledge,
     exportProject: mockExportProject,
     openExportFolder: mockOpenExportFolder,
     updateLLMConfig: vi.fn().mockResolvedValue({ success: true }),
     testLLMConnection: vi.fn().mockResolvedValue({ success: true, message: "OK" }),
     addUserInput: vi.fn().mockResolvedValue({ status: "ok", input_id: "ui-1" }),
     resumeRun: mockResumeRun,
+    getVaultStatus: mockGetVaultStatus,
+    importVault: mockImportVault,
+    auditVault: mockAuditVault,
+    getKnowledgeHealth: mockGetKnowledgeHealth,
+    listMaintenanceBacklog: mockListMaintenanceBacklog,
+    startMaintenanceRun: mockStartMaintenanceRun,
+    listChangeSets: mockListChangeSets,
+    proposeChangeSet: mockProposeChangeSet,
+    approveChangeSet: mockApproveChangeSet,
+    applyChangeSet: mockApplyChangeSet,
+    rollbackChangeSet: mockRollbackChangeSet,
   },
 }));
 
@@ -298,23 +320,23 @@ afterEach(() => {
 });
 
 test("maps personal Agent Kernel events to visible workflow graph nodes", () => {
-  expect(nodeIdForEvent({ gate: "initialize_state", step: null, agent: "V2 Agent Kernel" })).toBe("initialize_state");
-  expect(nodeIdForEvent({ gate: "external_materials", step: null, agent: "V2 Report Internalizer" })).toBe("external_materials");
-  expect(nodeIdForEvent({ gate: "agent_decide", step: null, agent: "V2 Master Agent" })).toBe("agent_decide");
-  expect(nodeIdForEvent({ gate: "tool_execution", step: null, agent: "V2 Tool Executor" })).toBe("tool_execution");
-  expect(nodeIdForEvent({ gate: "state_update", step: null, agent: "V2 State Reducer" })).toBe("state_update");
-  expect(nodeIdForEvent({ gate: "artifact_writing", step: null, agent: "V2 Artifact Writer" })).toBe("artifact_writing");
+  expect(nodeIdForEvent({ gate: "initialize_state", step: null, agent: "V3 Agent Kernel" })).toBe("initialize_state");
+  expect(nodeIdForEvent({ gate: "external_materials", step: null, agent: "V3 Report Internalizer" })).toBe("external_materials");
+  expect(nodeIdForEvent({ gate: "agent_decide", step: null, agent: "V3 Master Agent" })).toBe("agent_decide");
+  expect(nodeIdForEvent({ gate: "tool_execution", step: null, agent: "V3 Tool Executor" })).toBe("tool_execution");
+  expect(nodeIdForEvent({ gate: "state_update", step: null, agent: "V3 State Reducer" })).toBe("state_update");
+  expect(nodeIdForEvent({ gate: "artifact_writing", step: null, agent: "V3 Artifact Writer" })).toBe("artifact_writing");
   expect(nodeIdForEvent({ gate: "artifact_review", step: null, agent: "Artifact Reviewer" })).toBe("artifact_review");
-  expect(nodeIdForEvent({ gate: "export", step: null, agent: "V2 Master Agent" })).toBe("export");
+  expect(nodeIdForEvent({ gate: "export", step: null, agent: "V3 Master Agent" })).toBe("export");
 });
 
-test("counts V2 Agent Kernel source updates as evidence signals", () => {
+test("counts V3 Agent Kernel source updates as evidence signals", () => {
   expect(countEvidenceSignals([
     {
       event_type: "node_progress",
       gate: "state_update",
       step: null,
-      agent: "V2 State Reducer",
+      agent: "V3 State Reducer",
       message: "State Update: sources+8, claims+8, questions+0, artifacts+0",
       data: null,
       severity: "info",
@@ -339,7 +361,7 @@ test("builds user-facing Agent brief cards from kernel trace events", () => {
       event_type: "node_progress",
       gate: "agent_decide",
       step: null,
-      agent: "V2 Master Agent",
+      agent: "V3 Master Agent",
       message: "Thought Summary: 当前 State 完全空白，需要先做基础搜索。",
       data: null,
       severity: "info",
@@ -349,7 +371,7 @@ test("builds user-facing Agent brief cards from kernel trace events", () => {
       event_type: "node_progress",
       gate: "tool_execution",
       step: null,
-      agent: "V2 Tool Executor",
+      agent: "V3 Tool Executor",
       message: "Action: search_web - 为 L1 建立定义和需求基础。",
       data: null,
       severity: "info",
@@ -419,28 +441,19 @@ test("startRun is called when button is clicked", async () => {
   expect(mockResumeRun).not.toHaveBeenCalled();
 });
 
-test("talent demand mode sends project mode and uploads pasted JD before run", async () => {
+test("adopts an existing Vault without requiring an Agent bootstrap run", async () => {
   render(<App />);
-  fireEvent.click(screen.getByRole("button", { name: /人才需求情报/ }));
-  fireEvent.change(screen.getByPlaceholderText(/大模型应用开发工程师/), { target: { value: "大模型应用开发工程师" } });
-  fireEvent.change(screen.getByPlaceholderText(/可粘贴一段或多段 JD/), {
-    target: { value: "岗位：大模型应用开发工程师\n薪资：20-35K\n要求：熟悉 RAG、Agent、Python。" },
+  fireEvent.change(screen.getByPlaceholderText(/AI Agent 工具/), { target: { value: "RAG 知识库" } });
+  fireEvent.change(screen.getByLabelText("已有 Obsidian / Markdown Vault（可选）"), {
+    target: { value: "D:\\Knowledge\\RAG" },
   });
-
-  fireEvent.click(screen.getByRole("button", { name: /开始生成人才需求情报/ }));
+  fireEvent.click(screen.getByRole("button", { name: "接管现有 Vault" }));
 
   await waitFor(() => expect(mockCreateProject).toHaveBeenCalled());
-  expect(mockCreateProject).toHaveBeenCalledWith(expect.objectContaining({ project_mode: "talent_demand" }));
-  expect(mockCreateDocument).toHaveBeenCalledWith("project-1", expect.objectContaining({
-    channel: "user_upload",
-    content: expect.stringContaining("大模型应用开发工程师"),
-  }));
-  expect(mockUpdateJobSourceConfig).toHaveBeenCalledWith(expect.objectContaining({
-    enabled: false,
-    provider: "disabled",
-    boss_keyword: "大模型应用开发工程师",
-  }));
-  expect(mockStartRun).toHaveBeenCalledWith("project-1", true);
+  expect(mockImportVault).toHaveBeenCalledWith("project-1", { source_path: "D:\\Knowledge\\RAG" });
+  expect(mockAuditVault).toHaveBeenCalledWith("project-1");
+  expect(mockStartRun).not.toHaveBeenCalled();
+  await waitFor(() => expect(screen.getByText("知识库自治管理")).toBeInTheDocument());
 });
 
 test("onComplete fetches artifacts and transitions to result when snapshot completed", async () => {
@@ -457,6 +470,22 @@ test("onComplete fetches artifacts and transitions to result when snapshot compl
   expect(mockListArtifacts).toHaveBeenCalled();
   expect(mockListEvidence).toHaveBeenCalled();
   expect(await screen.findByText("证据账本")).toBeInTheDocument();
+});
+
+test("completed project exposes the V3 knowledge management control plane", async () => {
+  render(<App />);
+  fireEvent.change(screen.getByPlaceholderText(/AI Agent 工具/), { target: { value: "AI Agent 工具" } });
+  await waitFor(() => expect(screen.getByRole("button", { name: /开始构建知识库/ })).not.toBeDisabled());
+  fireEvent.click(screen.getByRole("button", { name: /开始构建知识库/ }));
+  await waitFor(() => expect(onCompleteRef).toBeTruthy());
+  await onCompleteRef!();
+
+  expect(await screen.findByRole("heading", { name: "知识库自治管理" })).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("本地 Vault 路径"), { target: { value: "D:\\Vault" } });
+  fireEvent.click(screen.getByRole("button", { name: "导入并审计" }));
+
+  await waitFor(() => expect(mockImportVault).toHaveBeenCalledWith("project-1", { source_path: "D:\\Vault" }));
+  expect(mockAuditVault).toHaveBeenCalledWith("project-1");
 });
 
 test("failed snapshot renders visible error instead of blank screen", async () => {

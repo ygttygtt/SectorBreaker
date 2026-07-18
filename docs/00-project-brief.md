@@ -2,60 +2,97 @@
 
 ## Product Goal
 
-SectorBreaker is a local-first research workbench that helps a user break into an unfamiliar domain faster than ordinary search or a one-shot AI answer. It turns scattered sources into a structured industry cognition system: what to learn, what the current state looks like, where demand exists, and which opportunities are worth validating.
+SectorBreaker is a local-first, multi-Agent autonomous knowledge-base
+management system. It helps a user create, adopt, inspect, verify, maintain, and
+grow an Obsidian-compatible knowledge base while keeping changes evidence-linked,
+auditable, and reversible.
 
-## First Version Scope
+The original domain-breaking workflow is retained as the bootstrap experience
+for an empty knowledge base. The product is no longer positioned as a one-shot
+Deep Search report writer or a generic AI learning assistant.
 
-- Single-user local workbench.
-- FastAPI backend with LangGraph adaptive research workflow.
-- Vite + React + TypeScript frontend.
-- SQLite for project metadata, run state, evidence metadata, and FTS project Q&A.
-- Markdown and Obsidian-friendly knowledge base export.
-- OpenAI-compatible LLM configuration.
-- Tavily as the default search provider through a replaceable interface.
+## Core Promise
 
-## V1.3 Enterprise-Oriented Mode
+Give SectorBreaker a knowledge goal and an autonomy policy. The system should:
 
-SectorBreaker now also supports an additive `Talent Demand Intelligence Agent`
-mode. This mode does not replace the learning-oriented domain knowledge flow.
-It is designed for HR, training companies, curriculum teams, recruiting
-platforms, and workforce-planning users who need to understand what a role
-market is asking for.
+- understand the existing vault and project material;
+- discover structural and factual gaps;
+- create a prioritized maintenance backlog;
+- research and verify missing knowledge through approved providers;
+- delegate scoped work to specialist Agents when useful;
+- propose or apply controlled note revisions;
+- preserve evidence, versions, diffs, and rollback points;
+- continue growing the knowledge base across runs.
 
-The first implemented scenario is talent-demand intelligence for a target role,
-for example `大模型应用开发工程师`:
+## First V3 Scope
 
-- ingest uploaded JD text/files and external AI reports as evidence;
-- optionally supplement thin materials through configured search providers;
-- extract role title, company, location, salary, experience, responsibilities,
-  skills, tools, seniority, and evidence ids;
-- normalize skill aliases into a demand matrix;
-- show a Source Coverage Matrix;
-- export an Obsidian-friendly talent-demand vault.
+- Single-user, local-first workbench.
+- One production knowledge-management mode owned by the Agent Kernel.
+- Import an existing Markdown/Obsidian vault into a managed mirror.
+- Deterministic knowledge-health audit for structure and metadata.
+- Persistent maintenance tasks.
+- Master Agent plus dynamically dispatched specialist Agents.
+- Evidence-linked note creation and revision.
+- Active artifact revisions, ChangeSets, approval, apply, and rollback.
+- Unified project retrieval over evidence, documents, segments, and active
+  knowledge artifacts.
+- Obsidian export with `.sectorbreaker/` state and audit metadata.
 
-## Explicit Non-Goals For V1
+## Explicit Non-Goals For The First V3 Release
 
+- No enterprise talent-demand or recruitment product mode.
+- No Boss/job-board connector or login-gated scraping.
 - No multi-user account system.
-- No cloud task scheduler.
-- No automatic subscription monitoring or weekly report daemon.
-- No full vector RAG implementation.
-- No scraping of login-gated or platform-restricted social content.
-- No default scraping of login-gated job boards such as LinkedIn, Indeed,
-  BOSS 直聘, 猎聘, 智联, or similar platforms.
-- No production deployment automation.
+- No automatic cloud scheduler or background monitoring daemon.
+- No direct destructive synchronization with the user's source vault.
+- No move/delete note operations by default.
+- No requirement for vector retrieval before the maintenance loop is usable.
+- No production cloud deployment automation.
 
-## Core User Journey
+Local embeddings, hybrid vector retrieval, scheduled monitoring, and direct
+bidirectional vault synchronization are later additive upgrades.
 
-1. User creates a research project with domain, market scope, and depth.
-2. System proposes the research frame and learning path.
-3. User confirms or edits the frame.
-4. Agents gather sources, normalize evidence, and identify gaps.
-5. System builds industry map, key players, transaction units, content/channel patterns, risk boundaries, and opportunity hypotheses.
-6. User reviews stage outputs.
-7. System exports an Obsidian-compatible knowledge base and supports lightweight project Q&A.
+## Core User Journeys
 
-## Roadmap
+### Bootstrap A New Knowledge Base
 
-- V1: Adaptive workflow, evidence-linked research output, Obsidian export, SQLite FTS Q&A.
-- V2: Embeddings, vector retrieval, stronger RAG, source re-ranking, richer citation audit.
-- V3: Monitoring jobs, weekly reports, team collaboration, permissions, cloud deployment.
+1. User creates a project with a domain, goal, source policy, and depth.
+2. Agent Kernel creates an adaptive knowledge schema.
+3. Master Agent researches, verifies, writes, and exports the first vault.
+4. The run preserves State, evidence, artifacts, and open maintenance tasks.
+
+### Adopt And Maintain An Existing Vault
+
+1. User imports an existing Obsidian/Markdown vault into a managed mirror.
+2. System scans paths, front matter, links, metadata, and content hashes.
+3. Deterministic audit produces a knowledge-health report and backlog.
+4. Master Agent selects a task and may delegate research, verification, or
+   editing to specialist Agents.
+5. System produces an evidence-linked ChangeSet and diff.
+6. Policy or user approval allows the active revision to change.
+7. Export contains only active revisions and supports rollback.
+
+### Continue Growing A Vault
+
+1. User asks a follow-up question or selects an open maintenance task.
+2. System restores State and active ArtifactMemory.
+3. Agent retrieves existing knowledge before searching externally.
+4. It updates or creates the smallest useful set of notes.
+5. The new state, evidence, task status, and revision history are persisted.
+
+## Technical Foundation
+
+- Python + FastAPI
+- Agent Kernel using structured State, Tools, Decisions, Observations, and
+  StateDelta
+- SQLite for projects, evidence, documents, checkpoints, artifact revisions,
+  audits, maintenance tasks, and ChangeSets
+- React + TypeScript local workbench
+- Markdown/Obsidian as the human-readable knowledge surface
+- Replaceable LLM, search, extraction, and retrieval provider interfaces
+
+## Authoritative V3 Design
+
+Read `docs/23-autonomous-knowledge-management-v3.md` before changing V3 vault
+management, autonomy policy, specialist delegation, artifact versioning,
+ChangeSets, retrieval, or enterprise cutover behavior.

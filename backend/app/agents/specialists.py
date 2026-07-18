@@ -1,4 +1,4 @@
-"""Specialist Agent contracts for V2 knowledge layers."""
+"""Legacy-compatible specialist planning helpers for V3 knowledge layers."""
 
 from __future__ import annotations
 

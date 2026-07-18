@@ -1,3 +1,4 @@
+import sqlite3
 from pathlib import Path
 
 from backend.app.schemas import (
@@ -32,6 +33,11 @@ def test_sqlite_migrations_are_discoverable() -> None:
         "007_documents.sql",
         "008_document_segments_and_citations.sql",
         "009_project_mode.sql",
+        "010_run_state_checkpoint.sql",
+        "011_retire_enterprise_talent.sql",
+        "012_artifact_revisions.sql",
+        "013_artifact_revision_indexes.sql",
+        "014_knowledge_management.sql",
     ]
 
 
@@ -78,26 +84,38 @@ def test_sqlite_repository_creates_project_and_evidence(tmp_path: Path) -> None:
     assert saved.claims[0].claim_id == "CL-001"
 
 
-def test_sqlite_repository_persists_talent_demand_project_mode(tmp_path: Path) -> None:
+def test_enterprise_project_rows_are_archived_and_normalized_by_migration(tmp_path: Path) -> None:
     database_path = tmp_path / "sectorbreaker.sqlite3"
-    init_database(database_path)
-    repository = SQLiteRepository(database_path)
-
-    project = repository.create_project(
-        ResearchProjectCreate(
-            title="LLM Talent Demand",
-            domain="大模型应用开发工程师",
-            market_scope=MarketScope.CHINA,
-            depth=ResearchDepth.QUICK,
-            project_mode=ProjectMode.TALENT_DEMAND,
+    migrations = list_migration_files()
+    with sqlite3.connect(database_path) as connection:
+        for migration in migrations[:10]:
+            connection.executescript(migration.read_text(encoding="utf-8"))
+        connection.execute(
+            """
+            INSERT INTO projects (
+                id, title, domain, market_scope, depth, status,
+                source_policy, project_mode, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "project-retired-enterprise",
+                "历史企业实验",
+                "历史企业实验",
+                "china",
+                "quick",
+                "draft",
+                "reliable_first",
+                "talent_demand",
+                "2026-01-01T00:00:00+00:00",
+                "2026-01-01T00:00:00+00:00",
+            ),
         )
-    )
 
-    fetched = repository.get_project(project.id)
-    listed = repository.list_projects()[0]
+    init_database(database_path)
+    project = SQLiteRepository(database_path).get_project("project-retired-enterprise")
 
-    assert fetched.project_mode == ProjectMode.TALENT_DEMAND
-    assert listed.project_mode == ProjectMode.TALENT_DEMAND
+    assert project.project_mode == ProjectMode.DOMAIN_KNOWLEDGE
+    assert project.status.value == "archived"
 
 
 def test_sqlite_repository_fts_searches_evidence(tmp_path: Path) -> None:

@@ -1,4 +1,4 @@
-"""Tool registry and runtime context for the V2 Agent Kernel."""
+"""Tool registry and runtime context for the V3 Agent Kernel."""
 
 from __future__ import annotations
 
@@ -26,10 +26,15 @@ class KernelRuntimeContext:
     llm_provider: LLMProvider | None
     emit_event: EmitFn
     artifacts: list[Artifact] = field(default_factory=list)
+    initial_artifact_ids: set[str] = field(default_factory=set)
+    run_id: str | None = None
     search_call_count: int = 0
     writer_call_count: int = 0
     # Optional callback: called after each successful artifact write for checkpointing
     on_artifact_written: Callable[[str, int], Awaitable[None]] | None = None
+
+    def new_artifacts(self) -> list[Artifact]:
+        return [artifact for artifact in self.artifacts if artifact.id not in self.initial_artifact_ids]
 
 
 class ToolRegistry:

@@ -63,7 +63,7 @@ const PERSONAL_DEFINITION: WorkflowDefinition = {
     { id: "agent_decide", label: "LLM 大脑决策", node_type: "gate", group: "plan", status: "pending", reason: "LLM 读取 State 与 Tools，决定下一步搜索、读材料、写作、审查、问用户或结束。", details: {} },
     { id: "tool_execution", label: "工具执行", node_type: "agent", group: "source", status: "pending", reason: "执行 search_web、read_uploaded_report、retrieve_project_memory、write_layer_document 等真实工具。", details: {} },
     { id: "state_update", label: "State 更新", node_type: "store", group: "evidence", status: "pending", reason: "把 Observation 内化为 source memory、claims、entities、open questions、artifact refs 和 decision log。", details: {} },
-    { id: "artifact_writing", label: "知识库写作", node_type: "agent", group: "synthesis", status: "pending", reason: "当 Agent 判断材料足够时，通过工具写入 V2 L1-L5 / 动态 schema Obsidian 文档。", details: {} },
+    { id: "artifact_writing", label: "知识库写作", node_type: "agent", group: "synthesis", status: "pending", reason: "当 Agent 判断材料足够时，通过工具写入 V3 动态 schema Obsidian 文档。", details: {} },
     { id: "artifact_review", label: "详实度审查", node_type: "gate", group: "qa", status: "pending", reason: "检查是否详实、证据关联、Obsidian 友好；不足时回到 Agent 决策继续补搜或修订。", details: {} },
     { id: "human_feedback", label: "人在回路", node_type: "human", group: "qa", status: "pending", reason: "边界、材料或风险不清时，Agent 可以暂停并请求用户反馈。", details: {} },
     { id: "export", label: "Obsidian 导出 / RAG", node_type: "agent", group: "export", status: "pending", reason: "持久化 Agent 写出的 Markdown 产物，并支持后续项目问答。", details: {} },
@@ -83,36 +83,8 @@ const PERSONAL_DEFINITION: WorkflowDefinition = {
   ],
 };
 
-const TALENT_DEFINITION: WorkflowDefinition = {
-  schema_version: "1",
-  nodes: [
-    { id: "scope", label: "定义岗位方向", node_type: "gate", group: "scope", status: "pending", reason: "明确目标岗位、城市/市场范围和样本策略。", details: {} },
-    { id: "talent_source_intake", label: "JD / 报告上传", node_type: "agent", group: "source", status: "pending", reason: "优先读取用户上传的 JD、岗位说明和外部 AI 报告。", details: {} },
-    { id: "boss_job_intake", label: "Boss 职位样本", node_type: "agent", group: "source", status: "pending", reason: "可选接入本地 Boss CLI，采集结构化职位样本。", details: {} },
-    { id: "source_collection", label: "搜索补充", node_type: "agent", group: "source", status: "pending", reason: "材料不足时补充公开网页和岗位/技能相关资料。", details: {} },
-    { id: "source_coverage", label: "信源覆盖矩阵", node_type: "store", group: "evidence", status: "pending", reason: "统计 JD、Boss、外部报告、搜索证据和缺口。", details: {} },
-    { id: "jd_signal_extraction", label: "岗位信号抽取", node_type: "agent", group: "analysis", status: "pending", reason: "抽取公司、地点、薪资、经验、职责、技能和工具。", details: {} },
-    { id: "skill_normalization", label: "技能矩阵归一", node_type: "group", group: "synthesis", status: "pending", reason: "合并同义技能，生成频次、层级和代表证据。", details: {} },
-    { id: "talent_synthesis", label: "人才情报综合", node_type: "agent", group: "synthesis", status: "pending", reason: "生成岗位画像、学习路径、作品集要求和待验证问题。", details: {} },
-    { id: "export", label: "企业 Vault / RAG", node_type: "agent", group: "export", status: "pending", reason: "导出人才需求 Obsidian Vault，并支持基于项目资料问答。", details: {} },
-  ],
-  edges: [
-    { id: "e1", source: "scope", target: "talent_source_intake" },
-    { id: "e2", source: "scope", target: "boss_job_intake" },
-    { id: "e3", source: "scope", target: "source_collection" },
-    { id: "e4", source: "talent_source_intake", target: "source_coverage" },
-    { id: "e5", source: "boss_job_intake", target: "source_coverage" },
-    { id: "e6", source: "source_collection", target: "source_coverage" },
-    { id: "e7", source: "source_coverage", target: "jd_signal_extraction" },
-    { id: "e8", source: "jd_signal_extraction", target: "skill_normalization" },
-    { id: "e9", source: "skill_normalization", target: "talent_synthesis" },
-    { id: "e10", source: "talent_synthesis", target: "export" },
-  ],
-};
-
 const DEFAULT_DEFINITION_BY_VARIANT = {
   domain_knowledge: PERSONAL_DEFINITION,
-  talent_demand: TALENT_DEFINITION,
 };
 
 const GROUP_ORDER = [
@@ -209,7 +181,7 @@ interface WorkflowEditorProps {
   definition?: WorkflowDefinition | null;
   activeNodeId?: string;
   nodeStatuses?: Record<string, NodeStatus>;
-  variant?: "domain_knowledge" | "talent_demand";
+  variant?: "domain_knowledge";
   isCompact?: boolean;
   showMinimap?: boolean;
   showControls?: boolean;

@@ -9,8 +9,7 @@ from backend.app.providers.content_extraction import (
     JinaReaderContentExtractionProvider,
 )
 from backend.app.providers.exa import ExaSearchProvider
-from backend.app.providers.interfaces import ContentExtractionProvider, JobSourceProvider, LLMProvider, SearchProvider
-from backend.app.providers.job_sources import BossAgentCliProvider, DisabledJobSourceProvider
+from backend.app.providers.interfaces import ContentExtractionProvider, LLMProvider, SearchProvider
 from backend.app.providers.multi_search import MultiSearchProvider
 from backend.app.providers.openai_compatible import OpenAICompatibleLLMProvider
 from backend.app.providers.serper import SerperSearchProvider
@@ -119,37 +118,6 @@ def build_content_extraction_provider() -> ContentExtractionProvider:
         firecrawl_api_key=os.getenv("FIRECRAWL_API_KEY"),
         firecrawl_endpoint=os.getenv("FIRECRAWL_ENDPOINT", "https://api.firecrawl.dev/v1/scrape"),
         jina_reader_endpoint_prefix=os.getenv("JINA_READER_ENDPOINT_PREFIX", "https://r.jina.ai/http://"),
-    )
-
-
-def build_job_source_provider_from_config(
-    *,
-    provider_name: str = "disabled",
-    boss_agent_cli_command: str = "boss",
-    boss_agent_cli_args_template: str | None = None,
-    boss_agent_cli_timeout_seconds: int = 45,
-) -> JobSourceProvider:
-    normalized_provider = (provider_name or "disabled").strip().lower()
-    if normalized_provider in {"boss_agent_cli", "boss", "boss_cli"}:
-        return BossAgentCliProvider(
-            command=boss_agent_cli_command,
-            args_template=boss_agent_cli_args_template,
-            timeout_seconds=boss_agent_cli_timeout_seconds,
-        )
-    return DisabledJobSourceProvider()
-
-
-def build_job_source_provider() -> JobSourceProvider:
-    timeout_value = os.getenv("BOSS_AGENT_CLI_TIMEOUT_SECONDS", "45")
-    try:
-        timeout_seconds = int(timeout_value)
-    except ValueError:
-        timeout_seconds = 45
-    return build_job_source_provider_from_config(
-        provider_name=os.getenv("JOB_SOURCE_PROVIDER", "disabled"),
-        boss_agent_cli_command=os.getenv("BOSS_AGENT_CLI_COMMAND", "boss"),
-        boss_agent_cli_args_template=os.getenv("BOSS_AGENT_CLI_ARGS_TEMPLATE"),
-        boss_agent_cli_timeout_seconds=timeout_seconds,
     )
 
 

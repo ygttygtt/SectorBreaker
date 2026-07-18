@@ -30,6 +30,9 @@ def apply_state_delta(
     state.shared_knowledge.open_questions.extend(new_open_questions)
     _link_open_questions_to_layers(state, new_open_questions)
     _apply_coverage_updates(state, delta)
+    if delta.delegation_notes:
+        state.delegation_log.extend(delta.delegation_notes)
+        state.delegation_log = state.delegation_log[-100:]
     state.evidence_refs = list(dict.fromkeys(state.evidence_refs + delta.evidence_ids + observation.evidence_ids))
     action = _state_action_for_decision(decision, observation)
     reason = observation.summary if observation.summary else decision.thought_summary

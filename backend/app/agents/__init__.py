@@ -1,4 +1,4 @@
-"""Agent primitives for the V2 ReAct architecture."""
+"""Agent primitives retained for the V3 ReAct architecture."""
 
 from backend.app.agents.iceberg_agent import IcebergRiskAgent, IcebergRiskFinding, IcebergSeedPlan
 from backend.app.agents.react_loop import (
