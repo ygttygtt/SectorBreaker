@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronUp,
   ClipboardCheck,
+  Database,
   FileDiff,
   FolderInput,
   GitPullRequest,
@@ -23,6 +24,7 @@ import type {
   KnowledgeHealthReport,
   MaintenanceRunPayload,
   MaintenanceTask,
+  RetrievalDiagnostics,
   VaultStatus,
 } from "../api/client";
 
@@ -61,6 +63,20 @@ const changeStatusLabels: Record<string, string> = {
   denied: "已拒绝",
 };
 
+const retrievalModeLabels: Record<string, string> = {
+  hybrid: "混合语义检索",
+  hybrid_pending: "语义模型待加载",
+  lexical: "仅关键词检索",
+  lexical_degraded: "关键词降级",
+};
+
+const retrievalModeDescriptions: Record<string, string> = {
+  hybrid: "关键词与本地向量召回已通过 RRF 融合。",
+  hybrid_pending: "本地模型会在首次检索或重建索引时加载。",
+  lexical: "本地语义模型未启用，当前只执行关键词召回。",
+  lexical_degraded: "本地语义模型不可用，当前明确降级为关键词召回。",
+};
+
 const metricDefinitions = [
   ["active_notes", "活跃笔记"],
   ["findings", "健康问题"],
@@ -95,6 +111,8 @@ export function KnowledgeManagementPanel({
   const [health, setHealth] = useState<KnowledgeHealthReport | null>(null);
   const [tasks, setTasks] = useState<MaintenanceTask[]>([]);
   const [changeSets, setChangeSets] = useState<ChangeSet[]>([]);
+  const [retrieval, setRetrieval] = useState<RetrievalDiagnostics | null>(null);
+  const [retrievalError, setRetrievalError] = useState<string | null>(null);
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
   const [maintenanceObjective, setMaintenanceObjective] = useState("");
   const [executionMode, setExecutionMode] = useState<MaintenanceRunPayload["execution_mode"]>("plan_only");
@@ -113,16 +131,21 @@ export function KnowledgeManagementPanel({
   const refreshControlPlane = useCallback(async () => {
     setBusyAction((current) => current ?? "refresh");
     try {
-      const [vaultResult, backlogResult, changeSetResult, healthResult] = await Promise.all([
+      const [vaultResult, backlogResult, changeSetResult, healthResult, retrievalResult] = await Promise.all([
         api.getVaultStatus(projectId),
         api.listMaintenanceBacklog(projectId),
         api.listChangeSets(projectId),
         api.getKnowledgeHealth(projectId).catch(() => null),
+        api.getRetrievalStatus(projectId)
+          .then((result) => ({ result, error: null }))
+          .catch((error) => ({ result: null, error: errorMessage(error, "检索状态读取失败") })),
       ]);
       setVault(vaultResult);
       setTasks(backlogResult);
       setChangeSets(changeSetResult);
       setHealth(healthResult);
+      setRetrieval(retrievalResult.result);
+      setRetrievalError(retrievalResult.error);
       setSelectedTaskIds((current) => current.filter((id) => backlogResult.some((task) => task.id === id)));
     } catch (error) {
       onError(errorMessage(error, "知识库状态加载失败"));
@@ -165,6 +188,20 @@ export function KnowledgeManagementPanel({
       onSuccess(`审计完成：发现 ${report.findings.length} 个维护项`);
     } catch (error) {
       onError(errorMessage(error, "知识健康审计失败"));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function rebuildRetrievalIndex() {
+    setBusyAction("reindex");
+    try {
+      const result = await api.reindexProject(projectId);
+      setRetrieval(await api.getRetrievalStatus(projectId));
+      setRetrievalError(null);
+      onSuccess(`语义索引已重建：${result.embedded_chunks} 个分块完成向量化，当前共 ${result.index_count} 个分块`);
+    } catch (error) {
+      onError(errorMessage(error, "语义索引重建失败"));
     } finally {
       setBusyAction(null);
     }
@@ -284,6 +321,46 @@ export function KnowledgeManagementPanel({
           <span>快照 <code>{compactHash(vault?.latest_import?.snapshot_hash)}</code></span>
           <span>{vault?.latest_import ? `最近导入 ${dateLabel(vault.latest_import.created_at)}` : "当前项目尚未导入外部 Vault"}</span>
         </div>
+      </div>
+
+      <div className="knowledge-control-section retrieval-status-section">
+        <div className="knowledge-section-title knowledge-section-title--actions">
+          <div>
+            <Database size={16} />
+            <div>
+              <strong>本地 Hybrid RAG</strong>
+              <span>{retrieval
+                ? retrievalModeDescriptions[retrieval.effective_mode]
+                : retrievalError ?? "正在读取检索运行状态。"}</span>
+            </div>
+          </div>
+          <button
+            className="secondary btn-sm"
+            onClick={() => void rebuildRetrievalIndex()}
+            disabled={isBusy || !retrieval || retrieval.effective_mode === "lexical"}
+            type="button"
+          >
+            {busyAction === "reindex" ? <Loader2 size={13} className="spinner" /> : <RefreshCw size={13} />}
+            重建语义索引
+          </button>
+        </div>
+        <div className="retrieval-status-grid">
+          <div>
+            <span className={`retrieval-mode-badge retrieval-mode-badge--${retrieval?.effective_mode ?? "pending"}`}>
+              {retrievalModeLabels[retrieval?.effective_mode ?? ""] ?? "读取中"}
+            </span>
+            <small>有效模式</small>
+          </div>
+          <div><strong>{retrieval?.index_count ?? "—"}</strong><small>已索引分块</small></div>
+          <div><strong>{retrieval?.embedding_model ?? "未启用"}</strong><small>Embedding 模型</small></div>
+          <div><strong>{retrieval?.dimension ?? "—"}</strong><small>向量维度</small></div>
+        </div>
+        {retrieval?.last_error && (
+          <p className="retrieval-status-error" role="status">语义检索状态：{retrieval.last_error}</p>
+        )}
+        {retrievalError && (
+          <p className="retrieval-status-error" role="status">检索状态接口：{retrievalError}</p>
+        )}
       </div>
 
       <div className="knowledge-control-columns">

@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   approveChangeSet: vi.fn(),
   applyChangeSet: vi.fn(),
   rollbackChangeSet: vi.fn(),
+  getRetrievalStatus: vi.fn(),
+  reindexProject: vi.fn(),
 }));
 
 vi.mock("../api/client", () => ({ api: mocks }));
@@ -61,6 +63,17 @@ const healthReport = {
     },
   ],
   generated_at: "2026-07-19T00:01:00Z",
+};
+
+const retrievalStatus = {
+  effective_mode: "hybrid",
+  embedding_provider: "fastembed",
+  embedding_model: "BAAI/bge-small-zh-v1.5",
+  dimension: 512,
+  index_count: 18,
+  lexical_candidates: 6,
+  vector_candidates: 6,
+  last_error: null,
 };
 
 const task = {
@@ -143,6 +156,18 @@ beforeEach(() => {
   mocks.approveChangeSet.mockResolvedValue(changeSet("CS-proposed", "approved"));
   mocks.applyChangeSet.mockResolvedValue(changeSet("CS-approved", "applied"));
   mocks.rollbackChangeSet.mockResolvedValue(changeSet("CS-applied", "rolled_back"));
+  mocks.getRetrievalStatus.mockResolvedValue(retrievalStatus);
+  mocks.reindexProject.mockResolvedValue({
+    project_id: "project-1",
+    source_chunks: 18,
+    embedded_chunks: 18,
+    unchanged_chunks: 0,
+    deleted_chunks: 0,
+    index_count: 18,
+    embedding_provider: "fastembed",
+    embedding_model: "BAAI/bge-small-zh-v1.5",
+    dimension: 512,
+  });
 });
 
 afterEach(() => {
@@ -216,4 +241,44 @@ test("creates a manual ChangeSet proposal without bypassing approval", async () 
     evidence_ids: ["EV-1", "EV-2"],
     factual_change: true,
   })));
+});
+
+test("shows the honest Hybrid RAG mode, model, and vector index count", async () => {
+  renderPanel();
+
+  expect(await screen.findByText("混合语义检索")).toBeInTheDocument();
+  expect(screen.getByText("BAAI/bge-small-zh-v1.5")).toBeInTheDocument();
+  expect(screen.getByText("18")).toBeInTheDocument();
+  expect(mocks.getRetrievalStatus).toHaveBeenCalledWith("project-1");
+});
+
+test("rebuilds the local semantic index and refreshes retrieval status", async () => {
+  const props = renderPanel();
+  fireEvent.click(await screen.findByRole("button", { name: "重建语义索引" }));
+
+  await waitFor(() => expect(mocks.reindexProject).toHaveBeenCalledWith("project-1"));
+  expect(mocks.getRetrievalStatus).toHaveBeenCalledTimes(2);
+  expect(props.onSuccess).toHaveBeenCalledWith(expect.stringContaining("18 个分块完成向量化"));
+});
+
+test("makes semantic degradation visible instead of presenting keyword search as hybrid", async () => {
+  mocks.getRetrievalStatus.mockResolvedValueOnce({
+    ...retrievalStatus,
+    effective_mode: "lexical_degraded",
+    index_count: 0,
+    last_error: "local embedding model unavailable",
+  });
+  renderPanel();
+
+  expect(await screen.findByText("关键词降级")).toBeInTheDocument();
+  expect(screen.getByText(/local embedding model unavailable/)).toBeInTheDocument();
+});
+
+test("retrieval status failure does not hide the rest of the knowledge control plane", async () => {
+  mocks.getRetrievalStatus.mockRejectedValueOnce(new Error("retrieval endpoint unavailable"));
+  const props = renderPanel();
+
+  expect(await screen.findByText("修复 index.md 中的断链")).toBeInTheDocument();
+  expect(screen.getAllByText(/retrieval endpoint unavailable/).length).toBeGreaterThan(0);
+  expect(props.onError).not.toHaveBeenCalled();
 });

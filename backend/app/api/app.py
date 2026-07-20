@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import time
+from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -24,6 +25,7 @@ from backend.app.agent_kernel.workflow_definition import build_agent_kernel_work
 from backend.app.providers.factory import (
     build_content_extraction_provider,
     build_content_extraction_provider_from_config,
+    build_embedding_provider,
     build_llm_provider,
     build_llm_provider_from_config,
     build_search_provider,
@@ -33,6 +35,7 @@ from backend.app.providers.factory import (
 from backend.app.providers.interfaces import (
     ChatMessage,
     ContentExtractionProvider,
+    EmbeddingProvider,
     LLMProvider,
     SearchProvider,
     SearchQuery,
@@ -136,6 +139,9 @@ class ChatResponse(BaseModel):
     answer: str
     citations: list[str]
     citation_details: list[dict] = Field(default_factory=list)
+    retrieval_mode: str = "lexical"
+    embedding_model: str | None = None
+    retrieval_diagnostics: dict = Field(default_factory=dict)
 
 
 class FollowUpResponse(ChatResponse):
@@ -614,6 +620,8 @@ def create_app(
     search_provider: SearchProvider | None = None,
     content_extraction_provider: ContentExtractionProvider | None = None,
     llm_provider: LLMProvider | None = None,
+    embedding_provider: EmbeddingProvider | None = None,
+    embedding_mode: str = "disabled",
 ) -> FastAPI:
     init_database(database_path)
     repository = SQLiteRepository(database_path)
@@ -678,7 +686,11 @@ def create_app(
         active_llm_provider = build_llm_provider()
     source_registry = build_source_registry()
     source_verifier = HeuristicSourceVerificationProvider(source_registry=source_registry)
-    project_retriever = ProjectRetriever(repository)
+    project_retriever = ProjectRetriever(
+        repository,
+        embedding_provider=embedding_provider,
+        embedding_mode=embedding_mode,
+    )
     app = FastAPI(title="SectorBreaker")
 
     # ── Projects ──────────────────────────────────────────────────
@@ -690,6 +702,29 @@ def create_app(
     @app.get("/api/projects")
     def list_projects():
         return [project.model_dump(mode="json") for project in repository.list_projects()]
+
+    @app.get("/api/config/retrieval")
+    def get_retrieval_status(project_id: str | None = None):
+        if project_id is not None:
+            try:
+                repository.get_project(project_id)
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail="project not found") from exc
+        return asdict(project_retriever.status(project_id))
+
+    @app.post("/api/projects/{project_id}/retrieval/reindex")
+    async def rebuild_project_retrieval_index(project_id: str):
+        try:
+            repository.get_project(project_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="project not found") from exc
+        try:
+            result = await asyncio.to_thread(project_retriever.rebuild_vector_index, project_id)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"vector reindex failed: {type(exc).__name__}: {exc}") from exc
+        return asdict(result)
 
     @app.get("/api/projects/{project_id}")
     def get_project(project_id: str):
@@ -860,6 +895,7 @@ def create_app(
                     llm_provider=active_llm_provider,
                     emit=emit_event,
                     run_id=run.id,
+                    project_retriever=project_retriever,
                 )
                 _finalize_kernel_run(repository, run.id, result)
             except Exception as exc:
@@ -914,6 +950,7 @@ def create_app(
                     emit=emit_event_continue,
                     run_id=run.id,
                     resume_state=resumed_state,
+                    project_retriever=project_retriever,
                 )
                 _finalize_kernel_run(repository, run.id, result)
             except Exception as exc:
@@ -966,6 +1003,7 @@ def create_app(
                     run_id=run.id,
                     resume_state=resumed_state,
                     maintenance_request=payload,
+                    project_retriever=project_retriever,
                 )
                 _finalize_kernel_run(repository, run.id, result)
             except Exception as exc:
@@ -1325,11 +1363,17 @@ def create_app(
     # ── Chat ──────────────────────────────────────────────────────
 
     async def _answer_project_question(project_id: str, question: str) -> ChatResponse:
-        citations = project_retriever.retrieve(project_id, question, limit=6)
+        citations, diagnostics = await asyncio.to_thread(
+            project_retriever.retrieve_with_diagnostics,
+            project_id,
+            question,
+            6,
+        )
         citation_ids = [item.source_id for item in citations]
         citation_details = [
             {
                 "source_id": item.source_id,
+                "parent_id": item.parent_id,
                 "source_type": item.source_type,
                 "title": item.title,
                 "snippet": item.snippet,
@@ -1338,6 +1382,12 @@ def create_app(
                 "relative_path": item.relative_path,
                 "content_hash": item.content_hash,
                 "verification_status": item.verification_status,
+                "retrieval_mode": item.retrieval_mode,
+                "lexical_rank": item.lexical_rank,
+                "vector_rank": item.vector_rank,
+                "lexical_score": item.lexical_score,
+                "vector_score": item.vector_score,
+                "embedding_model": item.embedding_model,
             }
             for item in citations
         ]
@@ -1346,6 +1396,9 @@ def create_app(
                 answer="当前项目资料中没有检索到足够相关的内容。建议先补充 JD、外部报告或重新运行研究。",
                 citations=[],
                 citation_details=[],
+                retrieval_mode=diagnostics.effective_mode,
+                embedding_model=diagnostics.embedding_model,
+                retrieval_diagnostics=asdict(diagnostics),
             )
 
         fallback_answer = _fallback_rag_answer(question, citation_details)
@@ -1354,6 +1407,9 @@ def create_app(
                 answer=fallback_answer,
                 citations=citation_ids,
                 citation_details=citation_details,
+                retrieval_mode=diagnostics.effective_mode,
+                embedding_model=diagnostics.embedding_model,
+                retrieval_diagnostics=asdict(diagnostics),
             )
 
         context = "\n\n".join(
@@ -1376,12 +1432,18 @@ def create_app(
                 answer=answer,
                 citations=generated_citations or citation_ids,
                 citation_details=citation_details,
+                retrieval_mode=diagnostics.effective_mode,
+                embedding_model=diagnostics.embedding_model,
+                retrieval_diagnostics=asdict(diagnostics),
             )
         except Exception:
             return ChatResponse(
                 answer=fallback_answer,
                 citations=citation_ids,
                 citation_details=citation_details,
+                retrieval_mode=diagnostics.effective_mode,
+                embedding_model=diagnostics.embedding_model,
+                retrieval_diagnostics=asdict(diagnostics),
             )
 
     @app.post("/api/projects/{project_id}/chat")
@@ -1443,6 +1505,9 @@ def create_app(
             answer=answer.answer,
             citations=answer.citations,
             citation_details=answer.citation_details,
+            retrieval_mode=answer.retrieval_mode,
+            embedding_model=answer.embedding_model,
+            retrieval_diagnostics=answer.retrieval_diagnostics,
             artifact_id=artifact.id,
             artifact_path=artifact.content_path,
             updated_artifact_count=len(repository.list_artifacts(project_id)),
@@ -1779,4 +1844,6 @@ load_local_env()
 app = create_app(
     database_path=Path(os.getenv("SECTORBREAKER_DB_PATH", "data/sectorbreaker.sqlite3")),
     export_root=Path(os.getenv("SECTORBREAKER_EXPORT_ROOT", "exports")),
+    embedding_provider=build_embedding_provider(),
+    embedding_mode=os.getenv("SECTORBREAKER_EMBEDDING_PROVIDER", "auto"),
 )

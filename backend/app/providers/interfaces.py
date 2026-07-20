@@ -106,6 +106,36 @@ class RetrievalResult:
     score: float
 
 
+@dataclass(frozen=True)
+class EmbeddingProviderInfo:
+    provider: str
+    model: str
+    dimension: int | None
+    loaded: bool
+    available: bool
+    last_error: str | None = None
+
+
+@dataclass(frozen=True)
+class VectorIndexEntry:
+    chunk_id: str
+    project_id: str
+    source_id: str
+    parent_id: str | None
+    source_type: str
+    title: str
+    text: str
+    content_hash: str
+    embedding_provider: str
+    embedding_model: str
+    dimension: int
+    vector: tuple[float, ...]
+    relative_path: str | None = None
+    url: str | None = None
+    verification_status: str | None = None
+    indexed_at: str | None = None
+
+
 class LLMProvider(Protocol):
     async def complete(
         self,
@@ -171,3 +201,22 @@ class RetrievalProvider(Protocol):
 
     def search_project(self, project_id: str, query: str, limit: int) -> list[RetrievalResult]:
         """Search project-local indexed text."""
+
+
+class EmbeddingProvider(Protocol):
+    @property
+    def provider_name(self) -> str:
+        """Stable provider identifier."""
+
+    @property
+    def model_name(self) -> str:
+        """Stable local model identifier."""
+
+    def info(self) -> EmbeddingProviderInfo:
+        """Return honest load/availability status without claiming semantic readiness."""
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        """Embed and normalize document chunks locally."""
+
+    def embed_query(self, text: str) -> list[float]:
+        """Embed and normalize one query locally."""

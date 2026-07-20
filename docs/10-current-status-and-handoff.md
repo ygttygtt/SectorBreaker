@@ -34,8 +34,11 @@ SectorBreaker V3 is a local-first, multi-Agent autonomous knowledge-base managem
 ### Retrieval And Export
 
 - Chat and Agent tools share `ProjectRetriever`.
-- Current retrieval is lexical: evidence FTS plus document/segment/active-artifact scoring.
-- Retrieval excludes superseded artifacts and returns hit-local snippets plus path/hash/verification metadata.
+- FastEmbed uses the local `BAAI/bge-small-zh-v1.5` model with asymmetric query/document encoding.
+- A rebuildable SQLite vector index incrementally embeds evidence, document segments, and active-artifact chunks by content hash.
+- Lexical and vector rankings are fused with RRF; citations retain both ranks/scores and embedding provenance.
+- Retrieval excludes superseded artifacts, deletes stale chunks, and returns hit-local snippets plus path/hash/verification metadata.
+- Model/runtime failures are explicitly reported as `lexical_degraded`; disabled embeddings report `lexical`.
 - Exporter has one V3 path, writes active revisions only, cleans stale files, emits V3 front matter, and exports full `.sectorbreaker/` State/health/backlog/ChangeSet metadata.
 
 ### Frontend
@@ -44,23 +47,23 @@ SectorBreaker V3 is a local-first, multi-Agent autonomous knowledge-base managem
 - Health metrics/findings and maintenance Backlog selection.
 - Maintenance run launch.
 - ChangeSet diff, manual proposal, approve, apply, and rollback.
+- Hybrid RAG status/model/index diagnostics, reindex action, and citation provenance badges.
 - Enterprise talent/Boss UI is removed.
 
 ## Verification Baseline
 
-- Backend: `182 passed`, one existing Starlette/httpx deprecation warning.
-- Frontend: `25 passed`.
+- Backend: `204 passed`, one existing Starlette/httpx deprecation warning.
+- Frontend: `30 passed`.
 - Frontend production build: passed; existing >500 kB chunk warning remains.
 - Version isolation: passed.
 - Real temporary Vault acceptance: import -> audit -> ChangeSet -> approve -> apply -> export -> process restart -> rollback -> re-export passed.
 
 ## Current Retrieval Answer
 
-There is no local embedding model in the current implementation. Evidence uses SQLite FTS; documents, segments, and active artifacts use local lexical scoring. Local embeddings and hybrid retrieval remain later additive work.
+The current implementation is real local Hybrid RAG, not keyword matching behind a RAG label. FastEmbed produces 512-dimensional local embeddings, SQLite persists a content-hash incremental vector index, and `ProjectRetriever` fuses lexical/vector rankings with RRF. `python tools/smoke_local_hybrid_rag.py` validates a no-shared-keyword vector-only recall against the real model.
 
 ## Remaining Work
 
-- Optional local `EmbeddingProvider` and rebuildable vector index.
 - Better claim-level semantic verification and counterevidence linking.
 - Scheduled/incremental monitoring.
 - Direct bidirectional source-Vault synchronization.

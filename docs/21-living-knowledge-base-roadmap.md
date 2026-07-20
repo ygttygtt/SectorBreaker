@@ -139,6 +139,6 @@ load saved state
 ```
 
 This is the same Agent philosophy as the Kernel: State + Tools + Decision +
-Observation + StateDelta, not a fixed follow-up workflow. Vector RAG is an
-additive retrieval improvement; it is not a substitute for versioning,
-ChangeSets, permissions, and rollback.
+Observation + StateDelta, not a fixed follow-up workflow. Local Hybrid RAG is
+now implemented as an additive retrieval layer; it complements rather than
+replaces versioning, ChangeSets, permissions, and rollback.

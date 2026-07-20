@@ -1193,6 +1193,67 @@ textarea,
 .vault-status-strip b { color: var(--green); font-size: 14px; }
 .vault-status-strip code { color: #35505b; }
 
+.retrieval-status-section {
+  background: linear-gradient(135deg, rgba(238, 249, 245, .9), rgba(255, 255, 255, .72));
+}
+
+.retrieval-status-grid {
+  display: grid;
+  grid-template-columns: minmax(120px, .8fr) minmax(90px, .55fr) minmax(180px, 1.45fr) minmax(90px, .55fr);
+  gap: 8px;
+}
+
+.retrieval-status-grid > div {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid rgba(23, 111, 94, .09);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .7);
+}
+
+.retrieval-status-grid strong,
+.retrieval-status-grid small { display: block; }
+.retrieval-status-grid strong { overflow: hidden; color: #174f46; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.retrieval-status-grid small { margin-top: 4px; color: var(--muted); font-size: 9px; }
+
+.retrieval-mode-badge,
+.retrieval-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: #0f6659;
+  background: #dff4ed;
+  font-size: 9px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.retrieval-mode-badge--hybrid_pending,
+.retrieval-mode-badge--pending { color: #225a91; background: #e7f0fb; }
+.retrieval-mode-badge--lexical { color: #5e6672; background: #edf1f4; }
+.retrieval-mode-badge--lexical_degraded { color: #a62d3b; background: #feecee; }
+.retrieval-badge--vector { color: #225a91; background: #e7f0fb; }
+.retrieval-badge--lexical { color: #5e6672; background: #edf1f4; }
+
+.retrieval-status-error {
+  margin: 9px 0 0;
+  padding: 7px 9px;
+  border-radius: 8px;
+  color: #8b3340;
+  background: rgba(254, 236, 238, .78);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.rag-retrieval-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
 .health-metric-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -1308,6 +1369,7 @@ textarea,
 
 @media (max-width: 960px) {
   .knowledge-control-columns { grid-template-columns: 1fr; }
+  .retrieval-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .maintenance-run-form { grid-template-columns: 1fr; }
   .changeset-proposal-form { grid-template-columns: 1fr; }
   .changeset-proposal-form textarea,
@@ -1319,6 +1381,7 @@ textarea,
   .vault-import-row { grid-template-columns: 1fr; }
   .health-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .changeset-operation > div { flex-direction: column; gap: 2px; }
+  .retrieval-status-grid { grid-template-columns: 1fr; }
 }
 
 .rag-citation-list li {
@@ -1331,6 +1394,10 @@ textarea,
 }
 
 .rag-citation-list em {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
   color: #617069;
   font-size: 12px;
   font-style: normal;

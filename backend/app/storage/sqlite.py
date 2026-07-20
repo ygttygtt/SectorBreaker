@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import sqlite3
 import json
+from array import array
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
 from backend.app.documents import extract_document_citations, split_document_segments
-from backend.app.providers.interfaces import RetrievalResult
+from backend.app.providers.interfaces import RetrievalResult, VectorIndexEntry
 from backend.app.schemas import (
     Artifact,
     ArtifactType,
@@ -246,6 +247,198 @@ class SQLiteRepository:
             )
         if cursor.rowcount == 0:
             raise KeyError(f"artifact not found: {artifact_id}")
+
+    def upsert_vector_entries(self, entries: list[VectorIndexEntry]) -> None:
+        if not entries:
+            return
+        now = datetime.now(UTC).isoformat()
+        with self._connect() as connection:
+            connection.executemany(
+                """
+                INSERT OR REPLACE INTO vector_index (
+                    chunk_id, project_id, source_id, parent_id, source_type,
+                    title, relative_path, source_url, verification_status,
+                    text_content, content_hash, embedding_provider,
+                    embedding_model, dimension, vector, indexed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        item.chunk_id,
+                        item.project_id,
+                        item.source_id,
+                        item.parent_id,
+                        item.source_type,
+                        item.title,
+                        item.relative_path,
+                        item.url,
+                        item.verification_status,
+                        item.text,
+                        item.content_hash,
+                        item.embedding_provider,
+                        item.embedding_model,
+                        item.dimension,
+                        array("f", item.vector).tobytes(),
+                        item.indexed_at or now,
+                    )
+                    for item in entries
+                ],
+            )
+
+    def sync_vector_snapshot(
+        self,
+        project_id: str,
+        *,
+        embedding_provider: str,
+        embedding_model: str,
+        entries: list[VectorIndexEntry],
+        keep_chunk_ids: set[str],
+        force: bool = False,
+    ) -> int:
+        """Atomically publish one project/model vector-index snapshot."""
+        now = datetime.now(UTC).isoformat()
+        with self._connect() as connection:
+            existing_rows = connection.execute(
+                """
+                SELECT chunk_id FROM vector_index
+                WHERE project_id = ? AND embedding_provider = ? AND embedding_model = ?
+                """,
+                (project_id, embedding_provider, embedding_model),
+            ).fetchall()
+            stale_ids = [row["chunk_id"] for row in existing_rows if row["chunk_id"] not in keep_chunk_ids]
+            if force:
+                connection.execute(
+                    """
+                    DELETE FROM vector_index
+                    WHERE project_id = ? AND embedding_provider = ? AND embedding_model = ?
+                    """,
+                    (project_id, embedding_provider, embedding_model),
+                )
+            if entries:
+                connection.executemany(
+                    """
+                    INSERT OR REPLACE INTO vector_index (
+                        chunk_id, project_id, source_id, parent_id, source_type,
+                        title, relative_path, source_url, verification_status,
+                        text_content, content_hash, embedding_provider,
+                        embedding_model, dimension, vector, indexed_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        (
+                            item.chunk_id,
+                            item.project_id,
+                            item.source_id,
+                            item.parent_id,
+                            item.source_type,
+                            item.title,
+                            item.relative_path,
+                            item.url,
+                            item.verification_status,
+                            item.text,
+                            item.content_hash,
+                            item.embedding_provider,
+                            item.embedding_model,
+                            item.dimension,
+                            array("f", item.vector).tobytes(),
+                            item.indexed_at or now,
+                        )
+                        for item in entries
+                    ],
+                )
+            if stale_ids and not force:
+                connection.executemany(
+                    """
+                    DELETE FROM vector_index
+                    WHERE chunk_id = ? AND project_id = ?
+                      AND embedding_provider = ? AND embedding_model = ?
+                    """,
+                    [
+                        (chunk_id, project_id, embedding_provider, embedding_model)
+                        for chunk_id in stale_ids
+                    ],
+                )
+        return len(stale_ids)
+
+    def list_vector_entries(
+        self,
+        project_id: str,
+        *,
+        embedding_provider: str,
+        embedding_model: str,
+    ) -> list[VectorIndexEntry]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM vector_index
+                WHERE project_id = ? AND embedding_provider = ? AND embedding_model = ?
+                ORDER BY chunk_id
+                """,
+                (project_id, embedding_provider, embedding_model),
+            ).fetchall()
+        return [self._row_to_vector_entry(row) for row in rows]
+
+    def delete_stale_vector_entries(
+        self,
+        project_id: str,
+        *,
+        embedding_provider: str,
+        embedding_model: str,
+        keep_chunk_ids: set[str],
+    ) -> int:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT chunk_id FROM vector_index
+                WHERE project_id = ? AND embedding_provider = ? AND embedding_model = ?
+                """,
+                (project_id, embedding_provider, embedding_model),
+            ).fetchall()
+            stale_ids = [row["chunk_id"] for row in rows if row["chunk_id"] not in keep_chunk_ids]
+            if stale_ids:
+                connection.executemany(
+                    """
+                    DELETE FROM vector_index
+                    WHERE chunk_id = ? AND project_id = ?
+                      AND embedding_provider = ? AND embedding_model = ?
+                    """,
+                    [
+                        (chunk_id, project_id, embedding_provider, embedding_model)
+                        for chunk_id in stale_ids
+                    ],
+                )
+        return len(stale_ids)
+
+    def clear_vector_index(self, project_id: str) -> int:
+        with self._connect() as connection:
+            cursor = connection.execute("DELETE FROM vector_index WHERE project_id = ?", (project_id,))
+        return max(cursor.rowcount, 0)
+
+    def count_vector_entries(
+        self,
+        project_id: str | None = None,
+        *,
+        embedding_provider: str | None = None,
+        embedding_model: str | None = None,
+    ) -> int:
+        clauses: list[str] = []
+        parameters: list[str] = []
+        if project_id is not None:
+            clauses.append("project_id = ?")
+            parameters.append(project_id)
+        if embedding_provider is not None:
+            clauses.append("embedding_provider = ?")
+            parameters.append(embedding_provider)
+        if embedding_model is not None:
+            clauses.append("embedding_model = ?")
+            parameters.append(embedding_model)
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self._connect() as connection:
+            row = connection.execute(
+                f"SELECT COUNT(*) AS count FROM vector_index{where}",  # noqa: S608 - fixed clauses only
+                parameters,
+            ).fetchone()
+        return int(row["count"] if row else 0)
 
     def save_vault_import(self, record: VaultImportRecord) -> None:
         with self._connect() as connection:
@@ -565,6 +758,29 @@ class SQLiteRepository:
         connection = sqlite3.connect(self.database_path)
         connection.row_factory = sqlite3.Row
         return connection
+
+    @staticmethod
+    def _row_to_vector_entry(row: sqlite3.Row) -> VectorIndexEntry:
+        vector = array("f")
+        vector.frombytes(bytes(row["vector"]))
+        return VectorIndexEntry(
+            chunk_id=row["chunk_id"],
+            project_id=row["project_id"],
+            source_id=row["source_id"],
+            parent_id=row["parent_id"],
+            source_type=row["source_type"],
+            title=row["title"],
+            text=row["text_content"],
+            content_hash=row["content_hash"],
+            embedding_provider=row["embedding_provider"],
+            embedding_model=row["embedding_model"],
+            dimension=row["dimension"],
+            vector=tuple(float(value) for value in vector),
+            relative_path=row["relative_path"],
+            url=row["source_url"],
+            verification_status=row["verification_status"],
+            indexed_at=row["indexed_at"],
+        )
 
     @staticmethod
     def _row_to_project(row: sqlite3.Row) -> ResearchProject:

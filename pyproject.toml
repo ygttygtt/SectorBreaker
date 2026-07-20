@@ -1,10 +1,15 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "sectorbreaker"
 version = "0.1.0"
-description = "Local-first LangGraph multi-agent industry research workbench."
+description = "Local-first multi-Agent autonomous knowledge-base management system."
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.136.0",
+    "fastembed>=0.8.0,<0.9",
     "httpx>=0.28.0",
     "langgraph>=1.2.5",
     "pydantic>=2.7.4",
@@ -16,6 +21,12 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
 ]
+
+[tool.setuptools.packages.find]
+include = ["backend*"]
+
+[tool.setuptools.package-data]
+"backend.app.storage" = ["migrations/*.sql"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

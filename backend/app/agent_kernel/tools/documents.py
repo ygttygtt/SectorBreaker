@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from backend.app.agent_kernel.models import KernelObservation, KernelStateDelta, ToolSpec
 from backend.app.agent_kernel.tool_registry import KernelRuntimeContext, ToolRegistry, schema
 from backend.app.agent_state.models import SourceMemory, SourceUse, TrustLevel
@@ -108,10 +110,17 @@ async def retrieve_project_memory(tool_call, context: KernelRuntimeContext) -> K
             summary="项目记忆检索失败：query 为空。",
             error="empty query",
         )
-    citations = ProjectRetriever(context.repository).retrieve(context.project.id, query, limit)
+    retriever = context.project_retriever or ProjectRetriever(context.repository)
+    citations, diagnostics = await asyncio.to_thread(
+        retriever.retrieve_with_diagnostics,
+        context.project.id,
+        query,
+        limit,
+    )
     snippets = [
         {
             "id": item.source_id,
+            "parent_id": item.parent_id,
             "source_type": item.source_type,
             "title": item.title,
             "snippet": item.snippet[:600],
@@ -120,6 +129,12 @@ async def retrieve_project_memory(tool_call, context: KernelRuntimeContext) -> K
             "relative_path": item.relative_path,
             "content_hash": item.content_hash,
             "verification_status": item.verification_status,
+            "retrieval_mode": item.retrieval_mode,
+            "lexical_rank": item.lexical_rank,
+            "vector_rank": item.vector_rank,
+            "lexical_score": item.lexical_score,
+            "vector_score": item.vector_score,
+            "embedding_model": item.embedding_model,
         }
         for item in citations
     ]
@@ -127,7 +142,11 @@ async def retrieve_project_memory(tool_call, context: KernelRuntimeContext) -> K
         tool_name="retrieve_project_memory",
         success=bool(snippets),
         summary=f"项目记忆检索「{query}」命中 {len(snippets)} 条。",
-        data={"query": query, "results": snippets[:limit]},
+        data={
+            "query": query,
+            "results": snippets[:limit],
+            "retrieval": diagnostics.__dict__,
+        },
     )
 
 

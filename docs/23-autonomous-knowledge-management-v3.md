@@ -91,16 +91,17 @@ typed result or fails closed.
 
 ### Retrieval
 
-V3 starts with a unified lexical retrieval service:
+V3 uses a unified local hybrid retrieval service:
 
-- SQLite FTS/BM25-compatible lexical retrieval;
+- SQLite FTS/BM25-compatible lexical retrieval plus local embeddings;
 - documents, segments, evidence, active artifacts, and imported vault notes;
 - one implementation shared by project chat and Agent tools;
-- active-revision, source-quality, and verification filters;
+- reciprocal-rank fusion and active-revision/source-quality/verification filters;
 - segment-level citations and hit-local snippets.
 
-Local embeddings and vector retrieval are an additive provider upgrade. SQLite
-metadata remains the source of truth and any vector index must be rebuildable.
+SQLite metadata remains the source of truth and the content-hash incremental
+vector index is rebuildable. Unavailable models produce explicit
+`lexical_degraded` mode. See `docs/24-local-hybrid-rag.md`.
 
 ## State And Storage Contracts
 
@@ -266,7 +267,6 @@ Use one real Obsidian vault and complete:
 
 ## Explicit Later Work
 
-- local embedding provider and hybrid vector retrieval;
 - incremental background monitoring and scheduled refresh;
 - direct bidirectional synchronization with a user's source vault;
 - move/delete operations with stronger approval and recovery semantics;

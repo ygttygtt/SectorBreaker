@@ -20,8 +20,8 @@ build_context_pack(state, active_task, active_artifacts)
 ## Product Layers
 
 1. **Knowledge Surface**: Markdown/Obsidian vault and active artifact revisions.
-2. **Retrieval Layer**: unified lexical retrieval, later optional hybrid vector
-   retrieval.
+2. **Retrieval Layer**: local content-hash incremental embeddings plus unified
+   lexical/vector hybrid retrieval.
 3. **Knowledge Control Plane**: health snapshots, maintenance backlog,
    ArtifactMemory, ChangeSets, diffs, approvals, and rollback.
 4. **Agent Kernel**: Master Agent decisions, specialist delegation, evidence
@@ -126,19 +126,23 @@ partial checkpoint type.
 
 ## Retrieval Architecture
 
-Project chat and Agent tools must share one retrieval service. The first V3
-implementation uses lexical retrieval over:
+Project chat and Agent tools share one retrieval service. It synchronizes a
+rebuildable local vector index and retrieves over:
 
 - evidence;
 - uploaded/imported documents and segments;
 - active artifacts and imported vault notes.
 
-It must return hit-local snippets, parent metadata, source type, score, and
-citation ids. Hidden or superseded memories are excluded.
+Lexical and vector ranks are fused with reciprocal-rank fusion. Results return
+hit-local snippets, parent metadata, source type, fused score, retrieval mode,
+model identity, and citation ids. Hidden or superseded memories are excluded.
 
-Embeddings are introduced later through `EmbeddingProvider` and
-`VectorStoreProvider`. Vector indexes are derived and rebuildable; SQLite and
-Markdown remain sources of truth.
+`EmbeddingProvider` is replaceable; the first adapter is local FastEmbed using
+a Chinese-capable model. Vector indexes are content-hash incremental, derived,
+and rebuildable; SQLite and Markdown remain sources of truth. Model failure
+must expose `lexical_degraded`, never a false hybrid status.
+
+Detailed contracts and acceptance gates live in `docs/24-local-hybrid-rag.md`.
 
 ## Evidence Boundary
 

@@ -5,7 +5,7 @@ metadata:
   type: project
 ---
 
-Read `AGENTS.md`, `CLAUDE.md`, `docs/10-current-status-and-handoff.md`, `docs/20-version-isolation-and-cutover-rules.md`, and `docs/23-autonomous-knowledge-management-v3.md` before changes.
+Read `AGENTS.md`, `CLAUDE.md`, `docs/10-current-status-and-handoff.md`, `docs/20-version-isolation-and-cutover-rules.md`, `docs/23-autonomous-knowledge-management-v3.md`, and `docs/24-local-hybrid-rag.md` before changes.
 
 Current production architecture:
 
@@ -13,9 +13,9 @@ Current production architecture:
 - read-only source Vault and managed immutable revisions;
 - ChangeSet approval boundary for existing-note updates;
 - typed Specialist delegation with role tool allowlists;
-- active-only lexical retrieval and V3 Obsidian export;
+- active-only local Hybrid RAG and V3 Obsidian export;
 - no enterprise talent or old workflow production code.
 
-Verification baseline: backend 182 passed, frontend 25 passed/build passed, version isolation passed.
+Verification baseline: backend 204 passed, frontend 30 passed/build passed, real local semantic smoke passed, version isolation passed.
 
 Do not claim an architecture change ready from unit tests alone. Run the real user path and inspect the exported Vault.

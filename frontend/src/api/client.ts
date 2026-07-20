@@ -155,6 +155,9 @@ export interface ChatResponse {
   answer: string;
   citations: string[];
   citation_details?: ChatCitationDetail[];
+  retrieval_mode: RetrievalMode;
+  embedding_model?: string | null;
+  retrieval_diagnostics: RetrievalDiagnostics;
   artifact_id?: string | null;
   artifact_path?: string | null;
   updated_artifact_count?: number;
@@ -168,11 +171,49 @@ export interface FollowUpResponse extends ChatResponse {
 
 export interface ChatCitationDetail {
   source_id: string;
+  parent_id?: string | null;
   source_type: string;
   title: string;
   snippet: string;
   score: number;
   url?: string | null;
+  relative_path?: string | null;
+  content_hash?: string | null;
+  verification_status?: string | null;
+  retrieval_mode: "lexical" | "vector" | "hybrid";
+  lexical_rank?: number | null;
+  vector_rank?: number | null;
+  lexical_score?: number | null;
+  vector_score?: number | null;
+  embedding_model?: string | null;
+}
+
+export type RetrievalMode = "hybrid" | "hybrid_pending" | "lexical" | "lexical_degraded";
+
+export interface RetrievalDiagnostics {
+  effective_mode: RetrievalMode;
+  embedding_configured: boolean;
+  embedding_available: boolean;
+  embedding_loaded: boolean;
+  embedding_provider?: string | null;
+  embedding_model?: string | null;
+  dimension?: number | null;
+  index_count: number;
+  lexical_candidates: number;
+  vector_candidates: number;
+  last_error?: string | null;
+}
+
+export interface VectorReindexResult {
+  project_id: string;
+  source_chunks: number;
+  embedded_chunks: number;
+  unchanged_chunks: number;
+  deleted_chunks: number;
+  index_count: number;
+  embedding_provider: string;
+  embedding_model: string;
+  dimension?: number | null;
 }
 
 export interface ExportManifest {
@@ -623,6 +664,15 @@ export const api = {
 
   rollbackChangeSet(projectId: string, changeSetId: string) {
     return requestJson<ChangeSet>(`/api/projects/${projectId}/change-sets/${changeSetId}/rollback`, { method: "POST" });
+  },
+
+  getRetrievalStatus(projectId?: string) {
+    const params = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
+    return requestJson<RetrievalDiagnostics>(`/api/config/retrieval${params}`);
+  },
+
+  reindexProject(projectId: string) {
+    return requestJson<VectorReindexResult>(`/api/projects/${projectId}/retrieval/reindex`, { method: "POST" });
   },
 
   // Chat

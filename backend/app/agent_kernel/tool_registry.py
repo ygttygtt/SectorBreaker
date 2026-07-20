@@ -4,13 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from backend.app.agent_kernel.models import KernelObservation, ToolCall, ToolSpec
 from backend.app.agent_state.models import SectorBreakerState
 from backend.app.providers.interfaces import LLMProvider, SearchProvider
 from backend.app.schemas import Artifact, ResearchProject, RunEvent
 from backend.app.storage.sqlite import SQLiteRepository
+
+if TYPE_CHECKING:
+    from backend.app.rag import ProjectRetriever
 
 
 ToolHandler = Callable[[ToolCall, "KernelRuntimeContext"], Awaitable[KernelObservation]]
@@ -30,6 +33,7 @@ class KernelRuntimeContext:
     run_id: str | None = None
     search_call_count: int = 0
     writer_call_count: int = 0
+    project_retriever: "ProjectRetriever | None" = None
     # Optional callback: called after each successful artifact write for checkpointing
     on_artifact_written: Callable[[str, int], Awaitable[None]] | None = None
 

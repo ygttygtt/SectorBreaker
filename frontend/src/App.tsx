@@ -144,6 +144,14 @@ function labelForVerification(value?: string) {
   return "未验证";
 }
 
+function labelForRetrievalMode(value?: string) {
+  if (value === "hybrid") return "混合召回";
+  if (value === "vector") return "向量召回";
+  if (value === "hybrid_pending") return "语义模型待加载";
+  if (value === "lexical_degraded") return "关键词降级";
+  return "关键词召回";
+}
+
 function cleanDisplaySnippet(value?: string, fallback = "该来源未提供摘要，需打开来源复核。") {
   const raw = (value || "").trim();
   if (!raw) return fallback;
@@ -1359,6 +1367,13 @@ function ResultView({
           {chat && (
             <div className="chat-answer">
               <p>{chat.answer}</p>
+              <span className="rag-retrieval-summary">
+                检索：
+                <span className={`retrieval-badge retrieval-mode-badge--${chat.retrieval_mode}`}>
+                  {labelForRetrievalMode(chat.retrieval_mode)}
+                </span>
+                {chat.embedding_model && <span>{chat.embedding_model}</span>}
+              </span>
               <span>引用：{chat.citations.join(", ") || "无"}</span>
               {chat.artifact_path && <span>新增文档：{chat.artifact_path}</span>}
               {chat.citation_details && chat.citation_details.length > 0 && (
@@ -1366,7 +1381,12 @@ function ResultView({
                   {chat.citation_details.map((item) => (
                     <li key={item.source_id}>
                       <strong>{item.title}</strong>
-                      <em>{item.source_type} · {item.source_id}</em>
+                      <em>
+                        <span className={`retrieval-badge retrieval-badge--${item.retrieval_mode}`}>
+                          {labelForRetrievalMode(item.retrieval_mode)}
+                        </span>
+                        {item.source_type} · {item.source_id}
+                      </em>
                       <p>{cleanDisplaySnippet(item.snippet)}</p>
                     </li>
                   ))}

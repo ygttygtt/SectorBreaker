@@ -9,7 +9,8 @@ from backend.app.providers.content_extraction import (
     JinaReaderContentExtractionProvider,
 )
 from backend.app.providers.exa import ExaSearchProvider
-from backend.app.providers.interfaces import ContentExtractionProvider, LLMProvider, SearchProvider
+from backend.app.providers.embeddings import DEFAULT_LOCAL_EMBEDDING_MODEL, FastEmbedEmbeddingProvider
+from backend.app.providers.interfaces import ContentExtractionProvider, EmbeddingProvider, LLMProvider, SearchProvider
 from backend.app.providers.multi_search import MultiSearchProvider
 from backend.app.providers.openai_compatible import OpenAICompatibleLLMProvider
 from backend.app.providers.serper import SerperSearchProvider
@@ -118,6 +119,47 @@ def build_content_extraction_provider() -> ContentExtractionProvider:
         firecrawl_api_key=os.getenv("FIRECRAWL_API_KEY"),
         firecrawl_endpoint=os.getenv("FIRECRAWL_ENDPOINT", "https://api.firecrawl.dev/v1/scrape"),
         jina_reader_endpoint_prefix=os.getenv("JINA_READER_ENDPOINT_PREFIX", "https://r.jina.ai/http://"),
+    )
+
+
+def build_embedding_provider_from_config(
+    *,
+    provider_name: str = "auto",
+    model_name: str = DEFAULT_LOCAL_EMBEDDING_MODEL,
+    cache_dir: str | None = None,
+    threads: int | None = None,
+) -> EmbeddingProvider | None:
+    normalized = (provider_name or "auto").strip().lower()
+    if normalized in {"disabled", "none", "off"}:
+        return None
+    if normalized not in {"auto", "fastembed"}:
+        raise ValueError(f"unsupported embedding provider: {provider_name}")
+    try:
+        import fastembed  # noqa: F401
+    except Exception:
+        if normalized == "fastembed":
+            raise RuntimeError("fastembed is configured but not installed")
+        return None
+    return FastEmbedEmbeddingProvider(
+        model_name=model_name,
+        cache_dir=cache_dir,
+        threads=threads,
+    )
+
+
+def build_embedding_provider() -> EmbeddingProvider | None:
+    raw_threads = os.getenv("SECTORBREAKER_EMBEDDING_THREADS")
+    try:
+        threads = int(raw_threads) if raw_threads else None
+    except ValueError:
+        threads = None
+    if threads is not None and threads <= 0:
+        threads = None
+    return build_embedding_provider_from_config(
+        provider_name=os.getenv("SECTORBREAKER_EMBEDDING_PROVIDER", "auto"),
+        model_name=os.getenv("SECTORBREAKER_EMBEDDING_MODEL", DEFAULT_LOCAL_EMBEDDING_MODEL),
+        cache_dir=os.getenv("SECTORBREAKER_EMBEDDING_CACHE_DIR"),
+        threads=threads,
     )
 
 

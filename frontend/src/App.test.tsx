@@ -39,6 +39,8 @@ const {
   mockApproveChangeSet,
   mockApplyChangeSet,
   mockRollbackChangeSet,
+  mockGetRetrievalStatus,
+  mockReindexProject,
 } = vi.hoisted(() => ({
   mockEventsState: { current: [] as Array<Record<string, unknown>> },
   mockGetLLMConfig: vi.fn().mockResolvedValue({ configured: true, base_url: "http://test", model: "test" }),
@@ -255,6 +257,27 @@ const {
   mockApproveChangeSet: vi.fn(),
   mockApplyChangeSet: vi.fn(),
   mockRollbackChangeSet: vi.fn(),
+  mockGetRetrievalStatus: vi.fn().mockResolvedValue({
+    effective_mode: "hybrid",
+    embedding_provider: "fastembed",
+    embedding_model: "BAAI/bge-small-zh-v1.5",
+    dimension: 512,
+    index_count: 1,
+    lexical_candidates: 0,
+    vector_candidates: 0,
+    last_error: null,
+  }),
+  mockReindexProject: vi.fn().mockResolvedValue({
+    project_id: "project-1",
+    source_chunks: 1,
+    embedded_chunks: 1,
+    unchanged_chunks: 0,
+    deleted_chunks: 0,
+    index_count: 1,
+    embedding_provider: "fastembed",
+    embedding_model: "BAAI/bge-small-zh-v1.5",
+    dimension: 512,
+  }),
 }));
 
 let onCompleteRef: (() => Promise<void> | void) | null = null;
@@ -307,6 +330,8 @@ vi.mock("./api/client", () => ({
     approveChangeSet: mockApproveChangeSet,
     applyChangeSet: mockApplyChangeSet,
     rollbackChangeSet: mockRollbackChangeSet,
+    getRetrievalStatus: mockGetRetrievalStatus,
+    reindexProject: mockReindexProject,
   },
 }));
 
@@ -486,6 +511,75 @@ test("completed project exposes the V3 knowledge management control plane", asyn
 
   await waitFor(() => expect(mockImportVault).toHaveBeenCalledWith("project-1", { source_path: "D:\\Vault" }));
   expect(mockAuditVault).toHaveBeenCalledWith("project-1");
+});
+
+test("shows hybrid retrieval provenance on the answer and each citation", async () => {
+  mockGrowKnowledge.mockResolvedValueOnce({
+    answer: "内部资料可通过混合检索召回。",
+    citations: ["EV-LEX", "DOC-VEC", "ART-HYBRID"],
+    citation_details: [
+      {
+        source_id: "EV-LEX",
+        source_type: "evidence",
+        title: "关键词证据",
+        snippet: "关键词召回内容",
+        score: 0.02,
+        retrieval_mode: "lexical",
+        lexical_rank: 1,
+      },
+      {
+        source_id: "DOC-VEC",
+        source_type: "document_segment",
+        title: "语义文档",
+        snippet: "向量召回内容",
+        score: 0.02,
+        retrieval_mode: "vector",
+        vector_rank: 1,
+        embedding_model: "BAAI/bge-small-zh-v1.5",
+      },
+      {
+        source_id: "ART-HYBRID",
+        source_type: "vault_note",
+        title: "融合笔记",
+        snippet: "融合召回内容",
+        score: 0.03,
+        retrieval_mode: "hybrid",
+        lexical_rank: 2,
+        vector_rank: 2,
+        embedding_model: "BAAI/bge-small-zh-v1.5",
+      },
+    ],
+    retrieval_mode: "hybrid",
+    embedding_model: "BAAI/bge-small-zh-v1.5",
+    retrieval_diagnostics: {
+      effective_mode: "hybrid",
+      embedding_provider: "fastembed",
+      embedding_model: "BAAI/bge-small-zh-v1.5",
+      dimension: 512,
+      index_count: 3,
+      lexical_candidates: 2,
+      vector_candidates: 2,
+      last_error: null,
+    },
+    artifact_id: "FOLLOWUP-1",
+    artifact_path: "followups/hybrid-rag.md",
+    updated_artifact_count: 2,
+  });
+
+  render(<App />);
+  fireEvent.change(screen.getByPlaceholderText(/AI Agent 工具/), { target: { value: "AI Agent 工具" } });
+  await waitFor(() => expect(screen.getByRole("button", { name: /开始构建知识库/ })).not.toBeDisabled());
+  fireEvent.click(screen.getByRole("button", { name: /开始构建知识库/ }));
+  await waitFor(() => expect(onCompleteRef).toBeTruthy());
+  await onCompleteRef!();
+
+  fireEvent.change(await screen.findByPlaceholderText("基于证据账本继续追问"), { target: { value: "如何检索内部资料？" } });
+  fireEvent.click(screen.getByRole("button", { name: "追问并补库" }));
+
+  expect(await screen.findByText("向量召回")).toBeInTheDocument();
+  expect(screen.getByText("关键词召回")).toBeInTheDocument();
+  expect(screen.getAllByText("混合召回").length).toBeGreaterThanOrEqual(2);
+  expect(screen.getAllByText("BAAI/bge-small-zh-v1.5").length).toBeGreaterThanOrEqual(1);
 });
 
 test("failed snapshot renders visible error instead of blank screen", async () => {

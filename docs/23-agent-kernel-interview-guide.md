@@ -769,9 +769,9 @@ Agent 从 Artifact Memory 发现主文档提到“反向代理”，新手可能
 
 Pipeline 会在搜索前内化上传文档，将其中的 Claim、Entity、Citation 和 OpenQuestion 写入 State；ContextPack 和 Writer Context 都能读取它们。验收时还应检查事件流和最终 Artifact 是否引用这些材料，而不能只验证“上传接口成功”。
 
-### Q8：为什么不用向量数据库？
+### Q8：现在的 RAG 是关键词匹配还是真向量检索？
 
-当前项目使用 SQLite、FTS、结构化 State 和 ContextPack，优先把 Agent 闭环、Evidence 和知识库产物做稳。向量检索是增强召回率的 Upgrade Point，不是 Agent 成立的前提。后续可组合 FTS + embedding + reranker 做 Hybrid Retrieval。
+当前是本地 Hybrid RAG：SQLite FTS/词项召回与 FastEmbed 真向量召回并行，使用 `BAAI/bge-small-zh-v1.5`，按 content hash 增量索引 evidence、document segments 和 active artifacts，再用 RRF 融合排名。模型失败时会明确标记 `lexical_degraded`。SQLite 当前保存并线性扫描向量，适合本地中小型 Vault；超大库可在保持 Provider 契约的前提下换成 ANN VectorStore。
 
 ### Q9：最大的技术债是什么？
 

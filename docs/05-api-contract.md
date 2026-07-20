@@ -126,8 +126,19 @@ include superseded revisions.
 - `POST /api/projects/{project_id}/follow-up`
 
 Both use the same RetrievalProvider as the Agent Kernel. Responses include
-answer, citation ids, and citation details. Follow-up pages are versioned
+answer, citation ids, citation details, effective retrieval mode, vector model,
+and lexical/vector rank provenance. Follow-up pages are versioned
 artifacts and must link back to original evidence where available.
+
+## Retrieval Index
+
+- `GET /api/config/retrieval`
+- `POST /api/projects/{project_id}/retrieval/reindex`
+
+Status exposes configured/available provider, model, dimension, index counts,
+last error, and effective mode. Reindex generates a replacement snapshot and
+atomically swaps only the selected project's current provider/model rows; a
+failed rebuild preserves the prior index.
 
 ## Export
 

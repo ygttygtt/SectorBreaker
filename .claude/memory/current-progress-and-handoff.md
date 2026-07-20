@@ -13,7 +13,7 @@ Implemented V3 loop:
 - deterministic health audit;
 - persistent maintenance backlog;
 - Master Agent plus typed, allowlisted Specialists;
-- unified active-only lexical retrieval;
+- unified active-only Hybrid RAG with local FastEmbed vectors and RRF;
 - ChangeSet diff/approval/apply/conflict/rollback;
 - immutable Artifact revisions and ArtifactMemory continuation;
 - V3 Obsidian export with full `.sectorbreaker/` metadata;
@@ -27,12 +27,12 @@ Retired and deleted from production:
 
 Current verification baseline:
 
-- backend 182 passed;
-- frontend 25 passed;
+- backend 204 passed;
+- frontend 30 passed;
 - frontend build passed;
 - version isolation passed;
 - import/audit/apply/export/restart/rollback/re-export acceptance passed.
 
-Current RAG is SQLite FTS plus local lexical scoring. Local embeddings/hybrid retrieval are later work.
+Current RAG is real local Hybrid RAG: `BAAI/bge-small-zh-v1.5`, content-hash incremental SQLite vectors, lexical/vector RRF, typed provenance, and explicit `lexical_degraded` fallback. The real-model smoke test proves vector-only recall without shared keywords.
 
-Next valuable work: optional local embedding provider, stronger claim verification/counterevidence linking, incremental monitoring, and safe bidirectional Vault sync.
+Next valuable work: stronger claim verification/counterevidence linking, incremental monitoring, safe bidirectional Vault sync, and a pluggable ANN VectorStoreProvider for very large Vaults.

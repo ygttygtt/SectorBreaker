@@ -6,6 +6,8 @@ from backend.app.providers.interfaces import (
     CounterevidenceProvider,
     DocumentSegment,
     ExtractedPage,
+    EmbeddingProvider,
+    EmbeddingProviderInfo,
     LLMProvider,
     ReportIngestionProvider,
     RetrievalProvider,
@@ -17,6 +19,7 @@ from backend.app.providers.interfaces import (
     SourceVerificationProvider,
     UploadedDocument,
     VerificationTask,
+    VectorIndexEntry,
     CitationTarget,
 )
 from backend.app.providers.content_extraction import HttpContentExtractionProvider
@@ -28,6 +31,7 @@ from backend.app.providers.brave import BraveSearchProvider
 from backend.app.providers.exa import ExaSearchProvider
 from backend.app.providers.factory import (
     build_content_extraction_provider,
+    build_embedding_provider,
     build_llm_provider,
     build_search_provider,
     build_source_registry,
@@ -58,9 +62,12 @@ __all__ = [
     "HeuristicCounterevidenceProvider",
     "DocumentSegment",
     "ExtractedPage",
+    "EmbeddingProvider",
+    "EmbeddingProviderInfo",
     "HttpContentExtractionProvider",
     "JinaReaderContentExtractionProvider",
     "build_content_extraction_provider",
+    "build_embedding_provider",
     "build_default_source_registry",
     "build_llm_provider",
     "build_search_provider",
@@ -86,4 +93,5 @@ __all__ = [
     "TavilySearchProvider",
     "UploadedDocument",
     "VerificationTask",
+    "VectorIndexEntry",
 ]

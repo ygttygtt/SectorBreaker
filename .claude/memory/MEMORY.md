@@ -4,3 +4,4 @@
 - [跨工具接手说明](tooling-handoff.md) — Cursor、Windsurf、Gemini、Claude Code、Codex 等工具接手时的统一入口
 - [版本隔离治理](version-isolation-governance.md) — V2 Agent Kernel 切换事故后的硬规则：新架构必须隔离旧可执行路径，不能靠补丁或守卫掩盖旧 workflow 泄漏
 - [可持续知识库路线](../../docs/21-living-knowledge-base-roadmap.md) — SectorBreaker 区别于一次性 Deep Search 报告的核心定位：结构化留存、Obsidian 双链、证据连续性和人在回路增长
+- [本地 Hybrid RAG](../../docs/24-local-hybrid-rag.md) — FastEmbed 真向量、增量 SQLite 索引、RRF、引用 provenance 与显式降级契约

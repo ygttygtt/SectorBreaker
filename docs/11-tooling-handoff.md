@@ -16,7 +16,8 @@ Read, in order:
 8. `docs/20-version-isolation-and-cutover-rules.md`
 9. `docs/21-living-knowledge-base-roadmap.md`
 10. `docs/23-autonomous-knowledge-management-v3.md`
-11. subsystem docs and tests for the files being changed.
+11. `docs/24-local-hybrid-rag.md`
+12. subsystem docs and tests for the files being changed.
 
 ## Current Reality
 
@@ -24,8 +25,8 @@ Read, in order:
 - Production owner: `backend.app.agent_kernel.run_v2_agent_kernel_pipeline`.
 - Source Vault: read-only input; managed revisions live in SQLite/export.
 - Write boundary: existing-note updates require ChangeSet approval/apply.
-- Retrieval: shared local lexical retrieval, no embedding model yet.
-- UI: V3 knowledge-management panel is implemented.
+- Retrieval: shared local Hybrid RAG with FastEmbed, incremental SQLite vectors, RRF, provenance, and honest degradation.
+- UI: V3 knowledge-management panel includes semantic-index status and rebuild controls.
 - Export: active-only Obsidian vault with full `.sectorbreaker/` control metadata.
 
 ## Do Not Reintroduce
@@ -43,6 +44,7 @@ Read, in order:
 python -m compileall -q backend/app
 python -m pytest -q
 python tools/check_version_isolation.py
+python tools/smoke_local_hybrid_rag.py
 
 cd frontend
 npm test -- --run
@@ -53,7 +55,7 @@ Knowledge-management changes also require a Vault lifecycle acceptance test.
 
 ## Current Baseline
 
-- Backend: 182 passed.
-- Frontend: 25 passed and production build passed.
+- Backend: 204 passed.
+- Frontend: 30 passed and production build passed.
 - Version isolation passed.
 - Temporary real Vault apply/export/rollback/re-export acceptance passed.

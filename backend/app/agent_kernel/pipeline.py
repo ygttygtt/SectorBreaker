@@ -14,6 +14,7 @@ from backend.app.agent_kernel.tools import build_default_tool_registry
 from backend.app.agent_state import ArtifactMemory, ReportInternalizer, SectorBreakerState
 from backend.app.agent_state.models import AgentAction, AgentDecision
 from backend.app.providers.interfaces import LLMProvider, SearchProvider
+from backend.app.rag import ProjectRetriever
 from backend.app.schemas import Artifact, MaintenanceRunRequest, ResearchProject, RunEvent
 from backend.app.storage.sqlite import SQLiteRepository
 
@@ -28,6 +29,7 @@ async def run_v2_agent_kernel_pipeline(
     run_id: str | None = None,
     resume_state: SectorBreakerState | None = None,
     maintenance_request: MaintenanceRunRequest | None = None,
+    project_retriever: ProjectRetriever | None = None,
 ) -> KernelRunResult:
     """Run the Agent Kernel, persist durable outputs, and return its terminal status."""
 
@@ -157,6 +159,7 @@ async def run_v2_agent_kernel_pipeline(
         artifacts=list(active_artifacts),
         initial_artifact_ids=initial_artifact_ids,
         run_id=_run_id,
+        project_retriever=project_retriever,
         on_artifact_written=_checkpoint_on_artifact,
     )
     _runtime_context_holder.append(runtime_context)

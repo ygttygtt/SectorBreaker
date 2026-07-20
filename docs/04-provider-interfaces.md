@@ -54,27 +54,30 @@ Required output:
 - evidence quality and verification status;
 - optional URL and content hash.
 
-The first V3 implementation is local lexical retrieval. It must index evidence,
-document segments, and active artifacts. It replaces the separate chat-side and
-Kernel-side keyword implementations.
+The V3 implementation is local hybrid retrieval. It indexes evidence, document
+segments, and active artifacts; runs lexical and vector retrieval; fuses ranks
+with RRF; and reports honest retrieval provenance.
 
-## EmbeddingProvider (Later)
+## EmbeddingProvider
 
-The optional local-first upgrade supports:
+The local-first provider supports:
 
 - batch embedding;
 - model name/version and vector dimension;
-- offline local models where configured;
+- offline local models from a local cache after first acquisition;
 - content-hash based incremental indexing;
 - explicit unavailable status.
 
-No Agent or API contract may depend directly on a specific embedding library.
+The first adapter uses FastEmbed with `BAAI/bge-small-zh-v1.5`; no Agent or API
+contract depends directly on that library.
 
-## VectorStoreProvider (Later)
+## VectorStoreProvider
 
 Vector storage is a rebuildable derived index. SQLite and Markdown remain the
 source of truth. Hybrid retrieval uses rank fusion rather than comparing raw
 lexical and vector scores directly.
+
+See `docs/24-local-hybrid-rag.md` for synchronization and degraded-mode rules.
 
 ## SourceVerificationProvider
 

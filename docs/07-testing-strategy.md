@@ -10,7 +10,10 @@ quality.
 
 - V3 State and ArtifactMemory serialization/migration.
 - Artifact revision persistence and active/superseded filtering.
-- Unified lexical retrieval across evidence, segments, and active artifacts.
+- Hybrid lexical/vector retrieval across evidence, segments, and active
+  artifacts, including semantic no-keyword recall and RRF provenance.
+- Content-hash incremental vector synchronization, stale-row deletion,
+  rebuild equivalence, and explicit degraded-mode status.
 - Vault import path safety, relative paths, limits, and idempotency.
 - Deterministic health findings and backlog deduplication.
 - AutonomyPolicy enforcement and hard budgets.
@@ -27,6 +30,7 @@ quality.
 - maintenance run request contracts;
 - ChangeSet approve/apply/conflict/rollback;
 - chat/follow-up use unified retrieval;
+- retrieval status/reindex APIs and honest mode reporting;
 - job-source routes do not exist.
 
 ## Frontend Tests
@@ -58,3 +62,5 @@ Before V3 readiness is claimed, use configured real providers and a real
 Obsidian vault to execute import, audit, research, verification, ChangeSet,
 approval, apply, export, open-in-Obsidian inspection, and rollback. Inspect
 content quality, evidence links, version markers, and absence of retired paths.
+Hybrid RAG additionally requires one real local FastEmbed model smoke test; a
+fake embedding provider alone cannot prove semantic retrieval quality.

@@ -107,8 +107,10 @@ This is a service, not an LLM Agent.
 - Input: project id, query, filters, role/task context, and limit.
 - Output: ranked citation records with source id/type, parent id, title, path,
   hit-local snippet, score, verification metadata, and optional URL.
-- First V3 implementation: lexical retrieval shared by chat and Agent tools.
-- Later: hybrid lexical/vector retrieval behind the same interface.
+- Current V3 implementation: local lexical/vector hybrid retrieval shared by
+  chat and Agent tools, using content-hash incremental embeddings and RRF.
+- When embeddings fail, diagnostics must say `lexical_degraded`; lexical-only
+  results must never be labeled hybrid.
 - Must exclude superseded artifacts and preserve segment/span identity.
 
 ## ChangeSet Validator And Applier

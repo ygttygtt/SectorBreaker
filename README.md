@@ -20,14 +20,16 @@ SectorBreaker 不再以“一次性快速了解一个领域”为终点。它可
 
 ## 当前 RAG 实现
 
-当前版本没有调用本地嵌入模型。项目问答和 Agent 共用一套本地 lexical retrieval：
+当前版本已经实现真实的本地 Hybrid RAG。项目问答和 Agent 共用同一个检索服务：
 
 - SQLite FTS 检索 evidence；
-- 关键词评分检索 documents、segments 和 active artifacts；
-- 返回命中附近片段、来源类型、相对路径、content hash 和验证状态；
-- superseded revisions 默认不可见。
+- `BAAI/bge-small-zh-v1.5` 通过 FastEmbed 在本地生成 query/document embeddings；
+- evidence、document segments 和 active artifacts 按 content hash 增量写入 SQLite 向量索引；
+- lexical 与 vector 候选通过 RRF 融合，不混加不可比较的原始分数；
+- citation 返回 lexical/vector rank、相似度、模型、路径、hash 和验证状态；
+- superseded revisions 会从活动索引清除；未变化内容不会重复向量化。
 
-本地 embedding 与 hybrid vector/lexical retrieval 是后续可插拔升级，不是当前知识管理闭环的前置条件。
+Embedding runtime 或模型不可用时，API 和前端会明确显示 `lexical_degraded`，不会把关键词检索伪装成语义检索。首次使用会把模型下载到 `~/.cache/sectorbreaker/fastembed`；之后离线从本地缓存加载。
 
 ## 核心闭环
 
@@ -46,7 +48,7 @@ Vault 导入
 
 ```powershell
 conda activate sectorbreaker
-pip install -e "backend[dev]"
+pip install -e ".[dev]"
 
 cd frontend
 npm install
@@ -69,12 +71,14 @@ npm run dev
 - LLM：任何 OpenAI-compatible endpoint。
 - Search：Tavily、Serper、Brave、Exa，支持单一或聚合模式。
 - Extraction：本地 HTTP fallback、Firecrawl 或 Jina Reader。
+- Embedding：FastEmbed 本地模型，默认 `BAAI/bge-small-zh-v1.5`。
 - `user_materials_only` 会在运行时硬阻断联网搜索。
 
 环境变量示例见 `.env.example`。搜索链可单独验证：
 
 ```powershell
 python run_search_smoke_test.py
+python tools/smoke_local_hybrid_rag.py
 ```
 
 ## 验证
@@ -98,6 +102,7 @@ npm run build
 - `docs/10-current-status-and-handoff.md`
 - `docs/20-version-isolation-and-cutover-rules.md`
 - `docs/23-autonomous-knowledge-management-v3.md`
+- `docs/24-local-hybrid-rag.md`
 
 ## 已退休能力
 
@@ -105,7 +110,6 @@ npm run build
 
 ## Later
 
-- 本地 embedding 与 hybrid RAG；
 - 增量后台监控和定时刷新；
 - 与用户源 Vault 的双向同步；
 - move/delete 的更强审批和恢复语义；

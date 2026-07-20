@@ -15,7 +15,8 @@ SectorBreaker V3 是本地优先的多智能体知识库自治管理系统。生
 9. `docs/20-version-isolation-and-cutover-rules.md`
 10. `docs/21-living-knowledge-base-roadmap.md`
 11. `docs/23-autonomous-knowledge-management-v3.md`
-12. `.claude/memory/MEMORY.md`
+12. `docs/24-local-hybrid-rag.md`
+13. `.claude/memory/MEMORY.md`
 
 ## 当前架构原则
 
@@ -25,7 +26,7 @@ SectorBreaker V3 是本地优先的多智能体知识库自治管理系统。生
 - 已有笔记更新必须经过 ChangeSet、base hash、审批与 apply。
 - factual change 必须携带 evidence ids；检索和导出只读取 active revisions。
 - 外部服务只能通过 provider interfaces 调用。
-- 当前检索是统一 lexical retrieval；embedding/hybrid RAG 是后续 provider 升级。
+- 当前检索是统一的本地 Hybrid RAG：FastEmbed 真向量、增量 SQLite 索引、lexical/vector RRF 和显式降级状态。
 - 企业人才、Boss/job-source 与旧 graph workflow 已退休，不能恢复到生产 imports。
 
 ## 验收

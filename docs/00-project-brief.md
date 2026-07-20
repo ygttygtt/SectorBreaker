@@ -36,6 +36,8 @@ Give SectorBreaker a knowledge goal and an autonomy policy. The system should:
 - Active artifact revisions, ChangeSets, approval, apply, and rollback.
 - Unified project retrieval over evidence, documents, segments, and active
   knowledge artifacts.
+- Local embedding index and lexical/vector hybrid retrieval with explicit
+  degraded status when the semantic model is unavailable.
 - Obsidian export with `.sectorbreaker/` state and audit metadata.
 
 ## Explicit Non-Goals For The First V3 Release
@@ -46,11 +48,10 @@ Give SectorBreaker a knowledge goal and an autonomy policy. The system should:
 - No automatic cloud scheduler or background monitoring daemon.
 - No direct destructive synchronization with the user's source vault.
 - No move/delete note operations by default.
-- No requirement for vector retrieval before the maintenance loop is usable.
 - No production cloud deployment automation.
 
-Local embeddings, hybrid vector retrieval, scheduled monitoring, and direct
-bidirectional vault synchronization are later additive upgrades.
+Scheduled monitoring and direct bidirectional vault synchronization are later
+additive upgrades.
 
 ## Core User Journeys
 
@@ -96,3 +97,5 @@ bidirectional vault synchronization are later additive upgrades.
 Read `docs/23-autonomous-knowledge-management-v3.md` before changing V3 vault
 management, autonomy policy, specialist delegation, artifact versioning,
 ChangeSets, retrieval, or enterprise cutover behavior.
+Read `docs/24-local-hybrid-rag.md` before changing embeddings, vector indexing,
+retrieval fusion, or RAG status/configuration.

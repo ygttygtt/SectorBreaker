@@ -124,8 +124,10 @@ Index rows retain source type, parent id, relative path, content hash, and
 active status. Superseded revisions are excluded or removed from the active
 index.
 
-Embeddings and vector indexes are derived data and must record model/version,
-dimension, and content hash when introduced later.
+The local vector index is derived data and records project/source/chunk ids,
+model/version, dimension, vector bytes, content hash, active source metadata,
+and indexed timestamp. Project synchronization removes stale/superseded chunks
+and only re-embeds content whose hash or model identity changed.
 
 ## Migration Rules
 
