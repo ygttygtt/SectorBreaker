@@ -9,6 +9,7 @@ from backend.app.providers.content_extraction import (
     JinaReaderContentExtractionProvider,
 )
 from backend.app.providers.exa import ExaSearchProvider
+from backend.app.providers.firecrawl_search import FirecrawlSearchProvider
 from backend.app.providers.embeddings import DEFAULT_LOCAL_EMBEDDING_MODEL, FastEmbedEmbeddingProvider
 from backend.app.providers.interfaces import ContentExtractionProvider, EmbeddingProvider, LLMProvider, SearchProvider
 from backend.app.providers.multi_search import MultiSearchProvider
@@ -54,6 +55,8 @@ def build_search_provider_from_config(
     brave_endpoint: str = "https://api.search.brave.com/res/v1/web/search",
     exa_api_key: str | None = None,
     exa_endpoint: str = "https://api.exa.ai/search",
+    firecrawl_api_key: str | None = None,
+    firecrawl_search_endpoint: str = "https://api.firecrawl.dev/v2/search",
 ) -> SearchProvider | None:
     normalized_mode = (provider_mode or "auto").strip().lower()
     provider_builders: dict[str, SearchProvider | None] = {
@@ -61,6 +64,8 @@ def build_search_provider_from_config(
         "serper": SerperSearchProvider(api_key=serper_api_key, endpoint=serper_endpoint) if serper_api_key else None,
         "brave": BraveSearchProvider(api_key=brave_api_key, endpoint=brave_endpoint) if brave_api_key else None,
         "exa": ExaSearchProvider(api_key=exa_api_key, endpoint=exa_endpoint) if exa_api_key else None,
+        "firecrawl": FirecrawlSearchProvider(api_key=firecrawl_api_key, endpoint=firecrawl_search_endpoint)
+        if firecrawl_api_key else None,
     }
     providers: list[SearchProvider] = [provider for provider in provider_builders.values() if provider is not None]
 
@@ -82,6 +87,7 @@ def build_search_provider() -> SearchProvider | None:
     serper_api_key = os.getenv("SERPER_API_KEY")
     brave_api_key = os.getenv("BRAVE_API_KEY")
     exa_api_key = os.getenv("EXA_API_KEY")
+    firecrawl_api_key = os.getenv("FIRECRAWL_API_KEY")
     return build_search_provider_from_config(
         provider_mode=os.getenv("SEARCH_PROVIDER_MODE", "auto"),
         tavily_api_key=tavily_api_key,
@@ -92,6 +98,8 @@ def build_search_provider() -> SearchProvider | None:
         brave_endpoint=os.getenv("BRAVE_ENDPOINT", "https://api.search.brave.com/res/v1/web/search"),
         exa_api_key=exa_api_key,
         exa_endpoint=os.getenv("EXA_ENDPOINT", "https://api.exa.ai/search"),
+        firecrawl_api_key=firecrawl_api_key,
+        firecrawl_search_endpoint=os.getenv("FIRECRAWL_SEARCH_ENDPOINT", "https://api.firecrawl.dev/v2/search"),
     )
 
 

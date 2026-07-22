@@ -23,6 +23,16 @@ def test_build_template_for_exa_http() -> None:
     assert "CONTENT_EXTRACTION_PROVIDER=http" in rendered
 
 
+def test_build_template_for_firecrawl_search_and_extraction() -> None:
+    module = _load_module()
+
+    rendered = module.build_template("firecrawl", "firecrawl")
+
+    assert "SEARCH_PROVIDER_MODE=firecrawl" in rendered
+    assert "FIRECRAWL_SEARCH_ENDPOINT=https://api.firecrawl.dev/v2/search" in rendered
+    assert "FIRECRAWL_ENDPOINT=https://api.firecrawl.dev/v1/scrape" in rendered
+
+
 def test_main_defaults_to_tavily_http_template() -> None:
     module = _load_module()
     stdout = io.StringIO()

@@ -41,7 +41,7 @@ from backend.app.providers.interfaces import (
     SearchQuery,
 )
 from backend.app.providers.openai_compatible import OpenAICompatibleLLMProvider
-from backend.app.providers.source_packs import SourceConnector, SourceRegistry
+from backend.app.providers.source_packs import SourceConnector, SourceConnectorType, SourceRegistry
 from backend.app.providers.source_policy import search_constraints_for_policy
 from backend.app.providers.source_verification import HeuristicSourceVerificationProvider
 from backend.app.rag import ProjectRetriever
@@ -205,6 +205,7 @@ class SearchConfig(BaseModel):
     brave_endpoint: str = "https://api.search.brave.com/res/v1/web/search"
     exa_api_key: str | None = None
     exa_endpoint: str = "https://api.exa.ai/search"
+    firecrawl_search_endpoint: str = "https://api.firecrawl.dev/v2/search"
     content_extraction_provider: str = "http"
     firecrawl_api_key: str | None = None
     firecrawl_endpoint: str = "https://api.firecrawl.dev/v1/scrape"
@@ -249,6 +250,7 @@ class SourceConnectorStatus(BaseModel):
     domains: list[str] = Field(default_factory=list)
     required_env_keys: list[str] = Field(default_factory=list)
     configured: bool = False
+    execution_status: str = "planned"
     setup_url: str | None = None
     can_support_facts: bool = True
     requires_manual_review: bool = False
@@ -414,12 +416,14 @@ def _build_search_config_status(
         "serper": bool(active_search_config.serper_api_key),
         "brave": bool(active_search_config.brave_api_key),
         "exa": bool(active_search_config.exa_api_key),
+        "firecrawl": bool(active_search_config.firecrawl_api_key),
     }
     provider_key_names = {
         "tavily": "tavily_api_key",
         "serper": "serper_api_key",
         "brave": "brave_api_key",
         "exa": "exa_api_key",
+        "firecrawl": "firecrawl_api_key",
     }
 
     if requested_provider_mode in provider_key_names:
@@ -434,10 +438,10 @@ def _build_search_config_status(
             missing_configuration.extend(provider_key_names.values())
 
     if active_search_provider is None:
-        diagnostics.append("至少需要配置 Tavily、Serper、Brave、Exa 四者之一的 API Key，开放网络搜索才会启用。")
+        diagnostics.append("至少需要配置 Tavily、Serper、Brave、Exa 或 Firecrawl 之一的 API Key，开放网络搜索才会启用。")
     elif len(providers) > 1:
         diagnostics.append(f"当前启用了聚合搜索：{', '.join(providers)}。")
-    elif requested_provider_mode in {"tavily", "serper", "brave", "exa"}:
+    elif requested_provider_mode in {"tavily", "serper", "brave", "exa", "firecrawl"}:
         diagnostics.append(f"当前已强制使用单一搜索 provider：{requested_provider_mode}。")
 
     if requested_provider_mode == "multi" and len(providers) <= 1 and active_search_provider is not None:
@@ -454,7 +458,7 @@ def _build_search_config_status(
     status_message = (
         f"搜索已就绪：{', '.join(providers)}；抽取使用 {effective_extraction_provider or 'unknown'}。"
         if active_search_provider is not None
-        else "搜索未配置：请至少填写 Tavily、Serper、Brave、Exa 四者之一的 API Key。"
+        else "搜索未配置：请至少填写 Tavily、Serper、Brave、Exa 或 Firecrawl 之一的 API Key。"
     )
 
     return SearchConfigStatus(
@@ -528,7 +532,12 @@ def _v1_stage_from_run(run: ResearchRun) -> V1RunStage:
     return V1RunStage.COLLECTING
 
 
-def _connector_configured(connector: SourceConnector, active_search_config: SearchConfig) -> bool:
+def _connector_execution_status(
+    connector: SourceConnector,
+    active_search_config: SearchConfig,
+    *,
+    search_available: bool,
+) -> str:
     runtime_key_presence = {
         "TAVILY_API_KEY": bool(active_search_config.tavily_api_key),
         "SERPER_API_KEY": bool(active_search_config.serper_api_key),
@@ -536,9 +545,37 @@ def _connector_configured(connector: SourceConnector, active_search_config: Sear
         "EXA_API_KEY": bool(active_search_config.exa_api_key),
         "FIRECRAWL_API_KEY": bool(active_search_config.firecrawl_api_key),
     }
-    if not connector.required_env_keys:
-        return True
-    return all(runtime_key_presence.get(key, bool(os.getenv(key))) for key in connector.required_env_keys)
+    configured = all(
+        runtime_key_presence.get(key, bool(os.getenv(key)))
+        for key in connector.required_env_keys
+    )
+    if connector.connector_type == SourceConnectorType.SEARCH_DOMAIN_PACK:
+        return "ready_via_search" if search_available else "needs_search_provider"
+    if connector.connector_type == SourceConnectorType.EXTRACTION_FALLBACK:
+        if connector.key == "firecrawl_extraction":
+            return "ready" if bool(active_search_config.firecrawl_api_key) else "needs_configuration"
+        if connector.key == "jina_reader_extraction":
+            return "ready"
+    if connector.connector_type == SourceConnectorType.MANUAL_REVIEW:
+        return "manual_review"
+    # These entries document desirable direct adapters. They are not executable
+    # until a provider implementation exists, even when an API key is present.
+    if configured and connector.required_env_keys:
+        return "configured_but_unwired"
+    return "planned"
+
+
+def _connector_configured(
+    connector: SourceConnector,
+    active_search_config: SearchConfig,
+    *,
+    search_available: bool,
+) -> bool:
+    return _connector_execution_status(
+        connector,
+        active_search_config,
+        search_available=search_available,
+    ) in {"ready", "ready_via_search"}
 
 
 def _fallback_rag_answer(question: str, citation_details: list[dict]) -> str:
@@ -640,6 +677,10 @@ def create_app(
         brave_endpoint=runtime_config.get("brave_endpoint", os.getenv("BRAVE_ENDPOINT", "https://api.search.brave.com/res/v1/web/search")),
         exa_api_key=runtime_config.get("exa_api_key", os.getenv("EXA_API_KEY")),
         exa_endpoint=runtime_config.get("exa_endpoint", os.getenv("EXA_ENDPOINT", "https://api.exa.ai/search")),
+        firecrawl_search_endpoint=runtime_config.get(
+            "firecrawl_search_endpoint",
+            os.getenv("FIRECRAWL_SEARCH_ENDPOINT", "https://api.firecrawl.dev/v2/search"),
+        ),
         content_extraction_provider=runtime_config.get(
             "content_extraction_provider",
             os.getenv("CONTENT_EXTRACTION_PROVIDER", "http"),
@@ -661,6 +702,8 @@ def create_app(
             brave_endpoint=active_search_config.brave_endpoint,
             exa_api_key=active_search_config.exa_api_key,
             exa_endpoint=active_search_config.exa_endpoint,
+            firecrawl_api_key=active_search_config.firecrawl_api_key,
+            firecrawl_search_endpoint=active_search_config.firecrawl_search_endpoint,
         )
     )
     active_content_extraction_provider = (
@@ -1642,6 +1685,8 @@ def create_app(
             brave_endpoint=payload.brave_endpoint,
             exa_api_key=payload.exa_api_key,
             exa_endpoint=payload.exa_endpoint,
+            firecrawl_api_key=payload.firecrawl_api_key,
+            firecrawl_search_endpoint=payload.firecrawl_search_endpoint,
         )
         active_content_extraction_provider = build_content_extraction_provider_from_config(
             provider_name=payload.content_extraction_provider,
@@ -1761,7 +1806,16 @@ def create_app(
         for pack in source_registry.packs:
             connectors = []
             for connector in pack.connectors:
-                configured = _connector_configured(connector, active_search_config)
+                execution_status = _connector_execution_status(
+                    connector,
+                    active_search_config,
+                    search_available=active_search_provider is not None,
+                )
+                configured = _connector_configured(
+                    connector,
+                    active_search_config,
+                    search_available=active_search_provider is not None,
+                )
                 configured_count += int(configured)
                 connectors.append(SourceConnectorStatus(
                     key=connector.key,
@@ -1772,6 +1826,7 @@ def create_app(
                     domains=list(connector.domains),
                     required_env_keys=list(connector.required_env_keys),
                     configured=configured,
+                    execution_status=execution_status,
                     setup_url=connector.setup_url,
                     can_support_facts=connector.can_support_facts,
                     requires_manual_review=connector.requires_manual_review,
@@ -1789,9 +1844,9 @@ def create_app(
             packs=packs,
             configured_connector_count=configured_count,
             recommended_next_action=(
-                "先配置 Tavily、Serper、Brave 或 Exa 任意一个搜索 Key，再用可靠信源自检验证域名约束。"
+                "先配置 Tavily、Serper、Brave、Exa 或 Firecrawl 任意一个搜索 Key，再载入信源包自检域名约束。"
                 if active_search_provider is None
-                else "搜索已可用；可继续验证 reliable_only 策略下的权威域名结果。"
+                else "搜索已可用；选择信源包载入自检，验证专用域名是否真正返回结果。"
             ),
         ).model_dump(mode="json")
 

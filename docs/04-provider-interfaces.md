@@ -24,15 +24,22 @@ Required method:
 search(SearchQuery) -> list[SearchResult]
 ```
 
-Current adapters may include Tavily, Serper, Brave, Exa, or a configured
-aggregate. Search discovery remains separate from content extraction and source
-verification.
+Current adapters include Tavily, Serper, Brave, Exa, Firecrawl, or a configured
+aggregate. Aggregation runs providers concurrently, isolates individual
+provider failures, deduplicates canonical URLs, and round-robins results so the
+first provider cannot consume the full result budget. `SearchQuery` carries
+allowed/blocked domains; Agent calls may add `preferred_domains` from a trusted
+source pack. Search discovery remains separate from content extraction and
+source verification.
 
 ## ContentExtractionProvider
 
 Extracts readable content from already-discovered public URLs. Current adapters
 may use local HTTP extraction, Firecrawl, or Jina Reader. It must return source
 metadata and explicit failures.
+
+See `docs/25-web-source-expansion-and-multi-agent-gap.md` for crawler selection,
+source-pack execution states, and the boundary for future map/crawl support.
 
 ## RetrievalProvider
 

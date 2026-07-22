@@ -957,8 +957,8 @@ test("landing search warning opens settings when search key is missing", async (
     extraction_providers: ["http"],
     requested_extraction_provider: "http",
     missing_configuration: ["tavily_api_key"],
-    diagnostics: ["至少需要配置 Tavily、Serper、Brave、Exa 四者之一的 API Key，开放网络搜索才会启用。"],
-    status_message: "搜索未配置：请至少填写 Tavily、Serper、Brave、Exa 四者之一的 API Key。",
+    diagnostics: ["至少需要配置 Tavily、Serper、Brave、Exa 或 Firecrawl 之一的 API Key，开放网络搜索才会启用。"],
+    status_message: "搜索未配置：请至少填写 Tavily、Serper、Brave、Exa 或 Firecrawl 之一的 API Key。",
   });
 
   render(<App />);

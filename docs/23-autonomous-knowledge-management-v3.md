@@ -86,8 +86,11 @@ Initial registered roles:
   notes.
 
 The Master Agent may dispatch one or more independent specialists. Each receives
-a bounded ContextPack, allowed tools, target paths, and budget. Each returns a
-typed result or fails closed.
+a bounded ContextPack, relevant local retrieval citations, allowed tools, target
+paths, and budget. Each returns a typed result or fails closed. External tool
+recommendations currently return to the Master dispatcher; a future nested
+Specialist loop must enforce its own runtime budget and the same provider
+boundaries.
 
 ### Retrieval
 

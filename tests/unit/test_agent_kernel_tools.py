@@ -86,7 +86,7 @@ def test_search_web_supports_human_query_variants() -> None:
             self.queries = []
 
         async def search(self, query):
-            self.queries.append((query.query, query.max_results))
+            self.queries.append((query.query, query.max_results, query.allowed_domains))
             return [
                 SearchResult(
                     title=f"{query.query} result",
@@ -133,6 +133,7 @@ def test_search_web_supports_human_query_variants() -> None:
                 "queries": ["API 中转站 原理", "API 中转站 One API New API", "AI API relay protocol conversion"],
                 "layer_hint": "L3_how",
                 "search_goal": "找到实现机制和常见工具。",
+                "preferred_domains": ["github.com", "arxiv.org"],
                 "max_results": 9,
             },
             reason="用真人式 query variants 覆盖同一缺口。",
@@ -146,7 +147,8 @@ def test_search_web_supports_human_query_variants() -> None:
         "API 中转站 One API New API",
         "AI API relay protocol conversion",
     ]
-    assert all(limit == 3 for _, limit in search_provider.queries)
+    assert all(limit == 3 for _, limit, _ in search_provider.queries)
+    assert all(domains == ["github.com", "arxiv.org"] for _, _, domains in search_provider.queries)
     assert observation.data["queries"] == [item[0] for item in search_provider.queries]
     assert len(observation.state_delta.source_memories) == 3
     assert len(repository.evidence) == 3

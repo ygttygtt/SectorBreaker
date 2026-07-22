@@ -79,6 +79,30 @@ async def delegate_specialists(tool_call, context: KernelRuntimeContext) -> Kern
             for artifact in context.artifacts
             if not task.target_paths or artifact.content_path in task.target_paths
         ][:8]
+        retrieval_context = []
+        if context.project_retriever is not None:
+            retrieval_query = " ".join([task.objective, *task.questions[:3]]).strip()
+            try:
+                citations = await asyncio.to_thread(
+                    context.project_retriever.retrieve,
+                    context.project.id,
+                    retrieval_query,
+                    6,
+                )
+                retrieval_context = [
+                    {
+                        "source_id": item.source_id,
+                        "source_type": item.source_type,
+                        "title": item.title,
+                        "snippet": item.snippet,
+                        "url": item.url,
+                        "relative_path": item.relative_path,
+                        "verification_status": item.verification_status,
+                    }
+                    for item in citations
+                ]
+            except Exception as exc:
+                retrieval_context = [{"retrieval_error": f"{type(exc).__name__}: {str(exc)[:180]}"}]
         prompt = (
             "你是 SectorBreaker 的任务型 Specialist Agent。你没有文件写入权，也不能直接调用外部服务。\n"
             "只分析给定上下文并返回 SpecialistResult JSON。需要进一步检索时，只能写入 recommended_tool_calls，"
@@ -88,6 +112,7 @@ async def delegate_specialists(tool_call, context: KernelRuntimeContext) -> Kern
             f"问题：{json.dumps(task.questions, ensure_ascii=False)}\n"
             f"维护任务：{json.dumps(context.state.maintenance_task_summaries, ensure_ascii=False)}\n"
             f"相关知识：{json.dumps(target_artifacts, ensure_ascii=False)}\n"
+            f"项目检索结果：{json.dumps(retrieval_context, ensure_ascii=False)}\n"
             f"已有证据 IDs：{json.dumps(context.state.evidence_refs[-40:], ensure_ascii=False)}"
         )
         result = await context.llm_provider.complete_structured(
@@ -106,7 +131,26 @@ async def delegate_specialists(tool_call, context: KernelRuntimeContext) -> Kern
             failures.append(f"{task.role.value}: {type(result).__name__}: {str(result)[:180]}")
         else:
             completed.append(result)
-    notes = [f"{result.role.value} | {result.objective} | {result.summary}" for result in completed]
+    notes = [
+        json.dumps(
+            {
+                "role": result.role.value,
+                "objective": result.objective,
+                "summary": result.summary,
+                "finding_count": len(result.findings),
+                "evidence_ids": list(dict.fromkeys(
+                    evidence_id
+                    for finding in result.findings
+                    for evidence_id in finding.evidence_ids
+                )),
+                "recommended_tools": [item.tool_name for item in result.recommended_tool_calls],
+                "proposed_change_path": result.proposed_change.path if result.proposed_change else None,
+                "stop_reason": result.stop_reason,
+            },
+            ensure_ascii=False,
+        )
+        for result in completed
+    ]
     return KernelObservation(
         tool_name="delegate_specialists",
         success=bool(completed),

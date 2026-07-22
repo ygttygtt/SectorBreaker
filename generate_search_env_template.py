@@ -28,6 +28,11 @@ SEARCH_PROVIDER_SNIPPETS = {
         "EXA_API_KEY=YOUR_EXA_API_KEY",
         "EXA_ENDPOINT=https://api.exa.ai/search",
     ],
+    "firecrawl": [
+        "SEARCH_PROVIDER_MODE=firecrawl",
+        "FIRECRAWL_API_KEY=YOUR_FIRECRAWL_API_KEY",
+        "FIRECRAWL_SEARCH_ENDPOINT=https://api.firecrawl.dev/v2/search",
+    ],
 }
 
 EXTRACTION_PROVIDER_SNIPPETS = {

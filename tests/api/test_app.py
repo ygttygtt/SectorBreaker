@@ -701,9 +701,9 @@ def test_api_exposes_search_config_status(tmp_path: Path) -> None:
         "extraction_provider": "http",
         "extraction_providers": ["http"],
         "requested_extraction_provider": "http",
-        "missing_configuration": ["tavily_api_key", "serper_api_key", "brave_api_key", "exa_api_key"],
-        "diagnostics": ["至少需要配置 Tavily、Serper、Brave、Exa 四者之一的 API Key，开放网络搜索才会启用。"],
-        "status_message": "搜索未配置：请至少填写 Tavily、Serper、Brave、Exa 四者之一的 API Key。",
+        "missing_configuration": ["tavily_api_key", "serper_api_key", "brave_api_key", "exa_api_key", "firecrawl_api_key"],
+        "diagnostics": ["至少需要配置 Tavily、Serper、Brave、Exa 或 Firecrawl 之一的 API Key，开放网络搜索才会启用。"],
+        "status_message": "搜索未配置：请至少填写 Tavily、Serper、Brave、Exa 或 Firecrawl 之一的 API Key。",
     }
 
     configured_client = TestClient(
@@ -1754,3 +1754,6 @@ def test_api_exposes_source_registry_status(tmp_path: Path) -> None:
     assert connectors["qcc_openapi"]["configured"] is False
     assert connectors["gsxt_manual"]["requires_manual_review"] is True
     assert connectors["github_api"]["required_env_keys"] == ["GITHUB_TOKEN"]
+    assert connectors["github_api"]["configured"] is False
+    assert connectors["github_api"]["execution_status"] == "planned"
+    assert connectors["cninfo_public"]["execution_status"] == "needs_search_provider"

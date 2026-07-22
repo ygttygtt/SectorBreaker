@@ -5,6 +5,7 @@ from backend.app.providers.content_extraction import (
 )
 from backend.app.providers.brave import BraveSearchProvider
 from backend.app.providers.exa import ExaSearchProvider
+from backend.app.providers.firecrawl_search import FirecrawlSearchProvider
 from backend.app.providers.factory import (
     build_content_extraction_provider,
     build_llm_provider,
@@ -25,6 +26,7 @@ def test_provider_factory_returns_none_without_required_environment(monkeypatch)
     monkeypatch.delenv("SERPER_API_KEY", raising=False)
     monkeypatch.delenv("BRAVE_API_KEY", raising=False)
     monkeypatch.delenv("EXA_API_KEY", raising=False)
+    monkeypatch.delenv("FIRECRAWL_API_KEY", raising=False)
     monkeypatch.delenv("SEARCH_PROVIDER_MODE", raising=False)
 
     assert build_llm_provider() is None
@@ -135,6 +137,15 @@ def test_provider_factory_honors_explicit_multi_mode() -> None:
     )
 
     assert isinstance(provider, MultiSearchProvider)
+
+
+def test_provider_factory_builds_firecrawl_search() -> None:
+    provider = build_search_provider_from_config(
+        provider_mode="firecrawl",
+        firecrawl_api_key="fc-test-key",
+    )
+
+    assert isinstance(provider, FirecrawlSearchProvider)
 
 
 def test_provider_factory_builds_default_http_content_extractor(monkeypatch) -> None:

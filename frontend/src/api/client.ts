@@ -314,6 +314,7 @@ export interface SearchRuntimeConfig {
   brave_endpoint?: string;
   exa_api_key?: string;
   exa_endpoint?: string;
+  firecrawl_search_endpoint?: string;
   content_extraction_provider: string;
   firecrawl_api_key?: string;
   firecrawl_endpoint?: string;
@@ -343,6 +344,7 @@ export interface SourceConnectorStatus {
   domains: string[];
   required_env_keys: string[];
   configured: boolean;
+  execution_status: string;
   setup_url?: string | null;
   can_support_facts: boolean;
   requires_manual_review: boolean;

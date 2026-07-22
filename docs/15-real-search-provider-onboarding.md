@@ -34,6 +34,7 @@ capability is not yet fully proven.
 - Serper
 - Brave Search API
 - Exa
+- Firecrawl Search v2
 
 ### Extraction providers
 
@@ -69,10 +70,11 @@ Best when you want to avoid editing `.env` manually.
    - `Serper API Key`
    - `Brave API Key`
    - `Exa API Key`
+   - `Firecrawl API Key`
 6. Choose `search_provider_mode`:
    - `auto`: recommended default
    - `multi`: aggregate all configured providers
-   - `tavily` / `serper` / `brave` / `exa`: force one provider
+   - `tavily` / `serper` / `brave` / `exa` / `firecrawl`: force one provider
 7. Choose extraction mode:
    - `http`: simplest default
    - `firecrawl`: requires `FIRECRAWL_API_KEY`
@@ -84,6 +86,10 @@ Best when you want to avoid editing `.env` manually.
     - `结果数 > 0`
     - first result preview
     - extracted page preview when extraction succeeds
+
+For a dedicated site pack, click `载入此信源包自检`. The UI switches the
+self-test to `reliable_only`, fills the pack's allow/block domains, and sends
+those constraints through the same SearchProvider path used by the Agent.
 
 ### Path B: `.env`-first onboarding
 
@@ -275,7 +281,18 @@ Recommended second step after the first provider works:
 - switch to `multi`
 - rerun `/api/config/search/test`
 
-This verifies the aggregation path before it is used in important research runs.
+`multi` runs configured providers concurrently and round-robins deduplicated
+results. This verifies real source diversity before important research runs.
+
+Firecrawl can share one key across search and extraction:
+
+```text
+SEARCH_PROVIDER_MODE=firecrawl
+FIRECRAWL_API_KEY=...
+FIRECRAWL_SEARCH_ENDPOINT=https://api.firecrawl.dev/v2/search
+CONTENT_EXTRACTION_PROVIDER=firecrawl
+FIRECRAWL_ENDPOINT=https://api.firecrawl.dev/v1/scrape
+```
 
 ## Failure Diagnosis
 

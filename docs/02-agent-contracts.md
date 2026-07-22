@@ -45,11 +45,14 @@ Any output containing factual claims supports:
 ## Researcher Specialist
 
 - Input: maintenance objective, current State gaps, source policy, relevant
-  project memory, and a search budget.
+  project memory, bounded local retrieval citations, and a search budget.
 - Output: structured source memories, evidence ids, claims, unresolved
   questions, and a stop reason.
 - Allowed tools: unified project retrieval, uploaded-material reading, approved
-  SearchProvider, and content extraction through provider interfaces.
+  SearchProvider, and content extraction through provider interfaces. In the
+  current implementation local retrieval is executed while building the
+  Specialist context; external tool recommendations are returned to the Master
+  dispatcher and do not bypass its budgets.
 - May not: use restricted providers, upgrade weak sources to verified, or write
   files.
 - Failure mode: report exhausted queries and missing evidence instead of
@@ -58,7 +61,7 @@ Any output containing factual claims supports:
 ## Verifier Specialist
 
 - Input: target claims, supporting evidence, counterevidence, source quality,
-  and verification criteria.
+  bounded local retrieval, and verification criteria.
 - Output: verification decisions, conflicts, supersession candidates, evidence
   gaps, and confidence adjustments.
 - Allowed tools: project retrieval, evidence inspection, approved verification

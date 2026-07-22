@@ -69,7 +69,7 @@ npm run dev
 ## Provider
 
 - LLM：任何 OpenAI-compatible endpoint。
-- Search：Tavily、Serper、Brave、Exa，支持单一或聚合模式。
+- Search：Tavily、Serper、Brave、Exa、Firecrawl，支持单一或并发聚合模式。
 - Extraction：本地 HTTP fallback、Firecrawl 或 Jina Reader。
 - Embedding：FastEmbed 本地模型，默认 `BAAI/bge-small-zh-v1.5`。
 - `user_materials_only` 会在运行时硬阻断联网搜索。

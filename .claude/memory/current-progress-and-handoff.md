@@ -13,6 +13,8 @@ Implemented V3 loop:
 - deterministic health audit;
 - persistent maintenance backlog;
 - Master Agent plus typed, allowlisted Specialists;
+- Specialists receive bounded active-artifact and local Hybrid RAG context;
+- Tavily/Serper/Brave/Exa/Firecrawl search with concurrent fair multi-provider merging and executable source-pack domain targeting;
 - unified active-only Hybrid RAG with local FastEmbed vectors and RRF;
 - ChangeSet diff/approval/apply/conflict/rollback;
 - immutable Artifact revisions and ArtifactMemory continuation;
@@ -27,7 +29,7 @@ Retired and deleted from production:
 
 Current verification baseline:
 
-- backend 204 passed;
+- backend 209 passed;
 - frontend 30 passed;
 - frontend build passed;
 - version isolation passed;
@@ -35,4 +37,4 @@ Current verification baseline:
 
 Current RAG is real local Hybrid RAG: `BAAI/bge-small-zh-v1.5`, content-hash incremental SQLite vectors, lexical/vector RRF, typed provenance, and explicit `lexical_degraded` fallback. The real-model smoke test proves vector-only recall without shared keywords.
 
-Next valuable work: stronger claim verification/counterevidence linking, incremental monitoring, safe bidirectional Vault sync, and a pluggable ANN VectorStoreProvider for very large Vaults.
+Next valuable work: per-Specialist bounded tool execution, stronger claim verification/counterevidence linking, Firecrawl map/crawl contracts, incremental monitoring, safe bidirectional Vault sync, and a pluggable ANN VectorStoreProvider for very large Vaults.

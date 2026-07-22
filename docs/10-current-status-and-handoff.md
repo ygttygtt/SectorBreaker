@@ -29,6 +29,14 @@ SectorBreaker V3 is a local-first, multi-Agent autonomous knowledge-base managem
 - Search/writer/file/byte budgets are runtime-enforced.
 - `user_materials_only` and disabled network policy block SearchProvider dispatch.
 - Dynamic Specialist roles have typed results and role-level tool allowlists; no Specialist can apply changes.
+- Specialist prompts receive bounded active-artifact and local Hybrid RAG context; structured result summaries persist in the delegation log.
+
+### Web Sources
+
+- Search adapters: Tavily, Serper, Brave, Exa, and Firecrawl.
+- `multi` executes providers concurrently, isolates failures, deduplicates URLs, and fairly merges source sets.
+- Agent search supports explicit preferred domains; source-pack connectors report executable, missing-config, manual, or planned status honestly.
+- The configuration workbench can load a dedicated source pack into the real search/extraction self-test.
 - Agent decision heartbeat no longer adds a mandatory 10-second delay to fast LLM decisions.
 
 ### Retrieval And Export
@@ -52,7 +60,7 @@ SectorBreaker V3 is a local-first, multi-Agent autonomous knowledge-base managem
 
 ## Verification Baseline
 
-- Backend: `204 passed`, one existing Starlette/httpx deprecation warning.
+- Backend: `209 passed`, one existing Starlette/httpx deprecation warning.
 - Frontend: `30 passed`.
 - Frontend production build: passed; existing >500 kB chunk warning remains.
 - Version isolation: passed.
@@ -65,6 +73,8 @@ The current implementation is real local Hybrid RAG, not keyword matching behind
 ## Remaining Work
 
 - Better claim-level semantic verification and counterevidence linking.
+- Per-Specialist bounded tool execution and validated promotion of findings into StateDelta/ChangeSets.
+- Optional Firecrawl map/crawl contract after crawl budgets, robots/policy handling, and persistence are designed.
 - Scheduled/incremental monitoring.
 - Direct bidirectional source-Vault synchronization.
 - Move/delete operations with stronger recovery semantics.

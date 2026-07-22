@@ -42,6 +42,11 @@ def register_search_tools(registry: ToolRegistry) -> None:
                     },
                     "layer_hint": {"type": "string"},
                     "search_goal": {"type": "string"},
+                    "preferred_domains": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional trusted site/domain pack to prioritize for this gap.",
+                    },
                     "max_results": {"type": "integer", "default": 8},
                 },
                 required=["query", "search_goal"],
@@ -87,7 +92,12 @@ async def search_web(tool_call, context: KernelRuntimeContext) -> KernelObservat
         {
             "market_scope": context.project.market_scope.value,
             "source_policy": context.project.source_policy.value,
-        }
+        },
+        preferred_domains=[
+            str(domain).strip().lower()
+            for domain in (tool_call.args.get("preferred_domains") or [])
+            if str(domain).strip()
+        ],
     )
     results = []
     query_diagnostics = []
@@ -201,6 +211,8 @@ async def search_web(tool_call, context: KernelRuntimeContext) -> KernelObservat
             "query": queries[0],
             "queries": queries,
             "query_diagnostics": query_diagnostics,
+            "allowed_domains": allowed_domains,
+            "blocked_domains": blocked_domains,
             "raw_result_count": len(results),
             "accepted_count": len(accepted),
             "rejected_count": rejected,

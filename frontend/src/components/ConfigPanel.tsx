@@ -374,6 +374,7 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
         brave_endpoint: "https://api.search.brave.com/res/v1/web/search",
         exa_api_key: exaApiKey || undefined,
         exa_endpoint: "https://api.exa.ai/search",
+        firecrawl_search_endpoint: "https://api.firecrawl.dev/v2/search",
         content_extraction_provider: contentExtractionProvider,
         firecrawl_api_key: firecrawlApiKey || undefined,
         firecrawl_endpoint: "https://api.firecrawl.dev/v1/scrape",
@@ -650,6 +651,7 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
                 <option value="serper">serper：Google Search API</option>
                 <option value="brave">brave：Brave Search API</option>
                 <option value="exa">exa：语义搜索</option>
+                <option value="firecrawl">firecrawl：搜索并发现可抓取网页</option>
                 <option value="multi">multi：聚合多个 provider</option>
               </select>
               <span className="form-hint">上传材料会优先进入项目知识状态；开放搜索用于补证和发现缺口。</span>
@@ -712,18 +714,16 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
               </select>
             </div>
 
-            {contentExtractionProvider === "firecrawl" && (
-              <div className="form-group">
-                <label htmlFor="firecrawlApiKey">Firecrawl API Key</label>
-                <input
-                  id="firecrawlApiKey"
-                  type="password"
-                  value={firecrawlApiKey}
-                  onChange={(e) => setFirecrawlApiKey(e.target.value)}
-                  placeholder="fc-..."
-                />
-              </div>
-            )}
+            <div className="form-group">
+              <label htmlFor="firecrawlApiKey">Firecrawl API Key（搜索/抽取共用）</label>
+              <input
+                id="firecrawlApiKey"
+                type="password"
+                value={firecrawlApiKey}
+                onChange={(e) => setFirecrawlApiKey(e.target.value)}
+                placeholder="fc-..."
+              />
+            </div>
 
             {contentExtractionProvider === "jina" && (
               <div className="form-group">
@@ -767,11 +767,25 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
                     <div className="source-domain-line">
                       权威域名：{pack.reliable_domains.slice(0, 6).join(", ") || "none"}
                     </div>
+                    {pack.reliable_domains.length > 0 && (
+                      <button
+                        className="secondary"
+                        type="button"
+                        onClick={() => {
+                          setAllowedDomainsText(pack.reliable_domains.join(", "));
+                          setBlockedDomainsText(pack.blocked_domains.join(", "));
+                          setSearchSourcePolicy("reliable_only");
+                          setSearchQuery(`${pack.display_name} 官方资料`);
+                        }}
+                      >
+                        载入此信源包自检
+                      </button>
+                    )}
                     <div className="source-connector-grid">
                       {pack.connectors.map((connector) => (
                         <div className={`source-connector-chip ${connector.configured ? "is-ready" : "is-missing"}`} key={connector.key}>
                           <strong>{connector.display_name}</strong>
-                          <span>{connector.connector_type}</span>
+                          <span>{connector.connector_type} · {connector.execution_status}</span>
                           <em>
                             {connector.requires_manual_review
                               ? "人工复核"
