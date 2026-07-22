@@ -88,7 +88,8 @@ const {
             trust_level: "high",
             domains: ["cninfo.com.cn"],
             required_env_keys: [],
-            configured: true,
+            configured: false,
+            execution_status: "available_via_domain_filter",
             can_support_facts: true,
             requires_manual_review: false,
             notes: "通过搜索 provider 发现公开披露 URL。",
@@ -110,7 +111,7 @@ const {
         ],
       },
     ],
-    configured_connector_count: 1,
+    configured_connector_count: 0,
     recommended_next_action: "先配置 Tavily、Serper、Brave 或 Exa 任意一个搜索 Key，再用可靠信源自检验证域名约束。",
   }),
   mockGetSearchConfig: vi.fn().mockResolvedValue({
@@ -121,6 +122,7 @@ const {
     extraction_provider: "firecrawl",
     extraction_providers: ["firecrawl"],
     requested_extraction_provider: "firecrawl",
+    configured_api_keys: ["tavily", "firecrawl"],
     missing_configuration: [],
     diagnostics: [],
     status_message: "搜索已就绪：tavily；抽取使用 firecrawl。",
@@ -680,6 +682,7 @@ test("config panel can save search runtime config", async () => {
 
   fireEvent.click(screen.getByRole("button", { name: /LLM 设置/ }));
   expect(await screen.findByText(/搜索与抽取配置/)).toBeInTheDocument();
+  expect(await screen.findByText(/仅域名过滤发现，无直连适配器/)).toBeInTheDocument();
 
   fireEvent.change(screen.getByLabelText(/Tavily API Key/), { target: { value: "tvly-test-key" } });
   fireEvent.click(screen.getByRole("button", { name: /保存搜索配置/ }));

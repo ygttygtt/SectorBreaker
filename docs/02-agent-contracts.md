@@ -167,6 +167,12 @@ document and internalized; it is not promoted to verified evidence.
 - `SourceVerificationProvider` assesses source class and quality only. A
   heuristic assessment may recommend at most `partially_verified`; it cannot
   mark a claim or Evidence item `verified` without corroboration.
+- Search configuration updates preserve stored API keys when an omitted or
+  blank secret field is submitted. Status exposes only provider names with a
+  stored key, never the secret value.
+- Source-pack domain entries use `available_via_domain_filter` and are not
+  counted as configured connectors. Only the currently selected executable
+  extraction adapter reports `ready`.
 
 ## Retired Contracts
 

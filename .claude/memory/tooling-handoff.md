@@ -17,9 +17,10 @@ Current production architecture:
 - concurrent Tavily/Serper/Brave/Exa/Firecrawl search and honest source-pack execution status;
 - production body extraction with persisted provenance and post-filtered domain policy;
 - typed waiting-run resume that feeds persisted user input into State;
+- blank search secrets preserve stored keys; source packs no longer masquerade as configured direct connectors;
 - active-only local Hybrid RAG and V3 Obsidian export;
 - no enterprise talent or old workflow production code.
 
-Verification baseline: backend 211 passed, frontend 30 passed/build passed, real local semantic smoke passed, version isolation passed.
+Verification baseline: backend 214 passed, frontend 30 passed/build passed, real local semantic smoke passed, version isolation passed.
 
 Do not claim an architecture change ready from unit tests alone. Run the real user path and inspect the exported Vault.

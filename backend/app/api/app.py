@@ -42,7 +42,7 @@ from backend.app.providers.interfaces import (
 )
 from backend.app.providers.openai_compatible import OpenAICompatibleLLMProvider
 from backend.app.providers.source_packs import SourceConnector, SourceConnectorType, SourceRegistry
-from backend.app.providers.source_policy import search_constraints_for_policy
+from backend.app.providers.source_policy import search_constraints_for_policy, url_matches_domain_policy
 from backend.app.providers.source_verification import HeuristicSourceVerificationProvider
 from backend.app.rag import ProjectRetriever
 from backend.app.knowledge_base import ChangeSetService, VaultKnowledgeService
@@ -59,6 +59,7 @@ from backend.app.schemas import (
     RunProgress,
     RunSnapshot,
     RunStatus,
+    SourcePolicy,
     UserInput,
     V1RunStage,
     ChangeSetProposalRequest,
@@ -191,6 +192,7 @@ class SearchConfigStatus(BaseModel):
     extraction_provider: str | None = None
     extraction_providers: list[str] = Field(default_factory=list)
     requested_extraction_provider: str | None = None
+    configured_api_keys: list[str] = Field(default_factory=list)
     missing_configuration: list[str] = Field(default_factory=list)
     diagnostics: list[str] = Field(default_factory=list)
     status_message: str = ""
@@ -470,6 +472,7 @@ def _build_search_config_status(
         extraction_provider=effective_extraction_provider,
         extraction_providers=extraction_providers,
         requested_extraction_provider=requested_extraction_provider,
+        configured_api_keys=[name for name, present in provider_key_presence.items() if present],
         missing_configuration=missing_configuration,
         diagnostics=diagnostics,
         status_message=status_message,
@@ -551,12 +554,22 @@ def _connector_execution_status(
         for key in connector.required_env_keys
     )
     if connector.connector_type == SourceConnectorType.SEARCH_DOMAIN_PACK:
-        return "ready_via_search" if search_available else "needs_search_provider"
+        return "available_via_domain_filter" if search_available else "needs_search_provider"
     if connector.connector_type == SourceConnectorType.EXTRACTION_FALLBACK:
         if connector.key == "firecrawl_extraction":
-            return "ready" if bool(active_search_config.firecrawl_api_key) else "needs_configuration"
+            if not active_search_config.firecrawl_api_key:
+                return "needs_configuration"
+            return (
+                "ready"
+                if _normalize_extraction_provider_name(active_search_config.content_extraction_provider) == "firecrawl"
+                else "available_not_selected"
+            )
         if connector.key == "jina_reader_extraction":
-            return "ready"
+            return (
+                "ready"
+                if _normalize_extraction_provider_name(active_search_config.content_extraction_provider) == "jina"
+                else "available_not_selected"
+            )
     if connector.connector_type == SourceConnectorType.MANUAL_REVIEW:
         return "manual_review"
     # These entries document desirable direct adapters. They are not executable
@@ -576,7 +589,7 @@ def _connector_configured(
         connector,
         active_search_config,
         search_available=search_available,
-    ) in {"ready", "ready_via_search"}
+    ) == "ready"
 
 
 def _fallback_rag_answer(question: str, citation_details: list[dict]) -> str:
@@ -1744,42 +1757,68 @@ def create_app(
     @app.post("/api/config/search")
     def update_search_config(payload: SearchConfig):
         nonlocal active_search_provider, active_content_extraction_provider, active_search_config
-        active_search_config = payload
         persisted_config = load_runtime_config(runtime_config_path)
+        merged_config = {**active_search_config.model_dump(mode="json"), **payload.model_dump(mode="json")}
+        for key_name in (
+            "tavily_api_key",
+            "serper_api_key",
+            "brave_api_key",
+            "exa_api_key",
+            "firecrawl_api_key",
+        ):
+            supplied = str(merged_config.get(key_name) or "").strip()
+            if supplied:
+                merged_config[key_name] = supplied
+            else:
+                merged_config[key_name] = persisted_config.get(key_name) or getattr(active_search_config, key_name)
+        active_search_config = SearchConfig.model_validate(merged_config)
         save_runtime_config(
             runtime_config_path,
             {
                 **persisted_config,
-                **payload.model_dump(mode="json"),
+                **active_search_config.model_dump(mode="json"),
             },
         )
         active_search_provider = build_search_provider_from_config(
-            provider_mode=payload.search_provider_mode,
-            tavily_api_key=payload.tavily_api_key,
-            tavily_endpoint=payload.tavily_endpoint,
-            serper_api_key=payload.serper_api_key,
-            serper_endpoint=payload.serper_endpoint,
-            brave_api_key=payload.brave_api_key,
-            brave_endpoint=payload.brave_endpoint,
-            exa_api_key=payload.exa_api_key,
-            exa_endpoint=payload.exa_endpoint,
-            firecrawl_api_key=payload.firecrawl_api_key,
-            firecrawl_search_endpoint=payload.firecrawl_search_endpoint,
+            provider_mode=active_search_config.search_provider_mode,
+            tavily_api_key=active_search_config.tavily_api_key,
+            tavily_endpoint=active_search_config.tavily_endpoint,
+            serper_api_key=active_search_config.serper_api_key,
+            serper_endpoint=active_search_config.serper_endpoint,
+            brave_api_key=active_search_config.brave_api_key,
+            brave_endpoint=active_search_config.brave_endpoint,
+            exa_api_key=active_search_config.exa_api_key,
+            exa_endpoint=active_search_config.exa_endpoint,
+            firecrawl_api_key=active_search_config.firecrawl_api_key,
+            firecrawl_search_endpoint=active_search_config.firecrawl_search_endpoint,
         )
         active_content_extraction_provider = build_content_extraction_provider_from_config(
-            provider_name=payload.content_extraction_provider,
-            firecrawl_api_key=payload.firecrawl_api_key,
-            firecrawl_endpoint=payload.firecrawl_endpoint,
-            jina_reader_endpoint_prefix=payload.jina_reader_endpoint_prefix,
+            provider_name=active_search_config.content_extraction_provider,
+            firecrawl_api_key=active_search_config.firecrawl_api_key,
+            firecrawl_endpoint=active_search_config.firecrawl_endpoint,
+            jina_reader_endpoint_prefix=active_search_config.jina_reader_endpoint_prefix,
+        )
+        status = _build_search_config_status(
+            active_search_provider=active_search_provider,
+            active_content_extraction_provider=active_content_extraction_provider,
+            active_search_config=active_search_config,
         )
         return {
             "success": True,
             "message": "搜索配置已更新",
             "configured": active_search_provider is not None,
+            "configured_api_keys": status.configured_api_keys,
         }
 
     @app.post("/api/config/search/test")
     async def test_search_connection(payload: SearchTestRequest):
+        if payload.source_policy == SourcePolicy.USER_MATERIALS_ONLY.value:
+            return SearchTestResult(
+                success=False,
+                message="user_materials_only 禁止联网搜索；请改用项目材料读取/检索测试。",
+                source_policy=payload.source_policy,
+                providers=[],
+            ).model_dump(mode="json")
         if active_search_provider is None:
             return SearchTestResult(
                 success=False,
@@ -1812,6 +1851,23 @@ def create_app(
                     blocked_domains=effective_blocked_domains,
                 )
             )
+            results = [
+                item for item in results
+                if item.url and url_matches_domain_policy(
+                    item.url,
+                    allowed_domains=effective_allowed_domains,
+                    blocked_domains=effective_blocked_domains,
+                )
+            ]
+            if not results:
+                return SearchTestResult(
+                    success=False,
+                    message="搜索 Provider 未返回符合域名策略的结果。",
+                    source_policy=payload.source_policy,
+                    providers=providers,
+                    effective_allowed_domains=effective_allowed_domains,
+                    effective_blocked_domains=effective_blocked_domains,
+                ).model_dump(mode="json")
             extracted_page = None
             extract_target = payload.url_to_extract
             if not extract_target and payload.auto_extract_first_result and results:
@@ -1820,6 +1876,9 @@ def create_app(
             source_assessment = None
             if extract_target:
                 page = await active_content_extraction_provider.extract_url(extract_target)
+                readable_text = " ".join((page.raw_text or "").split())
+                if len(readable_text) < 80 or readable_text.startswith("%PDF-") or "\x00" in readable_text:
+                    raise ValueError("抽取结果为空、过短或为不可读二进制内容")
                 first_result = next((item for item in results if item.url == extract_target), None)
                 assessment = await source_verifier.assess_source(
                     url=page.canonical_url or page.url,
@@ -1924,7 +1983,7 @@ def create_app(
             recommended_next_action=(
                 "先配置 Tavily、Serper、Brave、Exa 或 Firecrawl 任意一个搜索 Key，再载入信源包自检域名约束。"
                 if active_search_provider is None
-                else "搜索已可用；选择信源包载入自检，验证专用域名是否真正返回结果。"
+                else "搜索已可用；信源包按钮只做域名过滤自检，不会自动绑定到项目或后续 Agent run。"
             ),
         ).model_dump(mode="json")
 

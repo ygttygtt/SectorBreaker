@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from math import ceil
-from urllib.parse import urlparse
 from uuid import uuid4
 
 from backend.app.agent_kernel.models import KernelObservation, KernelStateDelta, ToolSpec
@@ -17,7 +16,7 @@ from backend.app.agent_state.models import (
     TrustLevel,
 )
 from backend.app.providers.interfaces import SearchQuery
-from backend.app.providers.source_policy import search_constraints_for_policy
+from backend.app.providers.source_policy import search_constraints_for_policy, url_matches_domain_policy
 from backend.app.schemas import (
     ClaimStrength,
     EvidenceItem,
@@ -115,7 +114,7 @@ async def search_web(tool_call, context: KernelRuntimeContext) -> KernelObservat
         accepted_for_query = 0
         for result in query_results:
             canonical_url = (result.url or "").strip()
-            if canonical_url and not _url_matches_domain_policy(
+            if not canonical_url or not url_matches_domain_policy(
                 canonical_url,
                 allowed_domains=allowed_domains,
                 blocked_domains=blocked_domains,
@@ -322,25 +321,6 @@ def _layer_from_hint(value, fallback) -> KnowledgeLayerId | None:
         except ValueError:
             pass
     return fallback
-
-
-def _url_matches_domain_policy(
-    url: str,
-    *,
-    allowed_domains: list[str],
-    blocked_domains: list[str],
-) -> bool:
-    host = (urlparse(url).hostname or "").lower().rstrip(".")
-    if not host:
-        return False
-
-    def matches(domain: str) -> bool:
-        normalized = domain.lower().strip().lstrip(".").rstrip(".")
-        return bool(normalized) and (host == normalized or host.endswith("." + normalized))
-
-    if any(matches(domain) for domain in blocked_domains):
-        return False
-    return not allowed_domains or any(matches(domain) for domain in allowed_domains)
 
 
 def _readable_extracted_text(value: str | None) -> str | None:

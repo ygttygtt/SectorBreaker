@@ -31,6 +31,8 @@ Read, in order:
   three accepted URLs, persists body/provenance, and post-filters domains.
 - Waiting Agent runs have a real typed `/resume` path; feedback is persisted and
   exposed to the next Master decision.
+- Search config preserves blanked stored keys and reports only non-secret key
+  presence; domain-pack entries are discovery filters, not direct connectors.
 - Specialists receive bounded artifact plus local retrieval context; they still recommend external tool calls to the Master rather than owning a nested ReAct loop.
 - UI: V3 knowledge-management panel includes semantic-index status and rebuild controls.
 - Export: active-only Obsidian vault with full `.sectorbreaker/` control metadata.
@@ -61,7 +63,7 @@ Knowledge-management changes also require a Vault lifecycle acceptance test.
 
 ## Current Baseline
 
-- Backend: 211 passed.
+- Backend: 214 passed.
 - Frontend: 30 passed and production build passed.
 - Version isolation passed.
 - Temporary real Vault apply/export/rollback/re-export acceptance passed.

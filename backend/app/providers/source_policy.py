@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
+from urllib.parse import urlparse
 
 from backend.app.providers.source_packs import blocked_domains_for_market, reliable_domains_for_market
 from backend.app.schemas import SourcePolicy
@@ -35,3 +36,23 @@ def search_constraints_for_policy(
     allowed = list(dict.fromkeys(preferred + reliable_domains_for_market(market_scope)))
     blocked = blocked_domains_for_market(market_scope)
     return allowed, blocked
+
+
+def url_matches_domain_policy(
+    url: str,
+    *,
+    allowed_domains: list[str] | None = None,
+    blocked_domains: list[str] | None = None,
+) -> bool:
+    """Apply the final host allow/block check after a vendor returns a URL."""
+    host = (urlparse(url).hostname or "").lower().rstrip(".")
+    if not host:
+        return False
+
+    def matches(domain: str) -> bool:
+        normalized = str(domain).lower().strip().lstrip(".").rstrip(".")
+        return bool(normalized) and (host == normalized or host.endswith("." + normalized))
+
+    if any(matches(domain) for domain in (blocked_domains or [])):
+        return False
+    return not allowed_domains or any(matches(domain) for domain in allowed_domains)

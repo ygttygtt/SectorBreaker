@@ -265,6 +265,7 @@ export interface SearchConfigStatus {
   extraction_provider?: string;
   extraction_providers?: string[];
   requested_extraction_provider?: string;
+  configured_api_keys?: string[];
   missing_configuration?: string[];
   diagnostics?: string[];
   status_message?: string;
@@ -714,7 +715,7 @@ export const api = {
   },
 
   updateSearchConfig(data: SearchRuntimeConfig) {
-    return requestJson<{ success: boolean; message: string; configured: boolean }>("/api/config/search", {
+    return requestJson<{ success: boolean; message: string; configured: boolean; configured_api_keys: string[] }>("/api/config/search", {
       method: "POST",
       body: JSON.stringify(data),
     });

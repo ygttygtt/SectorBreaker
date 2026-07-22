@@ -168,6 +168,24 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
     }
   }
 
+  function hasStoredSearchKey(provider: string) {
+    return Boolean(searchStatus?.configured_api_keys?.includes(provider));
+  }
+
+  function connectorStatusLabel(status: string) {
+    const labels: Record<string, string> = {
+      ready: "直连接口已配置",
+      available_via_domain_filter: "仅域名过滤发现，无直连适配器",
+      needs_search_provider: "需先配置通用搜索",
+      needs_configuration: "实现存在，尚缺配置",
+      available_not_selected: "适配器可用，但当前未选择",
+      configured_but_unwired: "已有配置，但生产未接线",
+      manual_review: "仅人工复核",
+      planned: "尚未实现",
+    };
+    return labels[status] || status;
+  }
+
   async function fetchSourceRegistryStatus() {
     try {
       setSourceRegistryError(null);
@@ -382,6 +400,11 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
       });
       await fetchSearchStatus();
       await fetchSourceRegistryStatus();
+      setTavilyApiKey("");
+      setSerperApiKey("");
+      setBraveApiKey("");
+      setExaApiKey("");
+      setFirecrawlApiKey("");
       onConfigChanged?.();
       onSuccess(result.message);
     } catch (err) {
@@ -664,7 +687,7 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
                 type="password"
                 value={tavilyApiKey}
                 onChange={(e) => setTavilyApiKey(e.target.value)}
-                placeholder="tvly-..."
+                placeholder={hasStoredSearchKey("tavily") ? "已保存；留空则保留" : "tvly-..."}
               />
             </div>
 
@@ -675,7 +698,7 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
                 type="password"
                 value={serperApiKey}
                 onChange={(e) => setSerperApiKey(e.target.value)}
-                placeholder="serper-..."
+                placeholder={hasStoredSearchKey("serper") ? "已保存；留空则保留" : "serper-..."}
               />
             </div>
 
@@ -686,7 +709,7 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
                 type="password"
                 value={braveApiKey}
                 onChange={(e) => setBraveApiKey(e.target.value)}
-                placeholder="brave-..."
+                placeholder={hasStoredSearchKey("brave") ? "已保存；留空则保留" : "brave-..."}
               />
             </div>
 
@@ -697,7 +720,7 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
                 type="password"
                 value={exaApiKey}
                 onChange={(e) => setExaApiKey(e.target.value)}
-                placeholder="exa-..."
+                placeholder={hasStoredSearchKey("exa") ? "已保存；留空则保留" : "exa-..."}
               />
             </div>
 
@@ -721,7 +744,7 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
                 type="password"
                 value={firecrawlApiKey}
                 onChange={(e) => setFirecrawlApiKey(e.target.value)}
-                placeholder="fc-..."
+                placeholder={hasStoredSearchKey("firecrawl") ? "已保存；留空则保留" : "fc-..."}
               />
             </div>
 
@@ -783,9 +806,12 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
                     )}
                     <div className="source-connector-grid">
                       {pack.connectors.map((connector) => (
-                        <div className={`source-connector-chip ${connector.configured ? "is-ready" : "is-missing"}`} key={connector.key}>
+                        <div
+                          className={`source-connector-chip ${connector.configured ? "is-ready" : connector.execution_status === "available_via_domain_filter" ? "is-discovery" : "is-missing"}`}
+                          key={connector.key}
+                        >
                           <strong>{connector.display_name}</strong>
-                          <span>{connector.connector_type} · {connector.execution_status}</span>
+                          <span>{connector.connector_type} · {connectorStatusLabel(connector.execution_status)}</span>
                           <em>
                             {connector.requires_manual_review
                               ? "人工复核"

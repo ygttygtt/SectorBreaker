@@ -80,8 +80,8 @@ often shown as configured even when no adapter existed.
 
 The current contract distinguishes:
 
-- `ready_via_search`: executable through a configured SearchProvider with
-  domain constraints;
+- `available_via_domain_filter`: discoverable through a configured
+  SearchProvider with domain constraints, but not a configured direct connector;
 - `ready`: an implemented extraction adapter is configured;
 - `needs_search_provider` / `needs_configuration`: implementation exists but
   runtime configuration is missing;

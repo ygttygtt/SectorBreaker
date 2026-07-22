@@ -17,6 +17,7 @@ Implemented V3 loop:
 - Tavily/Serper/Brave/Exa/Firecrawl search with concurrent fair multi-provider merging and executable source-pack domain targeting;
 - production search body extraction with persisted provenance and local domain-policy enforcement;
 - typed waiting-run resume with feedback injected into Agent State/ContextPack;
+- search-key preservation and honest discovery-only source-pack status;
 - unified active-only Hybrid RAG with local FastEmbed vectors and RRF;
 - ChangeSet diff/approval/apply/conflict/rollback;
 - immutable Artifact revisions and ArtifactMemory continuation;
@@ -31,7 +32,7 @@ Retired and deleted from production:
 
 Current verification baseline:
 
-- backend 211 passed;
+- backend 214 passed;
 - frontend 30 passed;
 - frontend build passed;
 - version isolation passed;

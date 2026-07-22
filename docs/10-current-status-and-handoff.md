@@ -45,6 +45,13 @@ SectorBreaker V3 is a local-first, multi-Agent autonomous knowledge-base managem
   URLs are rejected even if a search vendor ignores its domain parameters.
 - Heuristic source assessment can no longer mark evidence `verified`; source
   quality alone is capped at `partially_verified`.
+- Blank secret fields preserve stored search keys, while the status API exposes
+  non-secret configured-provider names.
+- Domain-pack entries are explicitly labeled discovery-only and are not counted
+  as configured direct connectors; inactive extraction adapters report
+  `available_not_selected`.
+- Search self-test fails closed for `user_materials_only`, zero accepted
+  results, and empty/short/binary extraction output.
 
 ### Human Resume
 
@@ -73,7 +80,7 @@ SectorBreaker V3 is a local-first, multi-Agent autonomous knowledge-base managem
 
 ## Verification Baseline
 
-- Backend: `211 passed`, one existing Starlette/httpx deprecation warning.
+- Backend: `214 passed`, one existing Starlette/httpx deprecation warning.
 - Frontend: `30 passed`.
 - Frontend production build: passed; existing >500 kB chunk warning remains.
 - Version isolation: passed.

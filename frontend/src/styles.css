@@ -601,6 +601,7 @@ button { border: 0; }
 .source-connector-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .source-connector-chip { display: grid; gap: 3px; padding: 8px; border-radius: 6px; border: 1px solid var(--soft-line); font-size: 12px; }
 .source-connector-chip.is-ready { background: #f0fdfa; border-color: rgba(16, 185, 129, .35); }
+.source-connector-chip.is-discovery { background: #f5f8ff; border-color: rgba(37, 99, 235, .28); }
 .source-connector-chip.is-missing { background: #fff8f8; border-color: rgba(239, 68, 68, .25); }
 .source-connector-chip strong, .source-connector-chip span, .source-connector-chip em { overflow-wrap: anywhere; }
 .source-connector-chip em { color: var(--muted); font-style: normal; }

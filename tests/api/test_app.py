@@ -701,7 +701,8 @@ def test_api_exposes_search_config_status(tmp_path: Path) -> None:
         "requested_provider_mode": "auto",
         "extraction_provider": "http",
         "extraction_providers": ["http"],
-        "requested_extraction_provider": "http",
+            "requested_extraction_provider": "http",
+            "configured_api_keys": [],
         "missing_configuration": ["tavily_api_key", "serper_api_key", "brave_api_key", "exa_api_key", "firecrawl_api_key"],
         "diagnostics": ["至少需要配置 Tavily、Serper、Brave、Exa 或 Firecrawl 之一的 API Key，开放网络搜索才会启用。"],
         "status_message": "搜索未配置：请至少填写 Tavily、Serper、Brave、Exa 或 Firecrawl 之一的 API Key。",
@@ -817,7 +818,7 @@ def test_api_tests_search_and_content_extraction_chain(tmp_path: Path) -> None:
                 pages={
                     "https://example.org/report": {
                         "title": "Official Market Report",
-                        "raw_text": "Official market report body content.",
+                        "raw_text": "Official market report body content with enough readable detail for extraction validation. " * 3,
                         "domain": "example.org",
                     }
                 }
@@ -859,16 +860,16 @@ def test_api_search_test_accepts_domain_filters(tmp_path: Path) -> None:
                 results=[
                     {
                         "title": "Official market report",
-                        "url": "https://example.org/report",
+                        "url": "https://www.sec.gov/report",
                         "snippet": "Official statistics and market overview.",
                     }
                 ]
             ),
             content_extraction_provider=FakeContentExtractionProvider(
                 pages={
-                    "https://example.org/report": {
+                    "https://www.sec.gov/report": {
                         "title": "Official Market Report",
-                        "raw_text": "Official market report body content.",
+                        "raw_text": "Official market report body content with enough readable detail for extraction validation. " * 3,
                         "domain": "example.org",
                     }
                 }
@@ -914,16 +915,16 @@ def test_api_search_test_applies_source_policy_constraints(tmp_path: Path) -> No
                 results=[
                     {
                         "title": "Official market report",
-                        "url": "https://example.org/report",
+                        "url": "https://www.stats.gov.cn/report",
                         "snippet": "Official statistics and market overview.",
                     }
                 ]
             ),
             content_extraction_provider=FakeContentExtractionProvider(
                 pages={
-                    "https://example.org/report": {
+                    "https://www.stats.gov.cn/report": {
                         "title": "Official Market Report",
-                        "raw_text": "Official market report body content.",
+                        "raw_text": "Official market report body content with enough readable detail for extraction validation. " * 3,
                         "domain": "example.org",
                     }
                 }
@@ -990,6 +991,88 @@ def test_api_updates_search_runtime_config(tmp_path: Path) -> None:
     assert status.json()["requested_provider_mode"] == "auto"
     assert "jinareader" in status.json()["extraction_providers"]
     assert status.json()["requested_extraction_provider"] == "jina"
+    assert status.json()["configured_api_keys"] == ["tavily"]
+    source_status = client.get("/api/config/sources").json()
+    connectors = {
+        connector["key"]: connector
+        for pack in source_status["packs"]
+        for connector in pack["connectors"]
+    }
+    assert connectors["jina_reader_extraction"]["execution_status"] == "ready"
+    assert connectors["jina_reader_extraction"]["configured"] is True
+    assert connectors["cninfo_public"]["execution_status"] == "available_via_domain_filter"
+    assert connectors["cninfo_public"]["configured"] is False
+
+
+def test_api_search_config_preserves_stored_keys_when_form_submits_blanks(tmp_path: Path) -> None:
+    database_path = tmp_path / "sectorbreaker.sqlite3"
+    client = TestClient(
+        create_app(
+            database_path=database_path,
+            export_root=tmp_path / "exports",
+            llm_provider=_default_fake_llm(),
+        )
+    )
+    initial = {
+        "search_provider_mode": "tavily",
+        "tavily_api_key": "tvly-persisted",
+        "content_extraction_provider": "http",
+    }
+    assert client.post("/api/config/search", json=initial).status_code == 200
+
+    update = client.post(
+        "/api/config/search",
+        json={
+            "search_provider_mode": "tavily",
+            "tavily_api_key": "",
+            "content_extraction_provider": "jina",
+        },
+    )
+
+    assert update.status_code == 200
+    status = client.get("/api/config/search").json()
+    assert status["configured"] is True
+    assert status["configured_api_keys"] == ["tavily"]
+    runtime_config = (tmp_path / "sectorbreaker.runtime-config.json").read_text(encoding="utf-8")
+    assert "tvly-persisted" in runtime_config
+
+
+def test_api_search_test_blocks_user_materials_only_without_dispatch(tmp_path: Path) -> None:
+    provider = FakeSearchProvider(results=[])
+    client = TestClient(
+        create_app(
+            database_path=tmp_path / "sectorbreaker.sqlite3",
+            export_root=tmp_path / "exports",
+            search_provider=provider,
+            llm_provider=_default_fake_llm(),
+        )
+    )
+
+    response = client.post(
+        "/api/config/search/test",
+        json={"query": "must not run", "source_policy": "user_materials_only"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["success"] is False
+    assert provider.search_requests == []
+
+
+def test_api_search_test_does_not_report_empty_results_as_success(tmp_path: Path) -> None:
+    client = TestClient(
+        create_app(
+            database_path=tmp_path / "sectorbreaker.sqlite3",
+            export_root=tmp_path / "exports",
+            search_provider=FakeSearchProvider(results=[]),
+            llm_provider=_default_fake_llm(),
+        )
+    )
+
+    response = client.post("/api/config/search/test", json={"query": "no results"})
+
+    assert response.status_code == 200
+    assert response.json()["success"] is False
+    assert response.json()["result_count"] == 0
 
 
 def test_api_search_status_reports_firecrawl_fallback_diagnostics(tmp_path: Path) -> None:
@@ -1808,4 +1891,8 @@ def test_api_exposes_source_registry_status(tmp_path: Path) -> None:
     assert connectors["github_api"]["required_env_keys"] == ["GITHUB_TOKEN"]
     assert connectors["github_api"]["configured"] is False
     assert connectors["github_api"]["execution_status"] == "planned"
-    assert connectors["cninfo_public"]["execution_status"] == "needs_search_provider"
+    assert connectors["cninfo_public"]["execution_status"] in {
+        "needs_search_provider",
+        "available_via_domain_filter",
+    }
+    assert connectors["cninfo_public"]["configured"] is False
