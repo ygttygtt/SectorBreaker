@@ -154,6 +154,17 @@ to the configured export root.
 LLM, search, extraction, presets, and source-registry routes remain local
 runtime configuration. Job-source/Boss configuration routes are removed.
 
+`GET /api/config/search` includes `provider_onboarding`. Each entry names the
+provider capability, official signup/pricing URLs, key requirement, current
+configuration/selection state, and a short free-tier note. The UI must not
+claim an adapter is free, configured, or selected solely because it appears in
+this catalog.
+
+Runtime configuration writes are atomic and keep one private backup for
+recovery from malformed JSON. Primary and backup files receive owner-only
+permissions where the host OS supports POSIX-style modes. API responses never
+return stored keys.
+
 ## Error And Event Shape
 
 Errors include code/message/details/request id where possible. Run events keep

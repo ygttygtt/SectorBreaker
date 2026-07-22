@@ -126,6 +126,30 @@ const {
     missing_configuration: [],
     diagnostics: [],
     status_message: "搜索已就绪：tavily；抽取使用 firecrawl。",
+    provider_onboarding: [
+      {
+        key: "tavily",
+        display_name: "Tavily",
+        capability: "search",
+        signup_url: "https://app.tavily.com/home",
+        pricing_url: "https://docs.tavily.com/documentation/api-credits",
+        requires_api_key: true,
+        free_tier_summary: "官方当前提供每月免费 credits。",
+        configured: true,
+        selected: true,
+      },
+      {
+        key: "firecrawl",
+        display_name: "Firecrawl",
+        capability: "search_and_extraction",
+        signup_url: "https://www.firecrawl.dev/app/api-keys",
+        pricing_url: "https://www.firecrawl.dev/pricing",
+        requires_api_key: true,
+        free_tier_summary: "搜索和抓取都会消耗额度。",
+        configured: true,
+        selected: true,
+      },
+    ],
   }),
   mockTestSearchConnection: vi.fn().mockResolvedValue({
     success: true,
@@ -630,6 +654,8 @@ test("config panel can test search connectivity", async () => {
 
   expect(await screen.findByText(/搜索链路自检/)).toBeInTheDocument();
   expect(screen.getByText(/当前搜索 provider: tavily \/ 抽取 provider: firecrawl/)).toBeInTheDocument();
+  expect(screen.getAllByRole("link", { name: /申请 \/ 获取 Key/ }).some((link) => link.getAttribute("href") === "https://app.tavily.com/home")).toBe(true);
+  expect(screen.getAllByRole("link", { name: /额度与价格/ }).length).toBeGreaterThan(0);
 
   fireEvent.change(screen.getByLabelText("测试信源策略"), { target: { value: "reliable_only" } });
   fireEvent.change(screen.getByLabelText("允许域名（可选）"), { target: { value: "sec.gov, investor.example.com" } });

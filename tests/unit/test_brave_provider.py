@@ -80,11 +80,11 @@ def test_brave_search_provider_appends_domain_filters(monkeypatch) -> None:
                 query="ai agent market",
                 market_scope="mixed",
                 max_results=3,
-                allowed_domains=["sec.gov"],
+                allowed_domains=["sec.gov", "investor.gov"],
                 blocked_domains=["medium.com"],
             )
         )
     )
 
-    assert "site:sec.gov" in captured["params"]["q"]
+    assert "(site:sec.gov OR site:investor.gov)" in captured["params"]["q"]
     assert "-site:medium.com" in captured["params"]["q"]

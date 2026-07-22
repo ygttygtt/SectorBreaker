@@ -77,11 +77,11 @@ def test_serper_search_provider_appends_domain_filters(monkeypatch) -> None:
                 query="pet services market",
                 market_scope="china",
                 max_results=3,
-                allowed_domains=["gov.cn"],
+                allowed_domains=["gov.cn", "stats.gov.cn"],
                 blocked_domains=["example.com"],
             )
         )
     )
 
-    assert "site:gov.cn" in captured["json"]["q"]
+    assert "(site:gov.cn OR site:stats.gov.cn)" in captured["json"]["q"]
     assert "-site:example.com" in captured["json"]["q"]

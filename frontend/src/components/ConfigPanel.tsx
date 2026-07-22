@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Settings, Eye, EyeOff, Loader2, CheckCircle2, XCircle, Search, Globe, ShieldCheck, Plus, Save, Trash2, KeyRound } from "lucide-react";
+import { Settings, Eye, EyeOff, Loader2, CheckCircle2, XCircle, Search, Globe, ShieldCheck, Plus, Save, Trash2, KeyRound, ExternalLink } from "lucide-react";
 import { api, type LLMConfigStatus, type LLMPreset, type SearchConfigStatus, type SearchTestResult, type SourceRegistryStatus } from "../api/client";
 
 interface ConfigPanelProps {
@@ -661,6 +661,34 @@ export function ConfigPanel({ isOpen, onClose, onSuccess, onError, onConfigChang
                 {searchStatus.extraction_provider ? `，实际使用: ${searchStatus.extraction_provider}` : ""}
               </div>
             )}
+
+            {searchStatus?.provider_onboarding?.length ? (
+              <div className="provider-onboarding-grid">
+                {searchStatus.provider_onboarding.map((provider) => (
+                  <div className="provider-onboarding-row" key={provider.key}>
+                    <div>
+                      <strong>{provider.display_name}</strong>
+                      <span>
+                        {provider.selected ? "当前使用" : provider.configured ? "已配置，未选择" : provider.requires_api_key ? "尚未配置" : "本地可用"}
+                      </span>
+                    </div>
+                    <p>{provider.free_tier_summary}</p>
+                    <nav aria-label={`${provider.display_name} 申请与价格`}>
+                      {provider.signup_url && (
+                        <a href={provider.signup_url} target="_blank" rel="noreferrer">
+                          申请 / 获取 Key <ExternalLink size={13} />
+                        </a>
+                      )}
+                      {provider.pricing_url && provider.pricing_url !== provider.signup_url && (
+                        <a href={provider.pricing_url} target="_blank" rel="noreferrer">
+                          额度与价格 <ExternalLink size={13} />
+                        </a>
+                      )}
+                    </nav>
+                  </div>
+                ))}
+              </div>
+            ) : null}
 
             <div className="form-group">
               <label htmlFor="searchProviderMode">搜索 Provider 模式</label>

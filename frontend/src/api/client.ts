@@ -269,6 +269,19 @@ export interface SearchConfigStatus {
   missing_configuration?: string[];
   diagnostics?: string[];
   status_message?: string;
+  provider_onboarding?: ProviderOnboardingStatus[];
+}
+
+export interface ProviderOnboardingStatus {
+  key: string;
+  display_name: string;
+  capability: string;
+  signup_url?: string | null;
+  pricing_url?: string | null;
+  requires_api_key: boolean;
+  free_tier_summary: string;
+  configured: boolean;
+  selected: boolean;
 }
 
 export interface SearchTestResult {

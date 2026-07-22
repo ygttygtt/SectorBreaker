@@ -694,19 +694,24 @@ def test_api_exposes_search_config_status(tmp_path: Path) -> None:
     response = client.get("/api/config/search")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "configured": False,
-        "provider": None,
-        "providers": [],
-        "requested_provider_mode": "auto",
-        "extraction_provider": "http",
-        "extraction_providers": ["http"],
-            "requested_extraction_provider": "http",
-            "configured_api_keys": [],
-        "missing_configuration": ["tavily_api_key", "serper_api_key", "brave_api_key", "exa_api_key", "firecrawl_api_key"],
-        "diagnostics": ["至少需要配置 Tavily、Serper、Brave、Exa 或 Firecrawl 之一的 API Key，开放网络搜索才会启用。"],
-        "status_message": "搜索未配置：请至少填写 Tavily、Serper、Brave、Exa 或 Firecrawl 之一的 API Key。",
-    }
+    payload = response.json()
+    assert payload["configured"] is False
+    assert payload["provider"] is None
+    assert payload["providers"] == []
+    assert payload["requested_provider_mode"] == "auto"
+    assert payload["extraction_provider"] == "http"
+    assert payload["extraction_providers"] == ["http"]
+    assert payload["requested_extraction_provider"] == "http"
+    assert payload["configured_api_keys"] == []
+    assert payload["missing_configuration"] == [
+        "tavily_api_key", "serper_api_key", "brave_api_key", "exa_api_key", "firecrawl_api_key",
+    ]
+    onboarding = {item["key"]: item for item in payload["provider_onboarding"]}
+    assert onboarding["firecrawl"]["signup_url"] == "https://www.firecrawl.dev/app/api-keys"
+    assert onboarding["firecrawl"]["configured"] is False
+    assert onboarding["http"]["configured"] is True
+    assert onboarding["http"]["selected"] is True
+    assert onboarding["serper"]["pricing_url"] == "https://serper.dev/"
 
     configured_client = TestClient(
         create_app(

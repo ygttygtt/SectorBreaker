@@ -43,6 +43,24 @@ Recommended use now:
 - do not ingest an entire site automatically without a crawl/map budget,
   deduplication, robots/policy rules, and a document persistence contract.
 
+Official onboarding links exposed by the settings API/UI:
+
+| Provider | Signup / key | Pricing / quota |
+| --- | --- | --- |
+| Tavily | <https://app.tavily.com/home> | <https://docs.tavily.com/documentation/api-credits> |
+| Serper | <https://serper.dev/signup> | <https://serper.dev/> |
+| Brave Search | <https://api.search.brave.com/app/keys> | <https://api.search.brave.com/app/plans> |
+| Exa | <https://dashboard.exa.ai/api-keys> | <https://exa.ai/pricing> |
+| Firecrawl | <https://www.firecrawl.dev/app/api-keys> | <https://www.firecrawl.dev/pricing> |
+| Jina Reader | <https://jina.ai/reader> | <https://jina.ai/reader> |
+
+As verified on 2026-07-22, Tavily and Firecrawl advertise recurring free
+credits, Jina Reader advertises a low-rate keyless path plus free-key tokens,
+and Exa advertises introductory credits. Serper allows free account creation
+but its published long-term pricing is credit top-up based. These are vendor
+policies rather than SectorBreaker guarantees; users must check the linked
+official page before relying on a quota.
+
 Self-hosting is not the default recommendation. The upstream repository uses
 AGPL-3.0 and its full deployment includes browser/queue infrastructure. A hosted
 API or separately deployed service is easier to isolate at the provider boundary.

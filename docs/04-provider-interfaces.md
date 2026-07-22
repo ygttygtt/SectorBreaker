@@ -32,11 +32,24 @@ allowed/blocked domains; Agent calls may add `preferred_domains` from a trusted
 source pack. Search discovery remains separate from content extraction and
 source verification.
 
+The configuration contract also exposes provider-onboarding metadata: official
+signup and pricing URLs, whether a key is required, a conservative free-tier
+summary, current configuration state, and whether the provider is selected.
+This metadata is informational and must direct users to the official pricing
+page because quotas can change.
+
 ## ContentExtractionProvider
 
 Extracts readable content from already-discovered public URLs. Current adapters
 may use local HTTP extraction, Firecrawl, or Jina Reader. It must return source
 metadata and explicit failures.
+
+Every extraction adapter validates the target before dispatch. Only public
+`http`/`https` URLs without embedded credentials are accepted; localhost,
+loopback, link-local, private, reserved, multicast, and unspecified addresses
+are rejected after DNS resolution. The local HTTP adapter repeats validation
+for every redirect target. This is a baseline SSRF gate, not authorization to
+access authenticated or policy-restricted content.
 
 See `docs/25-web-source-expansion-and-multi-agent-gap.md` for crawler selection,
 source-pack execution states, and the boundary for future map/crawl support.

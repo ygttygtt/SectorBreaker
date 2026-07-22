@@ -41,6 +41,7 @@ from backend.app.providers.interfaces import (
     SearchQuery,
 )
 from backend.app.providers.openai_compatible import OpenAICompatibleLLMProvider
+from backend.app.providers.catalog import PROVIDER_ONBOARDING
 from backend.app.providers.source_packs import SourceConnector, SourceConnectorType, SourceRegistry
 from backend.app.providers.source_policy import search_constraints_for_policy, url_matches_domain_policy
 from backend.app.providers.source_verification import HeuristicSourceVerificationProvider
@@ -184,6 +185,18 @@ class LLMConfigStatus(BaseModel):
     max_tokens: int | None = None
 
 
+class ProviderOnboardingStatus(BaseModel):
+    key: str
+    display_name: str
+    capability: str
+    signup_url: str | None = None
+    pricing_url: str | None = None
+    requires_api_key: bool
+    free_tier_summary: str
+    configured: bool = False
+    selected: bool = False
+
+
 class SearchConfigStatus(BaseModel):
     configured: bool
     provider: str | None = None
@@ -196,6 +209,7 @@ class SearchConfigStatus(BaseModel):
     missing_configuration: list[str] = Field(default_factory=list)
     diagnostics: list[str] = Field(default_factory=list)
     status_message: str = ""
+    provider_onboarding: list[ProviderOnboardingStatus] = Field(default_factory=list)
 
 
 class SearchConfig(BaseModel):
@@ -463,6 +477,22 @@ def _build_search_config_status(
         if active_search_provider is not None
         else "搜索未配置：请至少填写 Tavily、Serper、Brave、Exa 或 Firecrawl 之一的 API Key。"
     )
+    onboarding_status = []
+    for provider in PROVIDER_ONBOARDING:
+        configured = (
+            provider_key_presence.get(provider.key, False)
+            if provider.requires_api_key
+            else True
+        )
+        selected_for_search = provider.key in providers
+        selected_for_extraction = provider.key == _normalize_extraction_provider_name(
+            effective_extraction_provider,
+        )
+        onboarding_status.append(ProviderOnboardingStatus(
+            **asdict(provider),
+            configured=configured,
+            selected=selected_for_search or selected_for_extraction,
+        ))
 
     return SearchConfigStatus(
         configured=active_search_provider is not None,
@@ -476,6 +506,7 @@ def _build_search_config_status(
         missing_configuration=missing_configuration,
         diagnostics=diagnostics,
         status_message=status_message,
+        provider_onboarding=onboarding_status,
     )
 
 

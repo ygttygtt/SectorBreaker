@@ -46,7 +46,7 @@ def test_http_content_extraction_provider_extracts_html(monkeypatch) -> None:
 
     monkeypatch.setattr("backend.app.providers.content_extraction.httpx.AsyncClient", _ClientFactory())
 
-    provider = HttpContentExtractionProvider()
+    provider = HttpContentExtractionProvider(url_validator=lambda url: None)
     page = asyncio.run(provider.extract_url("https://example.com/page"))
 
     assert page.title == "Official Market Report"
@@ -72,7 +72,7 @@ def test_firecrawl_content_extraction_provider_extracts_markdown(monkeypatch) ->
     monkeypatch.setattr(_FakeResponse, "json", _json, raising=False)
     monkeypatch.setattr("backend.app.providers.content_extraction.httpx.AsyncClient", _ClientFactory())
 
-    provider = FirecrawlContentExtractionProvider(api_key="test-key")
+    provider = FirecrawlContentExtractionProvider(api_key="test-key", url_validator=lambda url: None)
     page = asyncio.run(provider.extract_url("https://data.gov.cn/report"))
 
     assert page.title == "Official Report"
@@ -94,9 +94,43 @@ def test_jina_reader_content_extraction_provider_reads_markdown(monkeypatch) -> 
 
     monkeypatch.setattr("backend.app.providers.content_extraction.httpx.AsyncClient", _ClientFactory())
 
-    provider = JinaReaderContentExtractionProvider()
+    provider = JinaReaderContentExtractionProvider(url_validator=lambda url: None)
     page = asyncio.run(provider.extract_url("https://example.com/page"))
 
     assert page.title == "Reader Title"
     assert "Normalized page content from reader." in page.raw_text
     assert page.extraction_provider == "jina_reader"
+
+
+def test_http_extraction_validates_each_redirect_target(monkeypatch) -> None:
+    responses = [
+        _FakeResponse("", status_code=302, url="https://example.com/start"),
+        _FakeResponse("public body", content_type="text/plain", url="http://127.0.0.1/private"),
+    ]
+    responses[0].headers["location"] = "http://127.0.0.1/private"
+
+    class RedirectClient(_FakeClient):
+        async def get(self, url: str, headers: dict[str, str] | None = None):
+            return responses.pop(0)
+
+    class _ClientFactory:
+        def __call__(self, *args, **kwargs):
+            return RedirectClient(responses[0])
+
+    validated: list[str] = []
+
+    def validate(url: str) -> None:
+        validated.append(url)
+        if "127.0.0.1" in url:
+            raise ValueError("private target")
+
+    monkeypatch.setattr("backend.app.providers.content_extraction.httpx.AsyncClient", _ClientFactory())
+
+    provider = HttpContentExtractionProvider(url_validator=validate)
+    try:
+        asyncio.run(provider.extract_url("https://example.com/start"))
+    except ValueError as exc:
+        assert str(exc) == "private target"
+    else:
+        raise AssertionError("private redirect should be rejected")
+    assert validated == ["https://example.com/start", "http://127.0.0.1/private"]

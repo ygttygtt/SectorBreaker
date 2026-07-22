@@ -22,7 +22,8 @@ class BraveSearchProvider:
         allowed_domains = query.allowed_domains or []
         blocked_domains = query.blocked_domains or []
         if allowed_domains:
-            params["q"] = f"{params['q']} {' '.join(f'site:{domain}' for domain in allowed_domains)}"
+            allowed_clause = " OR ".join(f"site:{domain}" for domain in allowed_domains)
+            params["q"] = f"{params['q']} ({allowed_clause})"
         if blocked_domains:
             params["q"] = f"{params['q']} {' '.join(f'-site:{domain}' for domain in blocked_domains)}"
         headers = {
