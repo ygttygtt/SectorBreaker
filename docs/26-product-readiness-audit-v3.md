@@ -88,3 +88,11 @@
 6. 重写 V3 真实验收，随后再推进 Specialist 独立预算工具循环和 SSRF 防护。
 
 本报告不把“接口存在”“设置项存在”“单元测试使用 fake provider”当作真实接入证据。
+
+## 本轮已修复
+
+- P0-1：正文抽取 Provider 已进入生产 Agent `search_web`，Evidence 保存正文、Provider、元数据和抽取时间；前三个 URL 有单条失败隔离。
+- P0-2：启发式来源评估最高为 `partially_verified`，并新增本地域名策略后置过滤。
+- P0-4：新增 typed `/api/runs/{run_id}/resume`；只恢复 waiting run，反馈会进入 State/ContextPack，assistant brief 会作为低可信文档内化。
+
+这些修复有 fake Provider 的生产工具/API 回归测试；仍需在最终验收阶段使用本机真实 Tavily + HTTP extraction 跑 V3 Agent 并检查导出 Evidence。

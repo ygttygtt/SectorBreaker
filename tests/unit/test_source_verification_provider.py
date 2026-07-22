@@ -19,7 +19,7 @@ def test_source_verifier_marks_government_source_as_high_quality() -> None:
 
     assert result.source_type == "government"
     assert result.source_quality == "high"
-    assert result.recommended_verification_status == "verified"
+    assert result.recommended_verification_status == "partially_verified"
     assert "source_pack" in (result.reliability_notes or "")
 
 
@@ -56,4 +56,4 @@ def test_source_verifier_marks_disclosure_source_as_high_quality() -> None:
     assert result.source_type == "company_disclosure"
     assert result.source_quality == "high"
     assert result.is_original_source is True
-    assert result.recommended_verification_status == "verified"
+    assert result.recommended_verification_status == "partially_verified"

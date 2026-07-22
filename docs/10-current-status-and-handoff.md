@@ -38,6 +38,19 @@ SectorBreaker V3 is a local-first, multi-Agent autonomous knowledge-base managem
 - Agent search supports explicit preferred domains; source-pack connectors report executable, missing-config, manual, or planned status honestly.
 - The configuration workbench can load a dedicated source pack into the real search/extraction self-test.
 - Agent decision heartbeat no longer adds a mandatory 10-second delay to fast LLM decisions.
+- Production Agent search now extracts readable bodies from up to three
+  accepted URLs, persists extraction provenance on Evidence, and isolates page
+  failures instead of silently falling back for the whole query.
+- Domain policies are rechecked locally after Provider results; out-of-policy
+  URLs are rejected even if a search vendor ignores its domain parameters.
+- Heuristic source assessment can no longer mark evidence `verified`; source
+  quality alone is capped at `partially_verified`.
+
+### Human Resume
+
+- `POST /api/runs/{run_id}/resume` now restores a waiting run from its durable
+  checkpoint, persists typed feedback, injects it into State/ContextPack, and
+  internalizes an optional assistant brief as low-trust project material.
 
 ### Retrieval And Export
 
@@ -60,7 +73,7 @@ SectorBreaker V3 is a local-first, multi-Agent autonomous knowledge-base managem
 
 ## Verification Baseline
 
-- Backend: `209 passed`, one existing Starlette/httpx deprecation warning.
+- Backend: `211 passed`, one existing Starlette/httpx deprecation warning.
 - Frontend: `30 passed`.
 - Frontend production build: passed; existing >500 kB chunk warning remains.
 - Version isolation: passed.

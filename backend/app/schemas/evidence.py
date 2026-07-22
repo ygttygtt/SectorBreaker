@@ -1,5 +1,8 @@
 """Evidence schemas."""
 
+from datetime import datetime
+from typing import Any
+
 from enum import StrEnum
 
 from pydantic import BaseModel, Field, model_validator
@@ -84,6 +87,9 @@ class EvidenceItem(BaseModel):
     source_policy: str | None = None
     raw_excerpt: str | None = None
     summary: str | None = None
+    extraction_provider: str | None = None
+    extraction_metadata: dict[str, Any] = Field(default_factory=dict)
+    extracted_at: datetime | None = None
     claims: list[EvidenceClaim] = Field(default_factory=list)
     source_quality: SourceQuality = SourceQuality.UNKNOWN
     claim_strength: ClaimStrength = ClaimStrength.OPINION

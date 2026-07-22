@@ -8,7 +8,12 @@ from typing import TYPE_CHECKING, Any
 
 from backend.app.agent_kernel.models import KernelObservation, ToolCall, ToolSpec
 from backend.app.agent_state.models import SectorBreakerState
-from backend.app.providers.interfaces import LLMProvider, SearchProvider
+from backend.app.providers.interfaces import (
+    ContentExtractionProvider,
+    LLMProvider,
+    SearchProvider,
+    SourceVerificationProvider,
+)
 from backend.app.schemas import Artifact, ResearchProject, RunEvent
 from backend.app.storage.sqlite import SQLiteRepository
 
@@ -28,6 +33,8 @@ class KernelRuntimeContext:
     search_provider: SearchProvider | None
     llm_provider: LLMProvider | None
     emit_event: EmitFn
+    content_extraction_provider: ContentExtractionProvider | None = None
+    source_verification_provider: SourceVerificationProvider | None = None
     artifacts: list[Artifact] = field(default_factory=list)
     initial_artifact_ids: set[str] = field(default_factory=set)
     run_id: str | None = None

@@ -148,6 +148,26 @@ The Agent must ask the user when:
 - evidence conflicts require a value or interpretation judgment;
 - delete/move or an external side effect is requested.
 
+`POST /api/runs/{run_id}/resume` is the production continuation contract for a
+`waiting_for_human` run. It accepts the typed `ResumeRequest`, persists supplied
+inputs, restores the same run from its durable checkpoint, writes feedback into
+`SectorBreakerState.human_feedback`, and exposes it in the next Master Agent
+ContextPack. An assistant brief is additionally stored as a low-trust project
+document and internalized; it is not promoted to verified evidence.
+
+## Web Acquisition
+
+- `SearchProvider` discovers candidate URLs; provider-side domain parameters
+  are hints, so the Kernel applies a final canonical-host allow/block filter.
+- The production `search_web` tool extracts at most three accepted pages per
+  tool call through `ContentExtractionProvider`; each extraction failure is
+  isolated and recorded in typed diagnostics.
+- Readable extracted body and extraction provenance are persisted on Evidence
+  and become available to the shared local retriever.
+- `SourceVerificationProvider` assesses source class and quality only. A
+  heuristic assessment may recommend at most `partially_verified`; it cannot
+  mark a claim or Evidence item `verified` without corroboration.
+
 ## Retired Contracts
 
 Talent-demand, JD extraction, skill normalization, Boss job-source collection,

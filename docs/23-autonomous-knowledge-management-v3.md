@@ -220,6 +220,14 @@ POST /api/projects/{project_id}/change-sets/{change_set_id}/rollback
 The existing `/continue` endpoint remains a compatibility entrypoint but must
 restore active artifacts and ArtifactMemory, not only SectorBreakerState.
 
+```text
+POST /api/runs/{run_id}/resume
+```
+
+`/resume` is valid only for `waiting_for_human`, requires a durable checkpoint,
+persists the typed user input, resumes the same run so its SSE stream remains
+continuous, and injects the feedback into the next Agent ContextPack.
+
 ## Version Isolation And Enterprise Cutover
 
 The retired `talent_demand` product mode, Boss/job-source providers, frontend

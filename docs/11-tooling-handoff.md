@@ -27,6 +27,10 @@ Read, in order:
 - Write boundary: existing-note updates require ChangeSet approval/apply.
 - Retrieval: shared local Hybrid RAG with FastEmbed, incremental SQLite vectors, RRF, provenance, and honest degradation.
 - Web acquisition: Tavily/Serper/Brave/Exa/Firecrawl SearchProviders, concurrent fair `multi`, targeted source-pack domains, and separate HTTP/Firecrawl/Jina extraction.
+- Production `search_web` now consumes HTTP/Firecrawl/Jina extraction for up to
+  three accepted URLs, persists body/provenance, and post-filters domains.
+- Waiting Agent runs have a real typed `/resume` path; feedback is persisted and
+  exposed to the next Master decision.
 - Specialists receive bounded artifact plus local retrieval context; they still recommend external tool calls to the Master rather than owning a nested ReAct loop.
 - UI: V3 knowledge-management panel includes semantic-index status and rebuild controls.
 - Export: active-only Obsidian vault with full `.sectorbreaker/` control metadata.
@@ -57,7 +61,7 @@ Knowledge-management changes also require a Vault lifecycle acceptance test.
 
 ## Current Baseline
 
-- Backend: 209 passed.
+- Backend: 211 passed.
 - Frontend: 30 passed and production build passed.
 - Version isolation passed.
 - Temporary real Vault apply/export/rollback/re-export acceptance passed.

@@ -9,6 +9,8 @@ from backend.app.agent_kernel.tools.search import search_web
 from backend.app.agent_kernel.tools.state import evaluate_coverage, internalize_observation, manage_state_memory, reflect_on_progress
 from backend.app.agent_state import KnowledgeClaim, SectorBreakerState, SourceMemory
 from backend.app.providers.interfaces import SearchResult
+from backend.app.providers.fakes import FakeContentExtractionProvider
+from backend.app.providers.source_verification import HeuristicSourceVerificationProvider
 from backend.app.schemas import MarketScope, ProjectStatus, ResearchDepth, ResearchProject, SourcePolicy
 
 
@@ -90,7 +92,7 @@ def test_search_web_supports_human_query_variants() -> None:
             return [
                 SearchResult(
                     title=f"{query.query} result",
-                    url=f"https://example.com/{len(self.queries)}",
+                    url=f"https://github.com/example/{len(self.queries)}",
                     snippet=f"{query.query} snippet",
                 )
             ]
@@ -152,6 +154,69 @@ def test_search_web_supports_human_query_variants() -> None:
     assert observation.data["queries"] == [item[0] for item in search_provider.queries]
     assert len(observation.state_delta.source_memories) == 3
     assert len(repository.evidence) == 3
+
+
+def test_search_web_extracts_page_body_and_persists_honest_assessment() -> None:
+    class FakeRepository:
+        def __init__(self) -> None:
+            self.evidence = []
+
+        def list_evidence(self, project_id):
+            return self.evidence
+
+        def add_evidence(self, evidence):
+            self.evidence.append(evidence)
+
+    async def emit(event):
+        return None
+
+    url = "https://www.stats.gov.cn/report"
+    body = "国家统计局公开报告正文。" * 30
+    repository = FakeRepository()
+    context = KernelRuntimeContext(
+        project=_project(),
+        repository=repository,  # type: ignore[arg-type]
+        state=SectorBreakerState.initialize(project_id="project-kernel", domain="API中转站", user_goal="建库"),
+        search_provider=type("Provider", (), {
+            "search": lambda self, query: _async_value([
+                SearchResult(title="国家统计报告", url=url, snippet="搜索摘要不能替代正文。")
+            ])
+        })(),  # type: ignore[arg-type]
+        content_extraction_provider=FakeContentExtractionProvider({
+            url: {
+                "title": "国家统计报告正文",
+                "raw_text": body,
+                "domain": "stats.gov.cn",
+                "extraction_provider": "fake_content",
+            }
+        }),
+        source_verification_provider=HeuristicSourceVerificationProvider(),
+        llm_provider=None,
+        emit_event=emit,
+    )
+
+    observation = asyncio.run(search_web(
+        ToolCall(
+            tool_name="search_web",
+            args={"query": "国家统计", "search_goal": "读取官方报告", "max_results": 1},
+            reason="测试生产搜索工具消费正文。",
+        ),
+        context,
+    ))
+
+    assert observation.success is True
+    assert len(repository.evidence) == 1
+    evidence = repository.evidence[0]
+    assert evidence.raw_excerpt == body
+    assert evidence.extraction_provider == "fake_content"
+    assert evidence.extracted_at is not None
+    assert evidence.source_quality.value == "high"
+    assert evidence.verification_status.value == "partially_verified"
+    assert observation.data["extraction_diagnostics"][0]["success"] is True
+
+
+async def _async_value(value):
+    return value
 
 
 def test_write_layer_document_falls_back_to_sections_after_full_document_errors() -> None:

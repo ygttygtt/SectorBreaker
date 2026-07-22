@@ -13,9 +13,21 @@ from backend.app.agent_kernel.tool_registry import KernelRuntimeContext
 from backend.app.agent_kernel.tools import build_default_tool_registry
 from backend.app.agent_state import ArtifactMemory, ReportInternalizer, SectorBreakerState
 from backend.app.agent_state.models import AgentAction, AgentDecision
-from backend.app.providers.interfaces import LLMProvider, SearchProvider
+from backend.app.providers.interfaces import (
+    ContentExtractionProvider,
+    LLMProvider,
+    SearchProvider,
+    SourceVerificationProvider,
+)
 from backend.app.rag import ProjectRetriever
-from backend.app.schemas import Artifact, MaintenanceRunRequest, ResearchProject, RunEvent
+from backend.app.schemas import (
+    Artifact,
+    MaintenanceRunRequest,
+    ProjectDocumentCreate,
+    ResearchProject,
+    ResumeRequest,
+    RunEvent,
+)
 from backend.app.storage.sqlite import SQLiteRepository
 
 
@@ -25,9 +37,12 @@ async def run_v2_agent_kernel_pipeline(
     repository: SQLiteRepository,
     search_provider: SearchProvider | None,
     llm_provider: LLMProvider | None,
+    content_extraction_provider: ContentExtractionProvider | None = None,
+    source_verification_provider: SourceVerificationProvider | None = None,
     emit: Callable[[RunEvent], Awaitable[None]] | None = None,
     run_id: str | None = None,
     resume_state: SectorBreakerState | None = None,
+    resume_request: ResumeRequest | None = None,
     maintenance_request: MaintenanceRunRequest | None = None,
     project_retriever: ProjectRetriever | None = None,
 ) -> KernelRunResult:
@@ -59,6 +74,36 @@ async def run_v2_agent_kernel_pipeline(
                 "knowledge_schema_strategy": state.knowledge_schema.strategy,
             },
         ))
+        if resume_request is not None:
+            feedback_items = _resume_feedback_items(resume_request)
+            state.human_feedback.extend(feedback_items)
+            new_document_ids: set[str] = set()
+            if resume_request.assistant_brief and resume_request.assistant_brief.strip():
+                document = repository.add_document(
+                    project.id,
+                    ProjectDocumentCreate(
+                        channel="assistant_brief",
+                        content=resume_request.assistant_brief.strip(),
+                        file_name=f"resume-{_run_id}-assistant-brief.md",
+                        mime_type="text/markdown",
+                    ),
+                )
+                new_document_ids.add(document.id)
+            if new_document_ids:
+                await _internalize_uploaded_documents(
+                    project=project,
+                    repository=repository,
+                    state=state,
+                    emit_event=emit_event,
+                    document_ids=new_document_ids,
+                )
+            await emit_event(RunEvent(
+                event_type="node_completed",
+                gate="human_feedback",
+                agent="V3 Agent Kernel",
+                message=f"已消费用户反馈 {len(feedback_items)} 项，并恢复 Agent 决策。",
+                data={"feedback_count": len(feedback_items), "document_ids": sorted(new_document_ids)},
+            ))
     else:
         _user_goal = "Build a sustainable Obsidian knowledge base for: " + project.domain
         knowledge_schema = await build_adaptive_schema(
@@ -156,6 +201,8 @@ async def run_v2_agent_kernel_pipeline(
         search_provider=search_provider,
         llm_provider=llm_provider,
         emit_event=emit_event,
+        content_extraction_provider=content_extraction_provider,
+        source_verification_provider=source_verification_provider,
         artifacts=list(active_artifacts),
         initial_artifact_ids=initial_artifact_ids,
         run_id=_run_id,
@@ -287,8 +334,11 @@ async def _internalize_uploaded_documents(
     repository: SQLiteRepository,
     state: SectorBreakerState,
     emit_event: Callable[[RunEvent], Awaitable[None]],
+    document_ids: set[str] | None = None,
 ) -> None:
     documents = repository.list_documents(project.id)
+    if document_ids is not None:
+        documents = [document for document in documents if document.id in document_ids]
     if not documents:
         await emit_event(RunEvent(
             event_type="node_progress",
@@ -323,3 +373,18 @@ async def _internalize_uploaded_documents(
         action=AgentAction.CONTINUE,
         reason="Uploaded materials have been internalized into Agent State. Subsequent searches should supplement, not blindly re-search.",
     ))
+
+
+def _resume_feedback_items(request: ResumeRequest) -> list[str]:
+    items: list[str] = []
+    for label, value in (
+        ("guidance", request.guidance),
+        ("evidence_data", request.evidence_data),
+        ("assistant_brief", request.assistant_brief),
+    ):
+        cleaned = str(value or "").strip()
+        if cleaned:
+            items.append(f"{label}: {cleaned[:12000]}")
+    if request.plan_confirmed:
+        items.append("plan_confirmed: true")
+    return items

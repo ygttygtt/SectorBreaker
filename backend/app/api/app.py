@@ -53,6 +53,7 @@ from backend.app.schemas import (
     ProjectDocumentCreate,
     ResearchProjectCreate,
     ResearchRun,
+    ResumeRequest,
     RunArtifactSummary,
     RunEvent,
     RunProgress,
@@ -935,6 +936,8 @@ def create_app(
                     project=project,
                     repository=repository,
                     search_provider=active_search_provider,
+                    content_extraction_provider=active_content_extraction_provider,
+                    source_verification_provider=source_verifier,
                     llm_provider=active_llm_provider,
                     emit=emit_event,
                     run_id=run.id,
@@ -989,6 +992,8 @@ def create_app(
                     project=project,
                     repository=repository,
                     search_provider=active_search_provider,
+                    content_extraction_provider=active_content_extraction_provider,
+                    source_verification_provider=source_verifier,
                     llm_provider=active_llm_provider,
                     emit=emit_event_continue,
                     run_id=run.id,
@@ -1041,6 +1046,8 @@ def create_app(
                     project=project,
                     repository=repository,
                     search_provider=active_search_provider,
+                    content_extraction_provider=active_content_extraction_provider,
+                    source_verification_provider=source_verifier,
                     llm_provider=active_llm_provider,
                     emit=emit_maintenance_event,
                     run_id=run.id,
@@ -1196,6 +1203,77 @@ def create_app(
         )
         repository.add_user_input(user_input)
         return {"status": "ok", "input_id": user_input.id}
+
+    @app.post("/api/runs/{run_id}/resume")
+    async def resume_waiting_run(
+        run_id: str,
+        payload: ResumeRequest,
+        background_tasks: BackgroundTasks,
+    ):
+        try:
+            run = repository.get_run(run_id)
+            project = repository.get_project(run.project_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="run not found") from exc
+        if run.status != RunStatus.WAITING_FOR_HUMAN:
+            raise HTTPException(status_code=409, detail="only waiting_for_human runs can be resumed")
+        if not payload.plan_confirmed:
+            raise HTTPException(status_code=400, detail="plan_confirmed must be true before resuming")
+        resumed_state = repository.load_run_state_checkpoint(run_id=run_id)
+        if resumed_state is None:
+            raise HTTPException(status_code=409, detail="waiting run has no durable state checkpoint")
+
+        for input_type, content in (
+            ("guidance", payload.guidance),
+            ("evidence_data", payload.evidence_data),
+            ("assistant_brief", payload.assistant_brief),
+        ):
+            cleaned = str(content or "").strip()
+            if not cleaned:
+                continue
+            repository.add_user_input(UserInput(
+                id=f"ui-{uuid4().hex}",
+                run_id=run_id,
+                gate="human_feedback",
+                input_type=input_type,
+                content=cleaned,
+            ))
+
+        repository.update_run(run_id, status=RunStatus.RUNNING, current_gate="initialize_state")
+
+        async def emit_resume_event(event: RunEvent) -> None:
+            assert_no_legacy_personal_run_event(event)
+            repository.add_run_event(event, run_id)
+            repository.update_run(run_id, current_gate=event.gate, current_step=event.step)
+
+        async def resume_in_background() -> None:
+            try:
+                result = await run_v2_agent_kernel_pipeline(
+                    project=project,
+                    repository=repository,
+                    search_provider=active_search_provider,
+                    content_extraction_provider=active_content_extraction_provider,
+                    source_verification_provider=source_verifier,
+                    llm_provider=active_llm_provider,
+                    emit=emit_resume_event,
+                    run_id=run_id,
+                    resume_state=resumed_state,
+                    resume_request=payload,
+                    project_retriever=project_retriever,
+                )
+                _finalize_kernel_run(repository, run_id, result)
+            except Exception as exc:
+                repository.add_run_event(RunEvent(
+                    event_type="error",
+                    gate="agent_decide",
+                    agent="V3 Agent Kernel",
+                    message=str(exc)[:800],
+                    severity="error",
+                ), run_id)
+                repository.update_run(run_id, status=RunStatus.FAILED, completed_at=datetime.now(UTC))
+
+        background_tasks.add_task(resume_in_background)
+        return {"status": "resumed", "run_id": run_id}
 
     # ── Evidence & Artifacts ──────────────────────────────────────
 

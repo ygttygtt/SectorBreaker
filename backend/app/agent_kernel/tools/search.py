@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from math import ceil
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from backend.app.agent_kernel.models import KernelObservation, KernelStateDelta, ToolSpec
@@ -102,6 +103,7 @@ async def search_web(tool_call, context: KernelRuntimeContext) -> KernelObservat
     results = []
     query_diagnostics = []
     seen_result_urls: set[str] = set()
+    domain_rejected = 0
     for query in queries:
         query_results = await context.search_provider.search(SearchQuery(
             query=query,
@@ -113,6 +115,13 @@ async def search_web(tool_call, context: KernelRuntimeContext) -> KernelObservat
         accepted_for_query = 0
         for result in query_results:
             canonical_url = (result.url or "").strip()
+            if canonical_url and not _url_matches_domain_policy(
+                canonical_url,
+                allowed_domains=allowed_domains,
+                blocked_domains=blocked_domains,
+            ):
+                domain_rejected += 1
+                continue
             if canonical_url and canonical_url in seen_result_urls:
                 continue
             if canonical_url:
@@ -143,23 +152,81 @@ async def search_web(tool_call, context: KernelRuntimeContext) -> KernelObservat
     evidence_ids: list[str] = []
     source_memories: list[SourceMemory] = []
     claims: list[KnowledgeClaim] = []
-    for result in accepted:
+    extraction_diagnostics: list[dict[str, str | bool]] = []
+    for index, result in enumerate(accepted):
+        raw_excerpt = result.snippet or result.title or ""
+        source_title = result.title or result.url or query
+        extraction_provider = None
+        extraction_metadata = {}
+        extracted_at = None
+        assessment = None
+        if index < 3 and result.url and context.content_extraction_provider is not None:
+            try:
+                page = await context.content_extraction_provider.extract_url(result.url)
+                extracted_text = _readable_extracted_text(page.raw_text)
+                if extracted_text:
+                    raw_excerpt = extracted_text[:12000]
+                    source_title = page.title or source_title
+                    extraction_provider = page.extraction_provider or type(context.content_extraction_provider).__name__
+                    extraction_metadata = dict(page.extraction_metadata or {})
+                    extracted_at = datetime.now(UTC)
+                    extraction_diagnostics.append({
+                        "url": result.url,
+                        "success": True,
+                        "provider": extraction_provider,
+                    })
+                else:
+                    extraction_diagnostics.append({
+                        "url": result.url,
+                        "success": False,
+                        "error": "empty_or_unreadable_content",
+                    })
+            except Exception as exc:
+                extraction_diagnostics.append({
+                    "url": result.url,
+                    "success": False,
+                    "error": f"{type(exc).__name__}: {str(exc)[:160]}",
+                })
+        if context.source_verification_provider is not None:
+            try:
+                assessment = await context.source_verification_provider.assess_source(
+                    url=result.url,
+                    title=source_title,
+                    snippet=result.snippet,
+                    extracted_text=raw_excerpt if extraction_provider else None,
+                    source_policy=context.project.source_policy.value,
+                )
+            except Exception as exc:
+                extraction_diagnostics.append({
+                    "url": result.url,
+                    "success": False,
+                    "error": f"source_assessment:{type(exc).__name__}: {str(exc)[:120]}",
+                })
+        source_quality = _source_quality(assessment.source_quality if assessment else None)
+        verification_status = _verification_status(
+            assessment.recommended_verification_status if assessment else None
+        )
         evidence = EvidenceItem(
             id=f"EV-KERNEL-{context.project.id}-{uuid4().hex[:8]}",
             project_id=context.project.id,
-            source_title=result.title or result.url or query,
+            source_title=source_title,
             snippet=result.snippet or result.title or "",
             source_url=result.url,
-            source_type="web",
+            source_type=assessment.source_type if assessment else "web",
             source_channel=SourceChannel.SEARCH,
             source_policy=context.project.source_policy.value,
-            raw_excerpt=result.snippet,
-            summary=result.snippet,
-            source_quality=SourceQuality.UNKNOWN,
+            raw_excerpt=raw_excerpt,
+            summary=raw_excerpt[:800],
+            extraction_provider=extraction_provider,
+            extraction_metadata=extraction_metadata,
+            extracted_at=extracted_at,
+            source_quality=source_quality,
             claim_strength=ClaimStrength.OPINION,
-            collected_by="v3_agent_kernel.search_web",
-            confidence=0.45,
-            verification_status=VerificationStatus.UNVERIFIED,
+            bias_risk=assessment.reliability_notes if assessment else None,
+            needs_counterevidence=True,
+            collected_by="v3_agent_kernel.search_web_extract_assess",
+            confidence=0.6 if source_quality == SourceQuality.HIGH else 0.45,
+            verification_status=verification_status,
         )
         context.repository.add_evidence(evidence)
         evidence_ids.append(evidence.id)
@@ -171,7 +238,7 @@ async def search_web(tool_call, context: KernelRuntimeContext) -> KernelObservat
             url=evidence.source_url,
             summary=summary,
             use=SourceUse.EVIDENCE,
-            trust_level=TrustLevel.UNKNOWN,
+            trust_level=_trust_level(source_quality),
             evidence_ids=[evidence.id],
             related_layer_ids=[layer_id] if layer_id else [],
             keep_reason=tool_call.reason or str(tool_call.args.get("search_goal") or ""),
@@ -184,17 +251,19 @@ async def search_web(tool_call, context: KernelRuntimeContext) -> KernelObservat
             evidence_ids=[evidence.id],
             source_memory_ids=[memory.id],
             confidence=0.4,
-            trust_level=TrustLevel.UNKNOWN,
-            verification_status="unverified",
+            trust_level=_trust_level(source_quality),
+            verification_status=verification_status.value,
             needs_verification=True,
-            notes="由 Agent Kernel search_web 工具生成的待验证观察。",
+            notes="由 Agent Kernel search_web 工具生成；来源评级不等于 claim 已核验。",
         ))
     delta = KernelStateDelta(
         source_memories=source_memories,
         claims=claims,
         evidence_ids=evidence_ids,
         task_notes=[
-            f"search_web queries={' | '.join(queries)}; raw={len(results)}; accepted={len(accepted)}; rejected={rejected}"
+            f"search_web queries={' | '.join(queries)}; raw={len(results)}; accepted={len(accepted)}; "
+            f"rejected={rejected}; rejected_by_domain={domain_rejected}; extracted="
+            f"{sum(1 for item in extraction_diagnostics if item.get('success'))}"
         ],
     )
     titles = "；".join(result.title for result in accepted[:5])
@@ -216,6 +285,8 @@ async def search_web(tool_call, context: KernelRuntimeContext) -> KernelObservat
             "raw_result_count": len(results),
             "accepted_count": len(accepted),
             "rejected_count": rejected,
+            "rejected_by_domain": domain_rejected,
+            "extraction_diagnostics": extraction_diagnostics,
             "accepted_titles": [result.title for result in accepted[:8]],
         },
         state_delta=delta,
@@ -251,3 +322,63 @@ def _layer_from_hint(value, fallback) -> KnowledgeLayerId | None:
         except ValueError:
             pass
     return fallback
+
+
+def _url_matches_domain_policy(
+    url: str,
+    *,
+    allowed_domains: list[str],
+    blocked_domains: list[str],
+) -> bool:
+    host = (urlparse(url).hostname or "").lower().rstrip(".")
+    if not host:
+        return False
+
+    def matches(domain: str) -> bool:
+        normalized = domain.lower().strip().lstrip(".").rstrip(".")
+        return bool(normalized) and (host == normalized or host.endswith("." + normalized))
+
+    if any(matches(domain) for domain in blocked_domains):
+        return False
+    return not allowed_domains or any(matches(domain) for domain in allowed_domains)
+
+
+def _readable_extracted_text(value: str | None) -> str | None:
+    text = " ".join(str(value or "").split())
+    if len(text) < 80 or text.startswith("%PDF-") or "\x00" in text:
+        return None
+    return text
+
+
+def _source_quality(value: str | None) -> SourceQuality:
+    try:
+        return SourceQuality(value or SourceQuality.UNKNOWN.value)
+    except ValueError:
+        return SourceQuality.UNKNOWN
+
+
+def _verification_status(value: str | None) -> VerificationStatus:
+    try:
+        status = VerificationStatus(value or VerificationStatus.UNVERIFIED.value)
+    except ValueError:
+        return VerificationStatus.UNVERIFIED
+    return min(status, VerificationStatus.PARTIALLY_VERIFIED, key=_verification_rank)
+
+
+def _verification_rank(status: VerificationStatus) -> int:
+    return {
+        VerificationStatus.UNVERIFIED: 0,
+        VerificationStatus.CONFLICTING: 0,
+        VerificationStatus.PARTIALLY_VERIFIED: 1,
+        VerificationStatus.VERIFIED: 2,
+    }[status]
+
+
+def _trust_level(source_quality: SourceQuality) -> TrustLevel:
+    if source_quality == SourceQuality.HIGH:
+        return TrustLevel.HIGH
+    if source_quality == SourceQuality.MEDIUM:
+        return TrustLevel.MEDIUM
+    if source_quality == SourceQuality.LOW:
+        return TrustLevel.LOW
+    return TrustLevel.UNKNOWN

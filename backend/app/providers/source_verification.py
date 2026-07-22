@@ -128,10 +128,10 @@ class HeuristicSourceVerificationProvider:
             is_original_source = True
             reliability_signals.append("company_disclosure_pattern")
 
+        # This provider assesses the source, not the truth of a claim. Domain
+        # quality alone can never promote evidence to fully verified.
         verification_status = VerificationStatus.PARTIALLY_VERIFIED
-        if source_quality == SourceQuality.HIGH and not is_marketing_like:
-            verification_status = VerificationStatus.VERIFIED
-        elif source_type in {SourceType.COMMUNITY, SourceType.ASSISTANT_BRIEF} or is_marketing_like:
+        if source_type in {SourceType.COMMUNITY, SourceType.ASSISTANT_BRIEF} or is_marketing_like:
             verification_status = VerificationStatus.UNVERIFIED
 
         source_policy_value = source_policy or SourcePolicy.RELIABLE_FIRST.value

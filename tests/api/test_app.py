@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from backend.app.agent_state.models import SectorBreakerState
 from backend.app.api.app import create_app
 from backend.app.providers.fakes import FakeContentExtractionProvider, FakeLLMProvider, FakeSearchProvider
+from backend.app.schemas import RunStatus
 from backend.app.storage.sqlite import SQLiteRepository
 
 
@@ -1394,7 +1395,8 @@ def test_api_creates_and_lists_documents(tmp_path: Path) -> None:
     assert any(item["source_assessment"]["source_type"] == "government" for item in citations.json())
     assert evidence_preview.status_code == 200
     assert any(item["needs_counterevidence"] is True for item in evidence_preview.json())
-    assert any(item["verification_status"] == "verified" for item in evidence_preview.json())
+    assert any(item["verification_status"] == "partially_verified" for item in evidence_preview.json())
+    assert all(item["verification_status"] != "verified" for item in evidence_preview.json())
     assert ingested.status_code == 200
     assert ingested.json()["created_count"] == 2
     assert listed_evidence.status_code == 200
@@ -1727,6 +1729,56 @@ def test_api_continue_uses_latest_project_checkpoint_after_previous_continue(tmp
         for event in [event.model_dump(mode="json") for event in events]
         if event["gate"] == "initialize_state"
     )
+
+
+def test_api_resume_consumes_waiting_run_feedback(tmp_path: Path) -> None:
+    database_path = tmp_path / "sectorbreaker.sqlite3"
+    client = TestClient(
+        create_app(
+            database_path=database_path,
+            export_root=tmp_path / "exports",
+            llm_provider=_default_fake_llm(),
+        )
+    )
+    project_id = client.post(
+        "/api/projects",
+        json={"title": "Resume feedback", "domain": "可恢复研究", "market_scope": "mixed", "depth": "quick"},
+    ).json()["id"]
+    repo = SQLiteRepository(database_path)
+    run = repo.create_run(project_id)
+    repo.update_run(run.id, status=RunStatus.WAITING_FOR_HUMAN)
+    state = SectorBreakerState.initialize(
+        project_id=project_id,
+        domain="可恢复研究",
+        user_goal="等待用户确认后继续",
+    )
+    repo.save_run_state_checkpoint(
+        run_id=run.id,
+        project_id=project_id,
+        state=state,
+        checkpoint_type="run_end",
+        iteration=1,
+    )
+
+    response = client.post(
+        f"/api/runs/{run.id}/resume",
+        json={
+            "guidance": "优先解释官方定义",
+            "evidence_data": "用户提供的待核验线索",
+            "assistant_brief": "外部报告摘要：这个结论仍需交叉验证。",
+            "plan_confirmed": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "resumed", "run_id": run.id}
+    result = _wait_for_run(client, run.id)
+    assert result["status"] == "completed"
+    events = [event.model_dump(mode="json") for event in repo.list_run_events(run.id)]
+    assert any(event["gate"] == "human_feedback" and "消费用户反馈" in event["message"] for event in events)
+    checkpoint = repo.load_run_state_checkpoint(run_id=run.id)
+    assert checkpoint is not None
+    assert any("优先解释官方定义" in item for item in checkpoint.human_feedback)
 
 
 def test_api_exposes_source_registry_status(tmp_path: Path) -> None:

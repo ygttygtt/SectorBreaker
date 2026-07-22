@@ -39,6 +39,7 @@ def test_sqlite_migrations_are_discoverable() -> None:
         "013_artifact_revision_indexes.sql",
         "014_knowledge_management.sql",
         "015_vector_index.sql",
+        "016_evidence_extraction_metadata.sql",
     ]
 
 

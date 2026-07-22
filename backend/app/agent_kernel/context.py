@@ -82,6 +82,7 @@ class KernelContextBuilder:
                 'maintenance_task_summaries': state.maintenance_task_summaries,
                 'active_maintenance_objective': state.active_maintenance_objective,
                 'delegation_log': state.delegation_log[-12:],
+                'human_feedback': state.human_feedback[-12:],
                 'autonomy_policy': state.autonomy_policy.model_dump(mode='json'),
             }, ensure_ascii=False, indent=2)}\n\n"
             "## Available Tools\n"

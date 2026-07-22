@@ -18,6 +18,12 @@ SearXNG adapter can provide complementary result sets. `multi` must query
 providers concurrently and merge them fairly, otherwise the first configured
 provider silently dominates the source pool.
 
+The V3 production Agent now executes the first two layers for selected search
+results: `search_web` post-filters canonical hosts, extracts up to three
+readable pages through the configured extraction Provider, and persists body
+text plus provenance on Evidence. Source assessment remains a quality signal;
+it does not verify claims.
+
 ## Firecrawl Assessment
 
 Firecrawl exposes search, single-page scrape, site map, crawl, batch scrape,
@@ -123,4 +129,3 @@ Next priorities:
    recommendation follow-through, latency, and cost.
 4. Add Firecrawl map/crawl only after a site-crawl request schema, URL/page
    limits, robots/policy behavior, persistence, and acceptance tests exist.
-

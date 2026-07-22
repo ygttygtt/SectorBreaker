@@ -119,11 +119,12 @@ class SQLiteRepository:
                 INSERT OR REPLACE INTO evidence (
                     id, project_id, source_title, source_url, source_type,
                     source_channel, source_policy, raw_excerpt, snippet, summary,
+                    extraction_provider, extraction_metadata, extracted_at,
                     claims, source_quality, claim_strength, bias_risk, recency,
                     corroborating_evidence_ids, conflicting_evidence_ids,
                     needs_counterevidence, collected_by, used_by_artifact_ids,
                     confidence, verification_status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     evidence.id,
@@ -136,6 +137,9 @@ class SQLiteRepository:
                     evidence.raw_excerpt,
                     evidence.snippet,
                     evidence.summary,
+                    evidence.extraction_provider,
+                    json.dumps(evidence.extraction_metadata, ensure_ascii=False),
+                    evidence.extracted_at.isoformat() if evidence.extracted_at else None,
                     json.dumps([claim.model_dump(mode="json") for claim in evidence.claims], ensure_ascii=False),
                     evidence.source_quality.value,
                     evidence.claim_strength.value,
@@ -814,6 +818,17 @@ class SQLiteRepository:
             raw_excerpt=row["raw_excerpt"],
             snippet=row["snippet"],
             summary=row["summary"],
+            extraction_provider=row["extraction_provider"] if "extraction_provider" in row.keys() else None,
+            extraction_metadata=(
+                json.loads(row["extraction_metadata"])
+                if "extraction_metadata" in row.keys() and row["extraction_metadata"]
+                else {}
+            ),
+            extracted_at=(
+                datetime.fromisoformat(row["extracted_at"])
+                if "extracted_at" in row.keys() and row["extracted_at"]
+                else None
+            ),
             claims=[EvidenceClaim(**item) for item in json.loads(row["claims"] or "[]")],
             source_quality=SourceQuality(row["source_quality"] or SourceQuality.UNKNOWN.value),
             claim_strength=ClaimStrength(row["claim_strength"] or ClaimStrength.OPINION.value),

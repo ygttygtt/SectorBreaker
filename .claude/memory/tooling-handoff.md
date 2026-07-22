@@ -15,9 +15,11 @@ Current production architecture:
 - typed Specialist delegation with role tool allowlists;
 - bounded Specialist artifact/local-retrieval context, with external recommendations routed back through the Master;
 - concurrent Tavily/Serper/Brave/Exa/Firecrawl search and honest source-pack execution status;
+- production body extraction with persisted provenance and post-filtered domain policy;
+- typed waiting-run resume that feeds persisted user input into State;
 - active-only local Hybrid RAG and V3 Obsidian export;
 - no enterprise talent or old workflow production code.
 
-Verification baseline: backend 209 passed, frontend 30 passed/build passed, real local semantic smoke passed, version isolation passed.
+Verification baseline: backend 211 passed, frontend 30 passed/build passed, real local semantic smoke passed, version isolation passed.
 
 Do not claim an architecture change ready from unit tests alone. Run the real user path and inspect the exported Vault.
