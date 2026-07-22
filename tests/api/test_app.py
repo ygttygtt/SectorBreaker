@@ -674,6 +674,62 @@ def test_api_exposes_workflow_definition_and_source_policy(tmp_path: Path) -> No
     assert "specialist_react_loop" not in node_ids
 
 
+def test_api_persists_and_updates_project_source_preferences(tmp_path: Path) -> None:
+    client = TestClient(
+        create_app(
+            database_path=tmp_path / "sectorbreaker.sqlite3",
+            export_root=tmp_path / "exports",
+            llm_provider=_default_fake_llm(),
+        )
+    )
+    created = client.post(
+        "/api/projects",
+        json={
+            "title": "技术信源项目",
+            "domain": "AI Agent",
+            "market_scope": "mixed",
+            "depth": "quick",
+            "source_policy": "open_web",
+            "source_preferences": {
+                "source_pack_ids": ["tech_frontier_pack"],
+                "custom_allowed_domains": ["example.com"],
+                "blocked_domains": ["spam.example"],
+                "enforcement": "require",
+            },
+        },
+    )
+
+    assert created.status_code == 200
+    project = created.json()
+    assert project["source_preferences"]["source_pack_ids"] == ["tech_frontier_pack"]
+
+    updated = client.patch(
+        f"/api/projects/{project['id']}",
+        json={
+            "source_preferences": {
+                "source_pack_ids": ["company_china_pack"],
+                "enforcement": "prefer",
+            }
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["source_preferences"]["source_pack_ids"] == ["company_china_pack"]
+    assert client.get(f"/api/projects/{project['id']}").json()["source_preferences"] == updated.json()["source_preferences"]
+
+    rejected = client.post(
+        "/api/projects",
+        json={
+            "title": "未知信源包",
+            "domain": "AI",
+            "market_scope": "mixed",
+            "depth": "quick",
+            "source_preferences": {"source_pack_ids": ["not_real"], "enforcement": "prefer"},
+        },
+    )
+    assert rejected.status_code == 422
+    assert "unknown source pack" in rejected.json()["detail"]
+
+
 def test_api_exposes_search_config_status(tmp_path: Path) -> None:
     os.environ.pop("SEARCH_PROVIDER_MODE", None)
     os.environ.pop("TAVILY_API_KEY", None)

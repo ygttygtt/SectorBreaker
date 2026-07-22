@@ -110,6 +110,7 @@ CHINA_RELIABLE_PACK = SourcePack(
         ReliableSourceRule("neeq.com.cn", SourceType.COMPANY_DISCLOSURE, "neeq_disclosure"),
     ),
     blocked_domains=("medium.com", "substack.com", "zhihu.com", "xiaohongshu.com"),
+    display_name="中国公共权威信源",
 )
 
 GLOBAL_RELIABLE_PACK = SourcePack(
@@ -127,6 +128,7 @@ GLOBAL_RELIABLE_PACK = SourcePack(
         ReliableSourceRule("data.gov", SourceType.PUBLIC_DATABASE, "us_open_data"),
     ),
     blocked_domains=("medium.com", "substack.com", "reddit.com", "quora.com"),
+    display_name="全球公共权威信源",
 )
 
 SOURCE_PACKS: tuple[SourcePack, ...] = (CHINA_RELIABLE_PACK, GLOBAL_RELIABLE_PACK)

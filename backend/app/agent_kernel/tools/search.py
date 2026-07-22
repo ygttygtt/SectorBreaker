@@ -16,7 +16,7 @@ from backend.app.agent_state.models import (
     TrustLevel,
 )
 from backend.app.providers.interfaces import SearchQuery
-from backend.app.providers.source_policy import search_constraints_for_policy, url_matches_domain_policy
+from backend.app.providers.source_policy import build_project_search_constraints, url_matches_domain_policy
 from backend.app.schemas import (
     ClaimStrength,
     EvidenceItem,
@@ -88,10 +88,16 @@ async def search_web(tool_call, context: KernelRuntimeContext) -> KernelObservat
     context.search_call_count += 1
     total_result_budget = max(1, min(max_results, 16))
     per_query_limit = max(3, min(8, ceil(total_result_budget / len(queries))))
-    allowed_domains, blocked_domains = search_constraints_for_policy(
+    constraints = build_project_search_constraints(
         {
             "market_scope": context.project.market_scope.value,
             "source_policy": context.project.source_policy.value,
+            "source_preferences": {
+                "source_pack_ids": context.state.meta_context.source_pack_ids,
+                "custom_allowed_domains": context.state.meta_context.custom_allowed_domains,
+                "blocked_domains": context.state.meta_context.blocked_domains,
+                "enforcement": context.state.meta_context.source_enforcement,
+            },
         },
         preferred_domains=[
             str(domain).strip().lower()
@@ -99,39 +105,70 @@ async def search_web(tool_call, context: KernelRuntimeContext) -> KernelObservat
             if str(domain).strip()
         ],
     )
+    allowed_domains = constraints.primary_allowed_domains
+    blocked_domains = constraints.blocked_domains
     results = []
     query_diagnostics = []
     seen_result_urls: set[str] = set()
+    result_queries: dict[str, str] = {}
     domain_rejected = 0
+    provider_request_count = 0
+    fallback_used = False
     for query in queries:
-        query_results = await context.search_provider.search(SearchQuery(
+        primary_results = await context.search_provider.search(SearchQuery(
             query=query,
             market_scope=context.project.market_scope.value,
             max_results=per_query_limit,
-            allowed_domains=allowed_domains,
-            blocked_domains=blocked_domains,
+            allowed_domains=constraints.primary_allowed_domains,
+            blocked_domains=constraints.blocked_domains,
         ))
+        provider_request_count += 1
+        batches = [(primary_results, constraints.primary_allowed_domains, "preferred")]
+        fallback_results = []
+        fallback_reason = None
+        if (
+            constraints.fallback_allowed_domains is not None
+            and len(primary_results) < min(2, per_query_limit)
+            and constraints.fallback_allowed_domains != constraints.primary_allowed_domains
+        ):
+            fallback_reason = "preferred_sources_returned_insufficient_results"
+            fallback_results = await context.search_provider.search(SearchQuery(
+                query=query,
+                market_scope=context.project.market_scope.value,
+                max_results=per_query_limit,
+                allowed_domains=constraints.fallback_allowed_domains,
+                blocked_domains=constraints.blocked_domains,
+            ))
+            provider_request_count += 1
+            fallback_used = True
+            batches.append((fallback_results, constraints.fallback_allowed_domains, "fallback"))
         accepted_for_query = 0
-        for result in query_results:
-            canonical_url = (result.url or "").strip()
-            if not canonical_url or not url_matches_domain_policy(
-                canonical_url,
-                allowed_domains=allowed_domains,
-                blocked_domains=blocked_domains,
-            ):
-                domain_rejected += 1
-                continue
-            if canonical_url and canonical_url in seen_result_urls:
-                continue
-            if canonical_url:
+        for batch_results, batch_allowed_domains, _batch_kind in batches:
+            for result in batch_results:
+                canonical_url = (result.url or "").strip()
+                if not canonical_url or not url_matches_domain_policy(
+                    canonical_url,
+                    allowed_domains=batch_allowed_domains,
+                    blocked_domains=blocked_domains,
+                ):
+                    domain_rejected += 1
+                    continue
+                if canonical_url in seen_result_urls:
+                    continue
                 seen_result_urls.add(canonical_url)
-            results.append(result)
-            accepted_for_query += 1
+                result_queries[canonical_url] = query
+                results.append(result)
+                accepted_for_query += 1
+                if len(results) >= total_result_budget:
+                    break
             if len(results) >= total_result_budget:
                 break
         query_diagnostics.append({
             "query": query,
-            "raw_result_count": len(query_results),
+            "raw_result_count": len(primary_results) + len(fallback_results),
+            "preferred_result_count": len(primary_results),
+            "fallback_result_count": len(fallback_results),
+            "fallback_reason": fallback_reason,
             "merged_result_count": accepted_for_query,
         })
         if len(results) >= total_result_budget:
@@ -218,6 +255,15 @@ async def search_web(tool_call, context: KernelRuntimeContext) -> KernelObservat
             summary=raw_excerpt[:800],
             extraction_provider=extraction_provider,
             extraction_metadata=extraction_metadata,
+            collection_metadata={
+                "query": result_queries.get(result.url or "", queries[0]),
+                "source_pack_ids": constraints.source_pack_ids,
+                "source_enforcement": constraints.enforcement,
+                "effective_allowed_domains": allowed_domains,
+                "effective_blocked_domains": blocked_domains,
+                "fallback_used": fallback_used,
+                "provider_request_count": provider_request_count,
+            },
             extracted_at=extracted_at,
             source_quality=source_quality,
             claim_strength=ClaimStrength.OPINION,
@@ -281,6 +327,10 @@ async def search_web(tool_call, context: KernelRuntimeContext) -> KernelObservat
             "query_diagnostics": query_diagnostics,
             "allowed_domains": allowed_domains,
             "blocked_domains": blocked_domains,
+            "source_pack_ids": constraints.source_pack_ids,
+            "source_enforcement": constraints.enforcement,
+            "fallback_used": fallback_used,
+            "provider_request_count": provider_request_count,
             "raw_result_count": len(results),
             "accepted_count": len(accepted),
             "rejected_count": rejected,

@@ -8,11 +8,13 @@ from backend.app.schemas import (
     ArtifactType,
     EvidenceItem,
     MarketScope,
+    ProjectSourcePreferences,
     ResearchDepth,
     ResearchFrameOutput,
     ResearchGate,
     ResearchProjectCreate,
     ResearchState,
+    SourceEnforcement,
     VerificationStatus,
 )
 
@@ -39,6 +41,14 @@ def test_project_create_rejects_retired_enterprise_mode() -> None:
             depth=ResearchDepth.QUICK,
             project_mode="talent_demand",
         )
+
+
+def test_project_source_preferences_validate_domains_and_required_allow_list() -> None:
+    with pytest.raises(ValidationError, match="invalid domain"):
+        ProjectSourcePreferences(custom_allowed_domains=["https://example.com/path"])
+
+    with pytest.raises(ValidationError, match="needs a source pack"):
+        ProjectSourcePreferences(enforcement=SourceEnforcement.REQUIRE)
 
 
 def test_verified_evidence_requires_source_url() -> None:

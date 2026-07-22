@@ -11,7 +11,15 @@ from backend.app.agent_state import KnowledgeClaim, SectorBreakerState, SourceMe
 from backend.app.providers.interfaces import SearchResult
 from backend.app.providers.fakes import FakeContentExtractionProvider
 from backend.app.providers.source_verification import HeuristicSourceVerificationProvider
-from backend.app.schemas import MarketScope, ProjectStatus, ResearchDepth, ResearchProject, SourcePolicy
+from backend.app.schemas import (
+    MarketScope,
+    ProjectSourcePreferences,
+    ProjectStatus,
+    ResearchDepth,
+    ResearchProject,
+    SourceEnforcement,
+    SourcePolicy,
+)
 
 
 def _project() -> ResearchProject:
@@ -154,6 +162,114 @@ def test_search_web_supports_human_query_variants() -> None:
     assert observation.data["queries"] == [item[0] for item in search_provider.queries]
     assert len(observation.state_delta.source_memories) == 3
     assert len(repository.evidence) == 3
+
+
+def test_search_web_preferred_pack_falls_back_and_records_policy() -> None:
+    class FakeSearchProvider:
+        def __init__(self) -> None:
+            self.allowed_domains = []
+
+        async def search(self, query):
+            self.allowed_domains.append(query.allowed_domains)
+            if query.allowed_domains:
+                return []
+            return [SearchResult(title="Fallback", url="https://example.com/report", snippet="fallback result")]
+
+    class FakeRepository:
+        def __init__(self) -> None:
+            self.evidence = []
+
+        def list_evidence(self, project_id):
+            return self.evidence
+
+        def add_evidence(self, evidence):
+            self.evidence.append(evidence)
+
+    project = _project().model_copy(update={
+        "source_preferences": ProjectSourcePreferences(
+            source_pack_ids=["tech_frontier_pack"],
+            enforcement=SourceEnforcement.PREFER,
+        )
+    })
+    state = SectorBreakerState.initialize(
+        project_id=project.id,
+        domain=project.domain,
+        user_goal="建库",
+        source_policy=project.source_policy.value,
+        source_pack_ids=project.source_preferences.source_pack_ids,
+        source_enforcement=project.source_preferences.enforcement.value,
+    )
+    provider = FakeSearchProvider()
+    repository = FakeRepository()
+    context = KernelRuntimeContext(
+        project=project,
+        repository=repository,  # type: ignore[arg-type]
+        state=state,
+        search_provider=provider,  # type: ignore[arg-type]
+        llm_provider=None,
+        emit_event=lambda event: _async_value(None),
+    )
+
+    observation = asyncio.run(search_web(
+        ToolCall(tool_name="search_web", args={"query": "agent", "search_goal": "test"}),
+        context,
+    ))
+
+    assert observation.success is True
+    assert provider.allowed_domains[0] and "github.com" in provider.allowed_domains[0]
+    assert provider.allowed_domains[1] == []
+    assert observation.data["fallback_used"] is True
+    assert repository.evidence[0].collection_metadata["source_pack_ids"] == ["tech_frontier_pack"]
+    assert repository.evidence[0].collection_metadata["fallback_used"] is True
+
+
+def test_search_web_required_pack_rejects_out_of_domain_results() -> None:
+    class FakeRepository:
+        def list_evidence(self, project_id):
+            return []
+
+        def add_evidence(self, evidence):
+            raise AssertionError("out-of-domain evidence must not be persisted")
+
+    project = _project().model_copy(update={
+        "source_preferences": ProjectSourcePreferences(
+            source_pack_ids=["tech_frontier_pack"],
+            enforcement=SourceEnforcement.REQUIRE,
+        )
+    })
+    state = SectorBreakerState.initialize(
+        project_id=project.id,
+        domain=project.domain,
+        user_goal="建库",
+        source_policy=project.source_policy.value,
+        source_pack_ids=project.source_preferences.source_pack_ids,
+        source_enforcement=project.source_preferences.enforcement.value,
+    )
+    context = KernelRuntimeContext(
+        project=project,
+        repository=FakeRepository(),  # type: ignore[arg-type]
+        state=state,
+        search_provider=type("Provider", (), {
+            "search": lambda self, query: _async_value([
+                SearchResult(title="Off domain", url="https://untrusted.example/report", snippet="bad")
+            ])
+        })(),  # type: ignore[arg-type]
+        llm_provider=None,
+        emit_event=lambda event: _async_value(None),
+    )
+
+    observation = asyncio.run(search_web(
+        ToolCall(
+            tool_name="search_web",
+            args={"query": "agent", "search_goal": "test", "preferred_domains": ["untrusted.example"]},
+        ),
+        context,
+    ))
+
+    assert observation.success is False
+    assert observation.data["fallback_used"] is False
+    assert "untrusted.example" not in observation.data["allowed_domains"]
+    assert observation.data["rejected_by_domain"] == 1
 
 
 def test_search_web_extracts_page_body_and_persists_honest_assessment() -> None:

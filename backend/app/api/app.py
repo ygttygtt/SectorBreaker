@@ -52,7 +52,9 @@ from backend.app.schemas import (
     Artifact,
     ArtifactType,
     ProjectDocumentCreate,
+    ProjectSourcePreferences,
     ResearchProjectCreate,
+    ResearchProjectUpdate,
     ResearchRun,
     ResumeRequest,
     RunArtifactSummary,
@@ -317,6 +319,16 @@ def _validate_document_upload(file_name: str | None, mime_type: str | None) -> N
         raise HTTPException(status_code=400, detail="unsupported document extension")
     if mime_type and mime_type not in ALLOWED_DOCUMENT_MIME_TYPES:
         raise HTTPException(status_code=400, detail="unsupported document mime type")
+
+
+def _validate_project_source_packs(
+    payload: ProjectSourcePreferences,
+    source_registry: SourceRegistry,
+) -> None:
+    known_pack_ids = {pack.name for pack in source_registry.packs}
+    unknown = sorted(set(payload.source_pack_ids) - known_pack_ids)
+    if unknown:
+        raise HTTPException(status_code=422, detail=f"unknown source pack ids: {', '.join(unknown)}")
 
 
 def _search_provider_names(active_search_provider: SearchProvider | None) -> list[str]:
@@ -785,11 +797,26 @@ def create_app(
 
     @app.post("/api/projects")
     def create_project(payload: ResearchProjectCreate):
+        _validate_project_source_packs(payload.source_preferences, source_registry)
         return repository.create_project(payload).model_dump(mode="json")
 
     @app.get("/api/projects")
     def list_projects():
         return [project.model_dump(mode="json") for project in repository.list_projects()]
+
+    @app.patch("/api/projects/{project_id}")
+    def update_project(project_id: str, payload: ResearchProjectUpdate):
+        _validate_project_source_packs(payload.source_preferences, source_registry)
+        try:
+            project = repository.get_project(project_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="project not found") from exc
+        if project.status.value == "archived":
+            raise HTTPException(status_code=400, detail="archived projects cannot be updated")
+        return repository.update_project_source_preferences(
+            project_id,
+            payload.source_preferences,
+        ).model_dump(mode="json")
 
     @app.get("/api/config/retrieval")
     def get_retrieval_status(project_id: str | None = None):

@@ -7,12 +7,14 @@ from backend.app.schemas import (
     EvidenceItem,
     MarketScope,
     ProjectMode,
+    ProjectSourcePreferences,
     ProjectDocumentCreate,
     ResearchDepth,
     ResearchProjectCreate,
     RunEvent,
     SourceChannel,
     SourcePolicy,
+    SourceEnforcement,
     SourceQuality,
     VerificationStatus,
 )
@@ -40,6 +42,8 @@ def test_sqlite_migrations_are_discoverable() -> None:
         "014_knowledge_management.sql",
         "015_vector_index.sql",
         "016_evidence_extraction_metadata.sql",
+        "017_project_source_preferences.sql",
+        "018_evidence_collection_metadata.sql",
     ]
 
 
@@ -55,6 +59,11 @@ def test_sqlite_repository_creates_project_and_evidence(tmp_path: Path) -> None:
             market_scope=MarketScope.MIXED,
             depth=ResearchDepth.STANDARD,
             source_policy=SourcePolicy.RELIABLE_ONLY,
+            source_preferences=ProjectSourcePreferences(
+                source_pack_ids=["tech_frontier_pack"],
+                custom_allowed_domains=["example.com"],
+                enforcement=SourceEnforcement.REQUIRE,
+            ),
         )
     )
     evidence = EvidenceItem(
@@ -72,6 +81,7 @@ def test_sqlite_repository_creates_project_and_evidence(tmp_path: Path) -> None:
         needs_counterevidence=True,
         confidence=0.7,
         verification_status=VerificationStatus.PARTIALLY_VERIFIED,
+        collection_metadata={"source_pack_ids": ["tech_frontier_pack"], "fallback_used": False},
     )
 
     repository.add_evidence(evidence)
@@ -80,10 +90,21 @@ def test_sqlite_repository_creates_project_and_evidence(tmp_path: Path) -> None:
     assert repository.get_project(project.id).project_mode == ProjectMode.DOMAIN_KNOWLEDGE
     saved = repository.list_evidence(project.id)[0]
     assert repository.get_project(project.id).source_policy == SourcePolicy.RELIABLE_ONLY
+    assert repository.get_project(project.id).source_preferences.source_pack_ids == ["tech_frontier_pack"]
     assert saved.source_url == "https://example.com/ai-agent-market"
     assert saved.source_quality == SourceQuality.MEDIUM
     assert saved.needs_counterevidence is True
     assert saved.claims[0].claim_id == "CL-001"
+    assert saved.collection_metadata["fallback_used"] is False
+
+    updated = repository.update_project_source_preferences(
+        project.id,
+        ProjectSourcePreferences(
+            source_pack_ids=["company_china_pack"],
+            enforcement=SourceEnforcement.PREFER,
+        ),
+    )
+    assert updated.source_preferences.source_pack_ids == ["company_china_pack"]
 
 
 def test_enterprise_project_rows_are_archived_and_normalized_by_migration(tmp_path: Path) -> None:

@@ -10,7 +10,15 @@ export interface Project {
   depth: string;
   source_policy?: string;
   project_mode?: "domain_knowledge";
+  source_preferences: ProjectSourcePreferences;
   status: string;
+}
+
+export interface ProjectSourcePreferences {
+  source_pack_ids: string[];
+  custom_allowed_domains: string[];
+  blocked_domains: string[];
+  enforcement: "prefer" | "require";
 }
 
 export interface CreateProjectPayload {
@@ -20,6 +28,7 @@ export interface CreateProjectPayload {
   depth: string;
   source_policy: string;
   project_mode?: "domain_knowledge";
+  source_preferences?: ProjectSourcePreferences;
 }
 
 export interface RunResponse {
@@ -680,6 +689,13 @@ export const api = {
 
   rollbackChangeSet(projectId: string, changeSetId: string) {
     return requestJson<ChangeSet>(`/api/projects/${projectId}/change-sets/${changeSetId}/rollback`, { method: "POST" });
+  },
+
+  updateProject(projectId: string, data: { source_preferences: ProjectSourcePreferences }) {
+    return requestJson<Project>(`/api/projects/${projectId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
   },
 
   getRetrievalStatus(projectId?: string) {

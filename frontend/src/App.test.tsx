@@ -484,10 +484,20 @@ test("shows explicit warning when search is not configured", async () => {
 test("startRun is called when button is clicked", async () => {
   render(<App />);
   fireEvent.change(screen.getByPlaceholderText(/AI Agent 工具/), { target: { value: "AI Agent 工具" } });
+  fireEvent.click(await screen.findByLabelText("中国企业与披露信源"));
+  fireEvent.click(screen.getByRole("button", { name: "仅限所选" }));
   await waitFor(() => expect(screen.getByRole("button", { name: /开始构建知识库/ })).not.toBeDisabled());
   fireEvent.click(screen.getByRole("button", { name: /开始构建知识库/ }));
   await waitFor(() => expect(mockStartRun).toHaveBeenCalled());
-  expect(mockCreateProject).toHaveBeenCalledWith(expect.objectContaining({ project_mode: "domain_knowledge" }));
+  expect(mockCreateProject).toHaveBeenCalledWith(expect.objectContaining({
+    project_mode: "domain_knowledge",
+    source_preferences: {
+      source_pack_ids: ["company_china_pack"],
+      custom_allowed_domains: [],
+      blocked_domains: [],
+      enforcement: "require",
+    },
+  }));
   expect(mockStartRun).toHaveBeenCalledWith("project-1", true);
   expect(mockResumeRun).not.toHaveBeenCalled();
 });
@@ -971,7 +981,7 @@ test("config panel shows reliable source onboarding and key requirements", async
   fireEvent.click(screen.getByRole("button", { name: /LLM 设置/ }));
 
   expect(await screen.findByText("可靠信源接入")).toBeInTheDocument();
-  expect(screen.getByText("中国企业与披露信源")).toBeInTheDocument();
+  expect(screen.getAllByText("中国企业与披露信源").length).toBeGreaterThan(0);
   expect(screen.getByText("巨潮资讯公开披露")).toBeInTheDocument();
   expect(screen.getByText("企查查开放平台")).toBeInTheDocument();
   expect(screen.getByText(/需要 QCC_API_KEY/)).toBeInTheDocument();

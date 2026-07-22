@@ -14,9 +14,27 @@ retired enterprise payload.
 - `PATCH /api/projects/{project_id}` (target)
 - `GET /api/projects/{project_id}/workflow-definition`
 
-Project creation accepts title, domain/knowledge goal, market scope, depth, and
-source policy. V3 exposes one knowledge-management product path; there is no
-talent-demand selector.
+Project creation accepts title, domain/knowledge goal, market scope, depth,
+source policy, and typed `source_preferences`. V3 exposes one
+knowledge-management product path; there is no talent-demand selector.
+
+`source_preferences` contains:
+
+```json
+{
+  "source_pack_ids": ["company_china_pack"],
+  "custom_allowed_domains": ["example-regulator.gov.cn"],
+  "blocked_domains": ["content-farm.example"],
+  "enforcement": "prefer"
+}
+```
+
+Unknown pack ids and malformed domains are rejected. `prefer` first searches
+the selected pack/custom domains and may perform one explicit fallback to the
+base source policy when results are insufficient. `require` is a hard
+allow-list: Agent-proposed domains may narrow it but can never expand it.
+`PATCH /api/projects/{project_id}` updates these preferences for later runs;
+an already-running run keeps the policy captured in its State checkpoint.
 
 Archived projects cannot start or continue runs.
 

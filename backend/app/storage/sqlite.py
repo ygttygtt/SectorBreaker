@@ -27,6 +27,7 @@ from backend.app.schemas import (
     ResearchDepth,
     ResearchProject,
     ResearchProjectCreate,
+    ProjectSourcePreferences,
     ResearchRun,
     RunEvent,
     RunStatus,
@@ -73,6 +74,7 @@ class SQLiteRepository:
             source_policy=payload.source_policy,
             project_mode=payload.project_mode,
             custom_market_scope=payload.custom_market_scope,
+            source_preferences=payload.source_preferences,
             created_at=now,
             updated_at=now,
         )
@@ -81,8 +83,9 @@ class SQLiteRepository:
                 """
                 INSERT INTO projects (
                     id, title, domain, market_scope, depth, status,
-                    source_policy, project_mode, custom_market_scope, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    source_policy, project_mode, custom_market_scope,
+                    source_preferences, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     project.id,
@@ -94,6 +97,7 @@ class SQLiteRepository:
                     project.source_policy.value,
                     project.project_mode.value,
                     project.custom_market_scope,
+                    json.dumps(project.source_preferences.model_dump(mode="json"), ensure_ascii=False),
                     project.created_at.isoformat(),
                     project.updated_at.isoformat(),
                 ),
@@ -112,6 +116,25 @@ class SQLiteRepository:
             rows = connection.execute("SELECT * FROM projects ORDER BY created_at DESC").fetchall()
         return [self._row_to_project(row) for row in rows]
 
+    def update_project_source_preferences(
+        self,
+        project_id: str,
+        source_preferences: ProjectSourcePreferences,
+    ) -> ResearchProject:
+        now = datetime.now(UTC)
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE projects SET source_preferences = ?, updated_at = ? WHERE id = ?",
+                (
+                    json.dumps(source_preferences.model_dump(mode="json"), ensure_ascii=False),
+                    now.isoformat(),
+                    project_id,
+                ),
+            )
+            if cursor.rowcount == 0:
+                raise KeyError(f"project not found: {project_id}")
+        return self.get_project(project_id)
+
     def add_evidence(self, evidence: EvidenceItem) -> None:
         with self._connect() as connection:
             connection.execute(
@@ -119,12 +142,12 @@ class SQLiteRepository:
                 INSERT OR REPLACE INTO evidence (
                     id, project_id, source_title, source_url, source_type,
                     source_channel, source_policy, raw_excerpt, snippet, summary,
-                    extraction_provider, extraction_metadata, extracted_at,
+                    extraction_provider, extraction_metadata, collection_metadata, extracted_at,
                     claims, source_quality, claim_strength, bias_risk, recency,
                     corroborating_evidence_ids, conflicting_evidence_ids,
                     needs_counterevidence, collected_by, used_by_artifact_ids,
                     confidence, verification_status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     evidence.id,
@@ -139,6 +162,7 @@ class SQLiteRepository:
                     evidence.summary,
                     evidence.extraction_provider,
                     json.dumps(evidence.extraction_metadata, ensure_ascii=False),
+                    json.dumps(evidence.collection_metadata, ensure_ascii=False),
                     evidence.extracted_at.isoformat() if evidence.extracted_at else None,
                     json.dumps([claim.model_dump(mode="json") for claim in evidence.claims], ensure_ascii=False),
                     evidence.source_quality.value,
@@ -801,6 +825,11 @@ class SQLiteRepository:
             ),
             status=ProjectStatus(row["status"]),
             custom_market_scope=row["custom_market_scope"],
+            source_preferences=ProjectSourcePreferences.model_validate_json(
+                row["source_preferences"]
+                if "source_preferences" in row_keys and row["source_preferences"]
+                else "{}"
+            ),
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
         )
@@ -822,6 +851,11 @@ class SQLiteRepository:
             extraction_metadata=(
                 json.loads(row["extraction_metadata"])
                 if "extraction_metadata" in row.keys() and row["extraction_metadata"]
+                else {}
+            ),
+            collection_metadata=(
+                json.loads(row["collection_metadata"])
+                if "collection_metadata" in row.keys() and row["collection_metadata"]
                 else {}
             ),
             extracted_at=(

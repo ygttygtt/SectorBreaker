@@ -82,6 +82,29 @@ button { border: 0; }
 }
 .landing-input:focus, textarea:focus, input:focus { outline: 2px solid rgba(15, 118, 110, .16); border-color: var(--green); }
 .source-policy-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.project-source-selector {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 12px 0;
+  border: 0;
+  border-top: 1px solid var(--soft-line);
+  border-bottom: 1px solid var(--soft-line);
+}
+.project-source-selector legend { padding: 0; font-size: 13px; font-weight: 700; color: #344054; }
+.project-source-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 14px; }
+.project-source-options label { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; }
+.project-source-options input { width: 16px; height: 16px; accent-color: var(--green); }
+.project-source-options span { overflow-wrap: anywhere; }
+.source-enforcement-control { display: inline-grid; grid-template-columns: 1fr 1fr; width: min(300px, 100%); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.source-enforcement-control button { min-height: 32px; padding: 6px 10px; background: #fff; color: var(--muted); cursor: pointer; }
+.source-enforcement-control button + button { border-left: 1px solid var(--line); }
+.source-enforcement-control button.is-active { background: #e8f4f2; color: var(--green-dark); font-weight: 700; }
+.project-source-selector details { color: var(--muted); font-size: 12px; }
+.project-source-selector summary { cursor: pointer; color: var(--blue); }
+.project-source-domain-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+.project-source-domain-grid label { display: grid; gap: 5px; }
+.project-source-domain-grid textarea { width: 100%; resize: vertical; border: 1px solid var(--line); border-radius: 6px; padding: 8px; color: var(--ink); background: #fff; }
 .source-policy-card {
   text-align: left;
   min-height: 88px;
@@ -1439,6 +1462,11 @@ textarea,
   }
 
   .mode-switch {
+    grid-template-columns: 1fr;
+  }
+
+  .project-source-options,
+  .project-source-domain-grid {
     grid-template-columns: 1fr;
   }
 

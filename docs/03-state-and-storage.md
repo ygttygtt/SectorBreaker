@@ -15,6 +15,8 @@ work.
 ### ResearchProject
 
 - id, title, domain, market scope, depth, source policy, status;
+- typed source preferences: selected source-pack ids, custom allow/block
+  domains, and `prefer` or `require` enforcement;
 - one surviving knowledge-management product path;
 - creation/update timestamps.
 
@@ -32,6 +34,10 @@ compatibility, but the public V3 contract has no enterprise mode selector.
 Evidence retains source channel, source quality, verification status, claim
 strength, bias/conflict metadata, and artifact usage. Verified claims require
 acceptable evidence.
+
+Search Evidence also retains collection metadata: selected project source
+packs, enforcement mode, effective allow/block domains, query, provider
+request count, and whether a preferred-source fallback occurred.
 
 ### ProjectDocument / DocumentSegment
 

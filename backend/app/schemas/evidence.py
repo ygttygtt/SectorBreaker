@@ -89,6 +89,7 @@ class EvidenceItem(BaseModel):
     summary: str | None = None
     extraction_provider: str | None = None
     extraction_metadata: dict[str, Any] = Field(default_factory=dict)
+    collection_metadata: dict[str, Any] = Field(default_factory=dict)
     extracted_at: datetime | None = None
     claims: list[EvidenceClaim] = Field(default_factory=list)
     source_quality: SourceQuality = SourceQuality.UNKNOWN

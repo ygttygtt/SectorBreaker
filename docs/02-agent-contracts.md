@@ -16,6 +16,12 @@ Any output containing factual claims supports:
 
 ## Master Knowledge Manager
 
+Project source preferences are trusted control-plane input. They are included
+in MetaContext and cannot be widened by an LLM tool call. `require` is enforced
+both before provider dispatch and after URL return; `prefer` records any
+fallback to the broader project source policy in the typed observation and
+Evidence collection metadata.
+
 - Input: `SectorBreakerState`, active artifacts, latest health snapshot,
   maintenance backlog, autonomy policy, provider/tool registry, recent trace,
   and optional user objective.

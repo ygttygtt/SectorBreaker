@@ -57,6 +57,11 @@ async def run_v2_agent_kernel_pipeline(
     if resume_state is not None:
         state = resume_state
         state.state_version = "3"
+        if resume_request is None:
+            state.meta_context.source_pack_ids = list(project.source_preferences.source_pack_ids)
+            state.meta_context.source_enforcement = project.source_preferences.enforcement.value
+            state.meta_context.custom_allowed_domains = list(project.source_preferences.custom_allowed_domains)
+            state.meta_context.blocked_domains = list(project.source_preferences.blocked_domains)
         await emit_event(RunEvent(
             event_type="node_started",
             gate="initialize_state",
@@ -119,6 +124,10 @@ async def run_v2_agent_kernel_pipeline(
             user_goal=_user_goal,
             market_scope=project.market_scope.value,
             source_policy=project.source_policy.value,
+            source_pack_ids=project.source_preferences.source_pack_ids,
+            source_enforcement=project.source_preferences.enforcement.value,
+            custom_allowed_domains=project.source_preferences.custom_allowed_domains,
+            blocked_domains=project.source_preferences.blocked_domains,
             knowledge_schema=knowledge_schema,
         )
         await emit_event(RunEvent(
@@ -131,6 +140,7 @@ async def run_v2_agent_kernel_pipeline(
                 "schema_version": "v3-knowledge-ops",
                 "knowledge_schema_strategy": state.knowledge_schema.strategy,
                 "knowledge_schema_reason": state.knowledge_schema.generated_reason,
+                "source_preferences": project.source_preferences.model_dump(mode="json"),
                 "state": state.model_dump(mode="json"),
             },
         ))

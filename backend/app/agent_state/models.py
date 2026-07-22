@@ -75,6 +75,10 @@ class MetaContext(BaseModel):
     domain: str
     market_scope: str = "mixed"
     source_policy: str = "reliable_first"
+    source_pack_ids: list[str] = Field(default_factory=list)
+    source_enforcement: str = "prefer"
+    custom_allowed_domains: list[str] = Field(default_factory=list)
+    blocked_domains: list[str] = Field(default_factory=list)
     product_mode: str = "domain_knowledge"
     user_goal: str
     user_level: str = "unknown"
@@ -426,6 +430,10 @@ class SectorBreakerState(BaseModel):
         user_goal: str,
         market_scope: str = "mixed",
         source_policy: str = "reliable_first",
+        source_pack_ids: list[str] | None = None,
+        source_enforcement: str = "prefer",
+        custom_allowed_domains: list[str] | None = None,
+        blocked_domains: list[str] | None = None,
         include_prerequisite: bool = False,
         knowledge_schema: KnowledgeSchema | None = None,
     ) -> "SectorBreakerState":
@@ -436,6 +444,10 @@ class SectorBreakerState(BaseModel):
                 domain=domain,
                 market_scope=market_scope,
                 source_policy=source_policy,
+                source_pack_ids=source_pack_ids or [],
+                source_enforcement=source_enforcement,
+                custom_allowed_domains=custom_allowed_domains or [],
+                blocked_domains=blocked_domains or [],
                 user_goal=user_goal,
                 success_criteria=[
                     "生成可导入 Obsidian 的结构化知识库",

@@ -35,9 +35,11 @@ import type {
   Evidence,
   ExportManifest,
   Project,
+  ProjectSourcePreferences,
   RunEvent,
   RunSnapshot,
   SupervisorPlan,
+  SourcePackStatus,
   WorkflowDefinition,
   WorkflowNode,
 } from "./api/client";
@@ -510,24 +512,31 @@ function LandingView({
   searchConfigured,
   searchProviders,
   extractionProviders,
+  sourcePacks,
 }: {
   onStart: (
     domain: string,
     sourcePolicy: string,
+    sourcePreferences: ProjectSourcePreferences,
     assistantBrief: string,
     autoRun?: boolean,
     assistantBriefFile?: File | null,
   ) => void;
-  onAdoptVault: (domain: string, sourcePolicy: string, vaultPath: string) => void;
+  onAdoptVault: (domain: string, sourcePolicy: string, sourcePreferences: ProjectSourcePreferences, vaultPath: string) => void;
   onOpenSettings: () => void;
   isLoading: boolean;
   llmConfigured: boolean;
   searchConfigured: boolean;
   searchProviders: string[];
   extractionProviders: string[];
+  sourcePacks: SourcePackStatus[];
 }) {
   const [domain, setDomain] = useState("");
   const [sourcePolicy, setSourcePolicy] = useState("reliable_first");
+  const [selectedSourcePackIds, setSelectedSourcePackIds] = useState<string[]>([]);
+  const [sourceEnforcement, setSourceEnforcement] = useState<"prefer" | "require">("prefer");
+  const [customAllowedDomains, setCustomAllowedDomains] = useState("");
+  const [customBlockedDomains, setCustomBlockedDomains] = useState("");
   const [assistantBrief, setAssistantBrief] = useState("");
   const [assistantBriefFile, setAssistantBriefFile] = useState<File | null>(null);
   const [vaultPath, setVaultPath] = useState("");
@@ -547,11 +556,26 @@ function LandingView({
     onStart(
       domain.trim(),
       sourcePolicy,
+      buildSourcePreferences(),
       assistantBrief.trim(),
       true,
       assistantBriefFile,
     );
   }
+  function parseDomains(value: string) {
+    return [...new Set(value.split(/[\n,]+/).map((item) => item.trim().toLowerCase()).filter(Boolean))];
+  }
+  function buildSourcePreferences(): ProjectSourcePreferences {
+    return {
+      source_pack_ids: selectedSourcePackIds,
+      custom_allowed_domains: parseDomains(customAllowedDomains),
+      blocked_domains: parseDomains(customBlockedDomains),
+      enforcement: sourceEnforcement,
+    };
+  }
+  const requireAllowListMissing = sourceEnforcement === "require"
+    && selectedSourcePackIds.length === 0
+    && parseDomains(customAllowedDomains).length === 0;
   const mode = MODE_CONFIG.domain_knowledge;
 
   return (
@@ -631,6 +655,64 @@ function LandingView({
             </button>
           ))}
         </div>
+        {sourcePolicy !== "user_materials_only" && sourcePacks.length > 0 && (
+          <fieldset className="project-source-selector">
+            <legend>本项目专用信源</legend>
+            <div className="project-source-options">
+              {sourcePacks.map((pack) => (
+                <label key={pack.name}>
+                  <input
+                    type="checkbox"
+                    checked={selectedSourcePackIds.includes(pack.name)}
+                    onChange={(event) => setSelectedSourcePackIds((current) => (
+                      event.target.checked
+                        ? [...current, pack.name]
+                        : current.filter((item) => item !== pack.name)
+                    ))}
+                  />
+                  <span>{pack.display_name || pack.name}</span>
+                </label>
+              ))}
+            </div>
+            <div className="source-enforcement-control" role="group" aria-label="专用信源执行方式">
+              <button
+                type="button"
+                className={sourceEnforcement === "prefer" ? "is-active" : ""}
+                onClick={() => setSourceEnforcement("prefer")}
+              >优先使用</button>
+              <button
+                type="button"
+                className={sourceEnforcement === "require" ? "is-active" : ""}
+                onClick={() => setSourceEnforcement("require")}
+              >仅限所选</button>
+            </div>
+            <details>
+              <summary>自定义域名</summary>
+              <div className="project-source-domain-grid">
+                <label>
+                  <span>允许域名</span>
+                  <textarea
+                    aria-label="项目允许域名"
+                    rows={2}
+                    value={customAllowedDomains}
+                    onChange={(event) => setCustomAllowedDomains(event.target.value)}
+                    placeholder="example.gov.cn"
+                  />
+                </label>
+                <label>
+                  <span>排除域名</span>
+                  <textarea
+                    aria-label="项目排除域名"
+                    rows={2}
+                    value={customBlockedDomains}
+                    onChange={(event) => setCustomBlockedDomains(event.target.value)}
+                    placeholder="content-farm.example"
+                  />
+                </label>
+              </div>
+            </details>
+          </fieldset>
+        )}
         <label className="field-label" htmlFor="vault-path">已有 Obsidian / Markdown Vault（可选）</label>
         <div className="landing-input-wrap">
           <FolderInput size={18} className="landing-input-icon" />
@@ -669,14 +751,14 @@ function LandingView({
           </div>
         )}
         <div className="landing-actions">
-          <button className="primary" disabled={!domain.trim() || isLoading || !llmConfigured} onClick={() => submit()} type="button">
+          <button className="primary" disabled={!domain.trim() || isLoading || !llmConfigured || requireAllowListMissing} onClick={() => submit()} type="button">
             {isLoading ? <Loader2 size={16} className="spinner" /> : <Play size={16} />}
             {mode.cta}
           </button>
           <button
             className="secondary"
             disabled={!domain.trim() || !vaultPath.trim() || isLoading}
-            onClick={() => onAdoptVault(domain.trim(), sourcePolicy, vaultPath.trim())}
+            onClick={() => onAdoptVault(domain.trim(), sourcePolicy, buildSourcePreferences(), vaultPath.trim())}
             type="button"
           >
             {isLoading ? <Loader2 size={16} className="spinner" /> : <FolderInput size={16} />}
@@ -761,6 +843,9 @@ function ResearchView({
         <div className="topbar-project">
           <span>{project.domain}</span>
           <b>{sourcePolicies.find((p) => p.value === project.source_policy)?.label ?? project.source_policy}</b>
+          {project.source_preferences?.source_pack_ids.length > 0 && (
+            <b>专用信源 {project.source_preferences.enforcement === "require" ? "限定" : "优先"} · {project.source_preferences.source_pack_ids.length}</b>
+          )}
         </div>
         <div className="topbar-status">
           <span className={`run-pill ${isConnected ? "run-pill--live" : ""}`}>
@@ -1426,6 +1511,7 @@ export function App() {
   const [searchConfigured, setSearchConfigured] = useState(true);
   const [searchProviders, setSearchProviders] = useState<string[]>([]);
   const [extractionProviders, setExtractionProviders] = useState<string[]>([]);
+  const [sourcePacks, setSourcePacks] = useState<SourcePackStatus[]>([]);
 
   const refreshRuntimeStatus = useCallback(async () => {
     try {
@@ -1444,6 +1530,13 @@ export function App() {
       setSearchConfigured(false);
       setSearchProviders([]);
       setExtractionProviders([]);
+    }
+
+    try {
+      const registry = await api.getSourceRegistryStatus();
+      setSourcePacks(registry.packs);
+    } catch {
+      setSourcePacks([]);
     }
   }, []);
 
@@ -1569,6 +1662,7 @@ export function App() {
   async function startResearch(
     domain: string,
     sourcePolicy: string,
+    sourcePreferences: ProjectSourcePreferences,
     assistantBrief: string,
     autoRun = true,
     assistantBriefFile: File | null = null,
@@ -1582,6 +1676,7 @@ export function App() {
         depth: "quick",
         source_policy: sourcePolicy,
         project_mode: "domain_knowledge",
+        source_preferences: sourcePreferences,
       });
       setProject(proj);
       setRunSnapshot(null);
@@ -1611,7 +1706,12 @@ export function App() {
     }
   }
 
-  async function adoptVault(domain: string, sourcePolicy: string, vaultPath: string) {
+  async function adoptVault(
+    domain: string,
+    sourcePolicy: string,
+    sourcePreferences: ProjectSourcePreferences,
+    vaultPath: string,
+  ) {
     setIsLoading(true);
     try {
       const proj = await api.createProject({
@@ -1621,6 +1721,7 @@ export function App() {
         depth: "quick",
         source_policy: sourcePolicy,
         project_mode: "domain_knowledge",
+        source_preferences: sourcePreferences,
       });
       await api.importVault(proj.id, { source_path: vaultPath });
       await api.auditVault(proj.id);
@@ -1708,6 +1809,7 @@ export function App() {
           searchConfigured={searchConfigured}
           searchProviders={searchProviders}
           extractionProviders={extractionProviders}
+          sourcePacks={sourcePacks}
         />
       )}
       {phase === "researching" && project && (
