@@ -99,6 +99,7 @@ async def propose_change_set(tool_call, context: KernelRuntimeContext) -> Kernel
             context.project.id,
             request,
             actor="master_agent",
+            run_id=context.run_id,
         )
     except Exception as exc:
         return KernelObservation(

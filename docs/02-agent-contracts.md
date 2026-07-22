@@ -29,6 +29,12 @@ Any output containing factual claims supports:
 - Failure mode: wait for user when authority is missing; block when evidence or
   a safe write path is unavailable; preserve partial diagnostics without
   presenting fake success.
+- Completion gate: historical active artifacts do not count as work completed
+  in the current run. `finish`/`finish_run` requires a new artifact in this
+  execution or an artifact durably attributed to the same resumed run id.
+- Durability gate: artifact and final State checkpoint failures propagate to
+  the API run boundary; they must not be swallowed while marking a run
+  completed.
 
 ## Vault Auditor Specialist
 

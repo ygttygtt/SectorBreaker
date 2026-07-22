@@ -18,6 +18,7 @@ Implemented V3 loop:
 - production search body extraction with persisted provenance and local domain-policy enforcement;
 - typed waiting-run resume with feedback injected into Agent State/ContextPack;
 - search-key preservation and honest discovery-only source-pack status;
+- current-run output completion gate and fail-loud checkpoint persistence;
 - unified active-only Hybrid RAG with local FastEmbed vectors and RRF;
 - ChangeSet diff/approval/apply/conflict/rollback;
 - immutable Artifact revisions and ArtifactMemory continuation;
@@ -32,12 +33,15 @@ Retired and deleted from production:
 
 Current verification baseline:
 
-- backend 214 passed;
+- backend 217 passed;
 - frontend 30 passed;
 - frontend build passed;
 - version isolation passed;
 - import/audit/apply/export/restart/rollback/re-export acceptance passed.
+- real V3 web acceptance passed with deepseek-v4-flash, Tavily, HTTP extraction,
+  42 search Evidence, 4 active artifacts, approve/apply/resume, and full export
+  (`project-63a8ed6dcd05454ab28cc0443a4e765b`).
 
 Current RAG is real local Hybrid RAG: `BAAI/bge-small-zh-v1.5`, content-hash incremental SQLite vectors, lexical/vector RRF, typed provenance, and explicit `lexical_degraded` fallback. The real-model smoke test proves vector-only recall without shared keywords.
 
-Next valuable work: persistent project-level source-pack policy, completion and evidence gates, stale-run recovery, per-Specialist bounded tool execution, Firecrawl map/crawl contracts, incremental monitoring, safe bidirectional Vault sync, and a pluggable ANN VectorStoreProvider for very large Vaults.
+Next valuable work: persistent project-level source-pack policy, claim-level evidence gates, stale-run recovery, actual provider-request budgets, multi-provider diagnostics, SSRF protection, per-Specialist bounded tool execution, and Firecrawl map/crawl contracts.

@@ -25,7 +25,14 @@ class ChangeSetService:
     def __init__(self, repository: SQLiteRepository) -> None:
         self.repository = repository
 
-    def propose(self, project_id: str, request: ChangeSetProposalRequest, *, actor: str = "master_agent") -> ChangeSet:
+    def propose(
+        self,
+        project_id: str,
+        request: ChangeSetProposalRequest,
+        *,
+        actor: str = "master_agent",
+        run_id: str | None = None,
+    ) -> ChangeSet:
         active = self._active_by_path(project_id).get(_safe_path(request.path))
         operation_type = ChangeOperationType.UPDATE if active else ChangeOperationType.CREATE
         before_content = active.content if active else ""
@@ -48,6 +55,7 @@ class ChangeSetService:
         change_set = ChangeSet(
             id=f"CS-{uuid4().hex[:12]}",
             project_id=project_id,
+            origin_run_id=run_id,
             task_id=request.task_id,
             summary=request.summary,
             evidence_ids=request.evidence_ids,
@@ -188,6 +196,7 @@ class ChangeSetService:
             schema_version="v3-knowledge-ops",
             supersedes=predecessor.id if predecessor else None,
             change_set_id=change_set.id,
+            run_id=change_set.origin_run_id,
         )
 
     def _conflict(self, change_set: ChangeSet, message: str) -> ChangeSet:

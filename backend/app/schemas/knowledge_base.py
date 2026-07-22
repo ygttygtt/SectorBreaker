@@ -144,6 +144,7 @@ class ChangeOperation(BaseModel):
 class ChangeSet(BaseModel):
     id: str
     project_id: str
+    origin_run_id: str | None = None
     task_id: str | None = None
     status: ChangeSetStatus = ChangeSetStatus.PROPOSED
     summary: str

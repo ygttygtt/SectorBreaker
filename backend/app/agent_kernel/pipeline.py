@@ -177,22 +177,19 @@ async def run_v2_agent_kernel_pipeline(
         ctx = _runtime_context_holder[0] if _runtime_context_holder else None
         if ctx is None:
             return
-        try:
-            artifact = next((item for item in ctx.artifacts if item.id == artifact_id), None)
-            if artifact is None:
-                return
-            repository.add_artifact(artifact)
-            _sync_artifact_memory(ctx.state, repository.list_artifacts(project.id))
-            repository.save_run_state_checkpoint(
-                run_id=_run_id,
-                project_id=project.id,
-                state=ctx.state,
-                checkpoint_type="artifact_write",
-                artifact_id=artifact_id,
-                iteration=iteration,
-            )
-        except Exception:
-            pass
+        artifact = next((item for item in ctx.artifacts if item.id == artifact_id), None)
+        if artifact is None:
+            return
+        repository.add_artifact(artifact)
+        _sync_artifact_memory(ctx.state, repository.list_artifacts(project.id))
+        repository.save_run_state_checkpoint(
+            run_id=_run_id,
+            project_id=project.id,
+            state=ctx.state,
+            checkpoint_type="artifact_write",
+            artifact_id=artifact_id,
+            iteration=iteration,
+        )
 
     runtime_context = KernelRuntimeContext(
         project=project,
@@ -239,16 +236,13 @@ async def run_v2_agent_kernel_pipeline(
         repository.add_artifact(artifact)
     if new_artifacts:
         _sync_artifact_memory(runtime_context.state, repository.list_artifacts(project.id))
-    try:
-        repository.save_run_state_checkpoint(
-            run_id=_run_id,
-            project_id=project.id,
-            state=runtime_context.state,
-            checkpoint_type=final_checkpoint_type,
-            iteration=result.iterations,
-        )
-    except Exception:
-        pass
+    repository.save_run_state_checkpoint(
+        run_id=_run_id,
+        project_id=project.id,
+        state=runtime_context.state,
+        checkpoint_type=final_checkpoint_type,
+        iteration=result.iterations,
+    )
 
     await emit_event(RunEvent(
         event_type="node_completed" if result.status == KernelRunStatus.COMPLETED else "node_degraded",

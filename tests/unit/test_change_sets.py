@@ -41,13 +41,17 @@ def test_apply_and_rollback_change_set_preserves_history(tmp_path: Path) -> None
     repository, project, original = _setup(tmp_path)
     service = ChangeSetService(repository)
     updated = "---\nevidence_ids: [EV-001]\n---\n# RAG\n\nUpdated with evidence. [^EV-001]\n"
-    change_set = service.propose(project.id, ChangeSetProposalRequest(
-        summary="补充证据",
-        path="RAG.md",
-        after_content=updated,
-        evidence_ids=["EV-001"],
-        factual_change=True,
-    ))
+    change_set = service.propose(
+        project.id,
+        ChangeSetProposalRequest(
+            summary="补充证据",
+            path="RAG.md",
+            after_content=updated,
+            evidence_ids=["EV-001"],
+            factual_change=True,
+        ),
+        run_id="run-origin",
+    )
     service.approve(change_set.id)
     applied = service.apply(change_set.id)
 
@@ -58,6 +62,8 @@ def test_apply_and_rollback_change_set_preserves_history(tmp_path: Path) -> None
     assert history[0].active is False
     assert history[0].superseded_by == history[1].id
     assert history[1].supersedes == history[0].id
+    assert history[1].run_id == "run-origin"
+    assert applied.origin_run_id == "run-origin"
 
     rolled_back = service.rollback(change_set.id)
     assert rolled_back.status == ChangeSetStatus.ROLLED_BACK

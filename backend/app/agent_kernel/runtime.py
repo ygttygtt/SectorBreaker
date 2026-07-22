@@ -61,15 +61,15 @@ class AgentKernelRuntime:
             await self._emit(context, thought, gate="agent_decide", agent="V3 Master Agent")
 
             if decision.action_type == AgentActionType.FINISH:
-                if not context.artifacts:
+                if not context.has_current_run_output():
                     blocked = KernelTraceEvent(
                         kind=TraceEventKind.BLOCKED,
-                        message="Decision: Agent 尝试 finish，但当前没有任何产物，已阻断防止假成功。",
+                        message="Decision: Agent 尝试 finish，但本轮没有新产物，已阻断防止假成功。",
                         data={"stop_reason": decision.stop_reason},
                     )
                     trace.append(blocked)
                     await self._emit(context, blocked, gate="agent_decide", agent="V3 Master Agent", severity="error")
-                    return self._result(KernelRunStatus.BLOCKED, context, trace, iteration, "finish_without_artifacts")
+                    return self._result(KernelRunStatus.BLOCKED, context, trace, iteration, "finish_without_run_output")
                 done = KernelTraceEvent(
                     kind=TraceEventKind.DECISION,
                     message=f"Decision: {decision.stop_reason}",
@@ -247,10 +247,7 @@ class AgentKernelRuntime:
         # Fire checkpoint callback after successful artifact write
         if observation.success and observation.artifact_ids and context.on_artifact_written is not None:
             for artifact_id in observation.artifact_ids:
-                try:
-                    await context.on_artifact_written(artifact_id, iteration)
-                except Exception:
-                    pass  # checkpoint errors must not abort the Agent loop
+                await context.on_artifact_written(artifact_id, iteration)
 
         optional_writers = {"write_explainer_card", "write_explainer_cards_batch", "write_vault_index", "generate_run_narrative"}
         main_writers = {"write_layer_document", "revise_layer_document"}
@@ -294,13 +291,13 @@ class AgentKernelRuntime:
                 observation.summary,
             )
         if observation.tool_name == "finish_run" and observation.success:
-            if not context.artifacts:
+            if not context.has_current_run_output():
                 return consecutive_failed_tools, self._result(
                     KernelRunStatus.BLOCKED,
                     context,
                     trace,
                     iteration,
-                    "finish_without_artifacts",
+                    "finish_without_run_output",
                 )
             return consecutive_failed_tools, self._result(
                 KernelRunStatus.COMPLETED,

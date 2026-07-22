@@ -96,5 +96,20 @@
 - P0-4：新增 typed `/api/runs/{run_id}/resume`；只恢复 waiting run，反馈会进入 State/ContextPack，assistant brief 会作为低可信文档内化。
 - 搜索配置：空白字段不再清除已存 Key；状态只返回非敏感的 Provider key-presence；`user_materials_only`、零结果和不可读抽取不再显示成功。
 - 信源目录：domain pack 改为 `available_via_domain_filter`，不再计作已配置直连；未选中的抽取适配器也不再显示 ready。
+- 假完成/恢复：历史 artifact 不再满足本轮 finish；artifact 和 final checkpoint 写入失败会使 run 失败，不再静默报告 completed。
+- 人审闭环：Agent 创建的 ChangeSet 记录 `origin_run_id`，应用后的 revision 保留该归属；V3 真实验收可 approve/apply 后恢复同一 run。
 
-这些修复有 fake Provider 的生产工具/API 回归测试；仍需在最终验收阶段使用本机真实 Tavily + HTTP extraction 跑 V3 Agent 并检查导出 Evidence。
+这些修复同时有 fake Provider 回归测试和下述真实 Tavily + HTTP extraction 生产验收。
+
+## 真实验收结果（2026-07-22）
+
+使用本机实际配置 `deepseek-v4-flash + Tavily + HTTP extraction` 完成 V3 生产路径验收：
+
+- 项目：`project-63a8ed6dcd05454ab28cc0443a4e765b`；run：`run-5c098a859db94c29a9181dc02ec1d471`。
+- 42 条 search-channel Evidence；生产 Evidence 中存在可读 `raw_excerpt`、`extraction_provider=http_content` 和抽取时间/元数据。
+- 4 个 active V3 artifacts，均有 substantial content、V3 schema 和 evidence ids；无 V1/fallback marker。
+- Agent 生成 ChangeSet 后进入 `waiting_for_human`；验收完成 approve -> apply -> 同 run `/resume` -> completed。
+- 导出目录：`exports/v3真实搜索抽取验收-闭环-20260722`；包含全部 `.sectorbreaker/*.json`、manifest 和 active artifact ids。
+- 真实运行约 10 分钟，期间一次 `propose_change_set` 因空 `after_content` 失败，Agent 后续自我修正并完成。这证明容错存在，也说明决策延迟和无效工具调用仍需优化。
+
+验收通过不等于所有审计项关闭。仍未完成的主要产品缺口是：项目级专用信源绑定、claim-level 证据支持门禁、stale run 恢复、真实 Provider 请求预算、multi-provider 降级诊断、SSRF 防护，以及 Specialist 独立工具循环。

@@ -49,12 +49,57 @@ def _poll_run(run_id: str, timeout_seconds: float) -> dict[str, object]:
     raise RuntimeError(f"Run {run_id} did not finish within {timeout_seconds} seconds.")
 
 
+def _complete_run_with_reviews(
+    *,
+    project_id: str,
+    run_id: str,
+    timeout_seconds: float,
+    max_reviews: int = 3,
+) -> dict[str, object]:
+    for review_index in range(max_reviews + 1):
+        result = _poll_run(run_id, timeout_seconds=timeout_seconds)
+        if result.get("status") != "waiting_for_human":
+            return result
+        if review_index >= max_reviews:
+            return result
+
+        change_sets = _http_json("GET", f"/api/projects/{project_id}/change-sets")
+        assert isinstance(change_sets, list)
+        proposed = next(
+            (
+                item for item in change_sets
+                if isinstance(item, dict)
+                and item.get("status") == "proposed"
+                and item.get("origin_run_id") in {None, run_id}
+            ),
+            None,
+        )
+        if proposed is None:
+            return result
+        change_set_id = str(proposed["id"])
+        _http_json("POST", f"/api/projects/{project_id}/change-sets/{change_set_id}/approve")
+        applied = _http_json("POST", f"/api/projects/{project_id}/change-sets/{change_set_id}/apply")
+        if applied.get("status") != "applied":
+            raise RuntimeError(f"ChangeSet {change_set_id} did not apply: {applied}")
+        _http_json(
+            "POST",
+            f"/api/runs/{run_id}/resume",
+            {
+                "guidance": "验收已审查并应用当前 ChangeSet，请检查本轮目标并完成运行。",
+                "plan_confirmed": True,
+            },
+        )
+    raise AssertionError("unreachable")
+
+
 def _print_section(title: str) -> None:
     print(f"\n== {title} ==")
 
 
 def _print_json(payload: dict[str, object]) -> None:
-    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    rendered = json.dumps(payload, ensure_ascii=False, indent=2)
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    print(rendered.encode(encoding, errors="replace").decode(encoding))
 
 
 def _print_backend_start_hint() -> None:
@@ -65,19 +110,26 @@ def _print_backend_start_hint() -> None:
     )
 
 
-V1_REQUIRED_ARTIFACT_PATHS = {
-    "00-领域总览.md",
-    "01-入门路线.md",
-    "02-核心概念.md",
-    "03-玩家与工具地图.md",
-    "04-趋势与证据.md",
-    "05-问题与机会.md",
-    "99-待验证问题.md",
+V3_REQUIRED_STATE_PATHS = {
+    ".sectorbreaker/project.json",
+    ".sectorbreaker/agent_state.json",
+    ".sectorbreaker/evidence_ledger.json",
+    ".sectorbreaker/artifact_manifest.json",
+    ".sectorbreaker/health_snapshot.json",
+    ".sectorbreaker/maintenance_backlog.json",
+    ".sectorbreaker/change_sets.json",
+    ".sectorbreaker/open_questions.json",
+    ".sectorbreaker/trace_summary.json",
+    "manifest.json",
 }
 
-V1_REQUIRED_EXPORT_PATHS = V1_REQUIRED_ARTIFACT_PATHS | {
-    "_sources/evidence-ledger.md",
-    "manifest.json",
+FORBIDDEN_MARKERS = {
+    "EV-V1-",
+    "ART-V1-",
+    "Knowledge Builder",
+    "Document Writer",
+    "specialist_react_loop",
+    "已使用保底",
 }
 
 
@@ -91,7 +143,7 @@ def main() -> int:
     market_scope = os.getenv("SECTORBREAKER_ACCEPTANCE_MARKET_SCOPE", "mixed")
     depth = os.getenv("SECTORBREAKER_ACCEPTANCE_DEPTH", "quick")
     max_results = int(os.getenv("SECTORBREAKER_ACCEPTANCE_MAX_RESULTS", "3"))
-    run_timeout_seconds = float(os.getenv("SECTORBREAKER_ACCEPTANCE_RUN_TIMEOUT_SECONDS", "60"))
+    run_timeout_seconds = float(os.getenv("SECTORBREAKER_ACCEPTANCE_RUN_TIMEOUT_SECONDS", "600"))
 
     allowed_domains = [
         item.strip()
@@ -148,36 +200,50 @@ def main() -> int:
     if int(search_test.get("result_count", 0)) <= 0:
         print("Search connectivity test returned no results.", file=sys.stderr)
         return 1
-
-    _print_section("Project Creation")
-    project = _http_json(
-        "POST",
-        "/api/projects",
-        {
-            "title": project_title,
-            "domain": project_domain,
-            "market_scope": market_scope,
-            "depth": depth,
-            "source_policy": source_policy,
-        },
-    )
-    _print_json(project)
-    project_id = str(project["id"])
-
-    _print_section("Run Trigger")
-    run = _http_json(
-        "POST",
-        f"/api/projects/{project_id}/runs?{urllib.parse.urlencode({'auto_run': 'true'})}",
-    )
-    _print_json(run)
-    run_id = str(run["id"])
-
-    _print_section("Run Poll")
-    run_result = _poll_run(run_id, timeout_seconds=run_timeout_seconds)
-    _print_json(run_result)
-    if run_result.get("status") != "completed":
-        print(f"Run did not complete successfully: {run_result.get('status')}", file=sys.stderr)
+    extracted_preview = (search_test.get("extracted_page") or {}).get("raw_text_preview", "")
+    if len(str(extracted_preview).strip()) < 80:
+        print("Search self-test did not return readable extracted page content.", file=sys.stderr)
         return 1
+
+    existing_project_id = os.getenv("SECTORBREAKER_ACCEPTANCE_PROJECT_ID", "").strip()
+    if existing_project_id:
+        project_id = existing_project_id
+        _print_section("Existing Project Recheck")
+        _print_json({"project_id": project_id})
+    else:
+        _print_section("Project Creation")
+        project = _http_json(
+            "POST",
+            "/api/projects",
+            {
+                "title": project_title,
+                "domain": project_domain,
+                "market_scope": market_scope,
+                "depth": depth,
+                "source_policy": source_policy,
+            },
+        )
+        _print_json(project)
+        project_id = str(project["id"])
+
+        _print_section("Run Trigger")
+        run = _http_json(
+            "POST",
+            f"/api/projects/{project_id}/runs?{urllib.parse.urlencode({'auto_run': 'true'})}",
+        )
+        _print_json(run)
+        run_id = str(run["id"])
+
+        _print_section("Run Poll")
+        run_result = _complete_run_with_reviews(
+            project_id=project_id,
+            run_id=run_id,
+            timeout_seconds=run_timeout_seconds,
+        )
+        _print_json(run_result)
+        if run_result.get("status") != "completed":
+            print(f"Run did not complete successfully: {run_result.get('status')}", file=sys.stderr)
+            return 1
 
     _print_section("Evidence Check")
     evidence = _http_json("GET", f"/api/projects/{project_id}/evidence")
@@ -204,38 +270,63 @@ def main() -> int:
     if not search_channel_evidence:
         print("No search-channel evidence was written into the project evidence ledger.", file=sys.stderr)
         return 1
+    extracted_evidence = [
+        item for item in search_channel_evidence
+        if item.get("extraction_provider") and len(str(item.get("raw_excerpt") or "").strip()) >= 80
+    ]
+    if not extracted_evidence:
+        print("No production Agent evidence contains readable extracted body and provenance.", file=sys.stderr)
+        return 1
+    if any(item.get("verification_status") == "verified" for item in search_channel_evidence):
+        print("Heuristic search evidence was incorrectly promoted to verified.", file=sys.stderr)
+        return 1
 
     _print_section("Artifact Check")
     artifacts = _http_json("GET", f"/api/projects/{project_id}/artifacts")
     assert isinstance(artifacts, list)
-    artifact_paths = {
-        item.get("content_path")
-        for item in artifacts
-        if isinstance(item, dict)
-    }
-    missing_artifact_paths = sorted(V1_REQUIRED_ARTIFACT_PATHS - artifact_paths)
+    active_artifacts = [
+        item for item in artifacts
+        if isinstance(item, dict) and item.get("active", True)
+    ]
+    invalid_artifacts = [
+        item.get("id") for item in active_artifacts
+        if not str(item.get("schema_version") or "").startswith("v3-")
+        or len(str(item.get("content") or "").strip()) < 400
+        or not item.get("source_evidence_ids")
+        or any(marker in str(item.get("content") or "") for marker in FORBIDDEN_MARKERS)
+    ]
+    artifact_paths = {item.get("content_path") for item in active_artifacts if item.get("content_path")}
     _print_json(
         {
             "project_id": project_id,
-            "artifact_count": len(artifacts),
-            "required_v1_paths_present": not missing_artifact_paths,
-            "missing_v1_artifact_paths": missing_artifact_paths,
+            "active_artifact_count": len(active_artifacts),
+            "invalid_v3_artifact_ids": invalid_artifacts,
+            "artifact_paths": sorted(artifact_paths),
         }
     )
-    if missing_artifact_paths:
-        print(f"V1 artifacts are missing required paths: {missing_artifact_paths}", file=sys.stderr)
+    if not active_artifacts or invalid_artifacts:
+        print(f"V3 active artifacts are missing or invalid: {invalid_artifacts}", file=sys.stderr)
         return 1
 
     _print_section("Export Check")
     export_manifest = _http_json("POST", f"/api/projects/{project_id}/exports")
     _print_json(export_manifest)
     export_paths = set(export_manifest.get("artifact_paths", []))
-    missing_export_paths = sorted(V1_REQUIRED_EXPORT_PATHS - export_paths)
+    missing_export_paths = sorted(V3_REQUIRED_STATE_PATHS - export_paths)
     if missing_export_paths:
-        print(f"V1 export manifest is missing required paths: {missing_export_paths}", file=sys.stderr)
+        print(f"V3 export manifest is missing control-plane paths: {missing_export_paths}", file=sys.stderr)
+        return 1
+    active_artifact_ids = {str(item.get("id")) for item in active_artifacts}
+    exported_artifact_ids = {
+        str(item.get("id"))
+        for item in export_manifest.get("active_artifacts", [])
+        if isinstance(item, dict)
+    }
+    if not active_artifact_ids.issubset(exported_artifact_ids):
+        print("V3 export manifest does not contain every active artifact id.", file=sys.stderr)
         return 1
 
-    print("\nAcceptance passed: LLM config, search config, live search, project run, evidence writeback, V1 artifacts, and Obsidian export all succeeded.")
+    print("\nAcceptance passed: live search/extraction, production Agent evidence, V3 active artifacts, and Obsidian control-plane export all succeeded.")
     return 0
 
 

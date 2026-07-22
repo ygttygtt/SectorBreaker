@@ -33,6 +33,8 @@ Read, in order:
   exposed to the next Master decision.
 - Search config preserves blanked stored keys and reports only non-secret key
   presence; domain-pack entries are discovery filters, not direct connectors.
+- Runtime completion requires a current-run artifact, and checkpoint failures
+  are fatal rather than hidden.
 - Specialists receive bounded artifact plus local retrieval context; they still recommend external tool calls to the Master rather than owning a nested ReAct loop.
 - UI: V3 knowledge-management panel includes semantic-index status and rebuild controls.
 - Export: active-only Obsidian vault with full `.sectorbreaker/` control metadata.
@@ -63,7 +65,9 @@ Knowledge-management changes also require a Vault lifecycle acceptance test.
 
 ## Current Baseline
 
-- Backend: 214 passed.
+- Backend: 217 passed.
 - Frontend: 30 passed and production build passed.
 - Version isolation passed.
 - Temporary real Vault apply/export/rollback/re-export acceptance passed.
+- Real V3 web/Agent/ChangeSet/export acceptance passed on project
+  `project-63a8ed6dcd05454ab28cc0443a4e765b`; see `docs/26-product-readiness-audit-v3.md`.

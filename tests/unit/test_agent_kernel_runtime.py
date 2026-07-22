@@ -1,6 +1,8 @@
 import asyncio
 from datetime import UTC, datetime
 
+import pytest
+
 from backend.app.agent_kernel.context import KernelContextBuilder
 from backend.app.agent_kernel.models import AgentActionType, AgentDecision, KernelLoopConfig, KernelObservation, KernelRunStatus, KernelStateDelta, ToolCall
 from backend.app.agent_kernel.runtime import AgentKernelRuntime
@@ -188,6 +190,128 @@ def test_agent_kernel_runtime_main_writer_failure_continues_to_finish() -> None:
     assert policy.index == 2  # 两个决策都执行了（写文档 + FINISH）
     # 写作失败事件仍然被记录（severity="error" 对主文档）
     assert any(event.gate == "artifact_writing" and event.severity == "error" for event in events)
+
+
+def test_agent_kernel_runtime_does_not_finish_from_only_previous_artifacts() -> None:
+    class FinishPolicy:
+        async def decide(self, **kwargs):
+            return AgentDecision(
+                thought_summary="历史文档已经存在，尝试直接结束。",
+                action_type=AgentActionType.FINISH,
+                stop_reason="没有执行本轮任务",
+            )
+
+    artifact = Artifact(
+        id="ART-OLD",
+        project_id="project-kernel",
+        artifact_type=ArtifactType.DOMAIN_OVERVIEW,
+        title="历史文档",
+        content_path="old.md",
+        content="# 历史文档\n\n旧内容",
+        schema_version="v3-knowledge-ops",
+        created_at=datetime.now(UTC),
+    )
+    context = KernelRuntimeContext(
+        project=_project(),
+        repository=object(),  # type: ignore[arg-type]
+        state=SectorBreakerState.initialize(project_id="project-kernel", domain="API中转站", user_goal="执行本轮维护"),
+        search_provider=None,
+        llm_provider=None,
+        emit_event=lambda event: asyncio.sleep(0),
+        artifacts=[artifact],
+        initial_artifact_ids={artifact.id},
+    )
+
+    result = asyncio.run(AgentKernelRuntime(policy=FinishPolicy(), registry=ToolRegistry()).run(context))  # type: ignore[arg-type]
+
+    assert result.status == KernelRunStatus.BLOCKED
+    assert result.stop_reason == "finish_without_run_output"
+
+
+def test_agent_kernel_runtime_can_finish_after_same_run_resume() -> None:
+    class FinishPolicy:
+        async def decide(self, **kwargs):
+            return AgentDecision(
+                thought_summary="恢复后确认本 run 产物已写入。",
+                action_type=AgentActionType.FINISH,
+                stop_reason="同一 run 已完成",
+            )
+
+    artifact = Artifact(
+        id="ART-SAME-RUN",
+        project_id="project-kernel",
+        artifact_type=ArtifactType.DOMAIN_OVERVIEW,
+        title="本轮文档",
+        content_path="current.md",
+        content="# 本轮文档\n\n当前 run 在等待用户前写入的内容",
+        schema_version="v3-knowledge-ops",
+        created_at=datetime.now(UTC),
+        run_id="run-resumed",
+    )
+    context = KernelRuntimeContext(
+        project=_project(),
+        repository=object(),  # type: ignore[arg-type]
+        state=SectorBreakerState.initialize(project_id="project-kernel", domain="API中转站", user_goal="继续本轮"),
+        search_provider=None,
+        llm_provider=None,
+        emit_event=lambda event: asyncio.sleep(0),
+        artifacts=[artifact],
+        initial_artifact_ids={artifact.id},
+        run_id="run-resumed",
+    )
+
+    result = asyncio.run(AgentKernelRuntime(policy=FinishPolicy(), registry=ToolRegistry()).run(context))  # type: ignore[arg-type]
+
+    assert result.status == KernelRunStatus.COMPLETED
+
+
+def test_agent_kernel_runtime_fails_loudly_when_artifact_checkpoint_fails() -> None:
+    class WritePolicy:
+        async def decide(self, **kwargs):
+            return AgentDecision(
+                thought_summary="写入本轮新文档。",
+                action_type=AgentActionType.WRITE_ARTIFACT,
+                tool_call=ToolCall(tool_name="write", args={}, reason="测试 checkpoint 故障"),
+            )
+
+    async def write(tool_call, context):
+        artifact = Artifact(
+            id="ART-NEW",
+            project_id="project-kernel",
+            artifact_type=ArtifactType.DOMAIN_OVERVIEW,
+            title="新文档",
+            content_path="new.md",
+            content="# 新文档\n\n本轮内容",
+            schema_version="v3-knowledge-ops",
+            created_at=datetime.now(UTC),
+        )
+        context.artifacts.append(artifact)
+        return KernelObservation(
+            tool_name="write",
+            success=True,
+            summary="写入完成",
+            artifact_ids=[artifact.id],
+            state_delta=KernelStateDelta(artifact_ids=[artifact.id]),
+        )
+
+    async def failing_checkpoint(artifact_id, iteration):
+        raise OSError("checkpoint disk failure")
+
+    registry = ToolRegistry()
+    from backend.app.agent_kernel.models import ToolSpec
+    registry.register(ToolSpec(name="write", description="test"), write)
+    context = KernelRuntimeContext(
+        project=_project(),
+        repository=object(),  # type: ignore[arg-type]
+        state=SectorBreakerState.initialize(project_id="project-kernel", domain="API中转站", user_goal="建库"),
+        search_provider=None,
+        llm_provider=None,
+        emit_event=lambda event: asyncio.sleep(0),
+        on_artifact_written=failing_checkpoint,
+    )
+
+    with pytest.raises(OSError, match="checkpoint disk failure"):
+        asyncio.run(AgentKernelRuntime(policy=WritePolicy(), registry=registry).run(context))  # type: ignore[arg-type]
 
 
 def test_agent_kernel_runtime_executes_ordered_tool_calls_and_updates_state_between_tools() -> None:

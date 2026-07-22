@@ -492,6 +492,7 @@ async def revise_layer_document(tool_call, context: KernelRuntimeContext) -> Ker
                 factual_change=True,
             ),
             actor="master_agent",
+            run_id=context.run_id,
         )
     except Exception as exc:
         return KernelObservation(

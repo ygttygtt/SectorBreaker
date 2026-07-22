@@ -30,6 +30,10 @@ SectorBreaker V3 is a local-first, multi-Agent autonomous knowledge-base managem
 - `user_materials_only` and disabled network policy block SearchProvider dispatch.
 - Dynamic Specialist roles have typed results and role-level tool allowlists; no Specialist can apply changes.
 - Specialist prompts receive bounded active-artifact and local Hybrid RAG context; structured result summaries persist in the delegation log.
+- A run cannot finish merely because historical artifacts already exist; it
+  must produce a new artifact in the current execution.
+- Artifact/final checkpoint failures fail the run visibly instead of being
+  swallowed behind a completed status.
 
 ### Web Sources
 
@@ -80,11 +84,17 @@ SectorBreaker V3 is a local-first, multi-Agent autonomous knowledge-base managem
 
 ## Verification Baseline
 
-- Backend: `214 passed`, one existing Starlette/httpx deprecation warning.
+- Backend: `217 passed`, one existing Starlette/httpx deprecation warning.
 - Frontend: `30 passed`.
 - Frontend production build: passed; existing >500 kB chunk warning remains.
 - Version isolation: passed.
 - Real temporary Vault acceptance: import -> audit -> ChangeSet -> approve -> apply -> export -> process restart -> rollback -> re-export passed.
+- Real V3 web acceptance passed on 2026-07-22 with configured
+  `deepseek-v4-flash + Tavily + HTTP extraction`: 42 search Evidence records,
+  readable extraction provenance, 4 active V3 artifacts, one
+  approve/apply/resume ChangeSet, and the complete `.sectorbreaker` export.
+  Project `project-63a8ed6dcd05454ab28cc0443a4e765b`, run
+  `run-5c098a859db94c29a9181dc02ec1d471`.
 
 ## Current Retrieval Answer
 
@@ -92,6 +102,16 @@ The current implementation is real local Hybrid RAG, not keyword matching behind
 
 ## Remaining Work
 
+- Persist selected source packs/domains as project-level Agent policy; the
+  settings button is still a self-test helper only.
+- Replace whole-State artifact evidence attachment and ID-presence review with
+  claim-level citation existence/support checks.
+- Reconcile stale `running` runs after process restart and expose an explicit
+  interrupted/recoverable status.
+- Count actual provider fan-out requests in search budgets and expose partial
+  multi-provider failures.
+- Add SSRF/private-network protection and safer atomic/permission-restricted
+  runtime secret storage.
 - Better claim-level semantic verification and counterevidence linking.
 - Per-Specialist bounded tool execution and validated promotion of findings into StateDelta/ChangeSets.
 - Optional Firecrawl map/crawl contract after crawl budgets, robots/policy handling, and persistence are designed.

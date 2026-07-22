@@ -177,6 +177,7 @@ Verifier Agent and must name the detector that produced them.
 Every proposed knowledge change carries:
 
 - change-set id and maintenance task id;
+- originating run id when proposed by the Agent Kernel;
 - status (`proposed`, `approved`, `applied`, `conflicted`, `rolled_back`);
 - summary and evidence ids;
 - one or more create/update operations;
@@ -186,6 +187,9 @@ Every proposed knowledge change carries:
 Applying a ChangeSet validates the active base hash. A mismatch produces a
 conflict instead of overwriting newer content. Delete and move operations are
 outside the first usable slice.
+
+Applied revisions inherit the ChangeSet `origin_run_id`, so a waiting run can
+resume after human approval without losing current-run completion attribution.
 
 ### AutonomyPolicy
 

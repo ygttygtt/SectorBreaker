@@ -47,6 +47,12 @@ class KernelRuntimeContext:
     def new_artifacts(self) -> list[Artifact]:
         return [artifact for artifact in self.artifacts if artifact.id not in self.initial_artifact_ids]
 
+    def has_current_run_output(self) -> bool:
+        return bool(self.new_artifacts()) or bool(
+            self.run_id
+            and any(artifact.run_id == self.run_id for artifact in self.artifacts)
+        )
+
 
 class ToolRegistry:
     """Typed dispatch table for approved Agent tools."""
