@@ -24,6 +24,20 @@ Required method:
 search(SearchQuery) -> list[SearchResult]
 ```
 
+Production execution wraps this legacy-compatible method in a typed
+`SearchResponse`. It carries `ProviderOutcome` records with stable provider id,
+`ok|empty|timeout|error|skipped_budget`, latency, result count, safe error code,
+and actual provider request count. Agent budgets apply to actual provider
+requests, not merely `search_web` tool calls or returned result count.
+Diagnostic-capable aggregate providers must declare a positive
+`max_requests_per_search`; the execution wrapper rejects zero-budget dispatch,
+caps the delegated budget, validates returned accounting, and conservatively
+charges the reserved amount after an unexpected aggregate failure.
+
+Consumed search, Provider, extraction, and writer counts live in typed Agent
+State. A same-run human resume restores them from the checkpoint; a new run
+receives a fresh budget.
+
 Current adapters include Tavily, Serper, Brave, Exa, Firecrawl, or a configured
 aggregate. Aggregation runs providers concurrently, isolates individual
 provider failures, deduplicates canonical URLs, and round-robins results so the

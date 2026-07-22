@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from datetime import UTC, datetime
 from math import ceil
 from uuid import uuid4
@@ -16,6 +17,7 @@ from backend.app.agent_state.models import (
     TrustLevel,
 )
 from backend.app.providers.interfaces import SearchQuery
+from backend.app.providers.search_execution import execute_search
 from backend.app.providers.source_policy import build_project_search_constraints, url_matches_domain_policy
 from backend.app.schemas import (
     ClaimStrength,
@@ -75,6 +77,18 @@ async def search_web(tool_call, context: KernelRuntimeContext) -> KernelObservat
             summary="搜索工具不可用：当前没有配置 SearchProvider。",
             error="search provider not configured",
         )
+    if context.provider_request_count >= context.max_provider_requests:
+        return KernelObservation(
+            tool_name="search_web",
+            success=False,
+            summary=f"Provider 请求预算已用尽（{context.max_provider_requests} 次），需要调整计划或请求用户授权。",
+            error="provider request budget exhausted",
+            requires_human=True,
+            data={
+                "run_provider_request_count": context.provider_request_count,
+                "max_provider_requests": context.max_provider_requests,
+            },
+        )
     queries = _query_variants(tool_call.args.get("query"), tool_call.args.get("queries"))
     if not queries:
         return KernelObservation(
@@ -85,7 +99,7 @@ async def search_web(tool_call, context: KernelRuntimeContext) -> KernelObservat
         )
     max_results = int(tool_call.args.get("max_results") or 8)
     layer_id = _layer_from_hint(tool_call.args.get("layer_hint"), context.state.current_layer_id)
-    context.search_call_count += 1
+    context.consume_search_call()
     total_result_budget = max(1, min(max_results, 16))
     per_query_limit = max(3, min(8, ceil(total_result_budget / len(queries))))
     constraints = build_project_search_constraints(
@@ -113,16 +127,26 @@ async def search_web(tool_call, context: KernelRuntimeContext) -> KernelObservat
     result_queries: dict[str, str] = {}
     domain_rejected = 0
     provider_request_count = 0
+    provider_outcomes = []
+    result_provenance: dict[str, dict] = {}
+    search_attempt_id = f"search-{uuid4().hex}"
     fallback_used = False
     for query in queries:
-        primary_results = await context.search_provider.search(SearchQuery(
-            query=query,
-            market_scope=context.project.market_scope.value,
-            max_results=per_query_limit,
-            allowed_domains=constraints.primary_allowed_domains,
-            blocked_domains=constraints.blocked_domains,
-        ))
-        provider_request_count += 1
+        primary_response = await execute_search(
+            context.search_provider,
+            SearchQuery(
+                query=query,
+                market_scope=context.project.market_scope.value,
+                max_results=per_query_limit,
+                allowed_domains=constraints.primary_allowed_domains,
+                blocked_domains=constraints.blocked_domains,
+            ),
+            request_budget=max(0, context.max_provider_requests - context.provider_request_count),
+        )
+        primary_results = primary_response.results
+        provider_request_count += primary_response.request_count
+        context.consume_provider_requests(primary_response.request_count)
+        provider_outcomes.extend(asdict(item) for item in primary_response.provider_outcomes)
         batches = [(primary_results, constraints.primary_allowed_domains, "preferred")]
         fallback_results = []
         fallback_reason = None
@@ -132,18 +156,25 @@ async def search_web(tool_call, context: KernelRuntimeContext) -> KernelObservat
             and constraints.fallback_allowed_domains != constraints.primary_allowed_domains
         ):
             fallback_reason = "preferred_sources_returned_insufficient_results"
-            fallback_results = await context.search_provider.search(SearchQuery(
-                query=query,
-                market_scope=context.project.market_scope.value,
-                max_results=per_query_limit,
-                allowed_domains=constraints.fallback_allowed_domains,
-                blocked_domains=constraints.blocked_domains,
-            ))
-            provider_request_count += 1
+            fallback_response = await execute_search(
+                context.search_provider,
+                SearchQuery(
+                    query=query,
+                    market_scope=context.project.market_scope.value,
+                    max_results=per_query_limit,
+                    allowed_domains=constraints.fallback_allowed_domains,
+                    blocked_domains=constraints.blocked_domains,
+                ),
+                request_budget=max(0, context.max_provider_requests - context.provider_request_count),
+            )
+            fallback_results = fallback_response.results
+            provider_request_count += fallback_response.request_count
+            context.consume_provider_requests(fallback_response.request_count)
+            provider_outcomes.extend(asdict(item) for item in fallback_response.provider_outcomes)
             fallback_used = True
             batches.append((fallback_results, constraints.fallback_allowed_domains, "fallback"))
         accepted_for_query = 0
-        for batch_results, batch_allowed_domains, _batch_kind in batches:
+        for batch_results, batch_allowed_domains, batch_kind in batches:
             for result in batch_results:
                 canonical_url = (result.url or "").strip()
                 if not canonical_url or not url_matches_domain_policy(
@@ -157,6 +188,15 @@ async def search_web(tool_call, context: KernelRuntimeContext) -> KernelObservat
                     continue
                 seen_result_urls.add(canonical_url)
                 result_queries[canonical_url] = query
+                result_provenance[canonical_url] = {
+                    "search_attempt_id": search_attempt_id,
+                    "query": query,
+                    "phase": batch_kind,
+                    "provider_id": str((result.provider_metadata or {}).get("provider") or "unknown"),
+                    "effective_allowed_domains": batch_allowed_domains,
+                    "effective_blocked_domains": blocked_domains,
+                    "fallback_used": batch_kind == "fallback",
+                }
                 results.append(result)
                 accepted_for_query += 1
                 if len(results) >= total_result_budget:
@@ -190,6 +230,7 @@ async def search_web(tool_call, context: KernelRuntimeContext) -> KernelObservat
     claims: list[KnowledgeClaim] = []
     extraction_diagnostics: list[dict[str, str | bool]] = []
     for index, result in enumerate(accepted):
+        result_url = (result.url or "").strip()
         raw_excerpt = result.snippet or result.title or ""
         source_title = result.title or result.url or query
         extraction_provider = None
@@ -197,32 +238,40 @@ async def search_web(tool_call, context: KernelRuntimeContext) -> KernelObservat
         extracted_at = None
         assessment = None
         if index < 3 and result.url and context.content_extraction_provider is not None:
-            try:
-                page = await context.content_extraction_provider.extract_url(result.url)
-                extracted_text = _readable_extracted_text(page.raw_text)
-                if extracted_text:
-                    raw_excerpt = extracted_text[:12000]
-                    source_title = page.title or source_title
-                    extraction_provider = page.extraction_provider or type(context.content_extraction_provider).__name__
-                    extraction_metadata = dict(page.extraction_metadata or {})
-                    extracted_at = datetime.now(UTC)
-                    extraction_diagnostics.append({
-                        "url": result.url,
-                        "success": True,
-                        "provider": extraction_provider,
-                    })
-                else:
-                    extraction_diagnostics.append({
-                        "url": result.url,
-                        "success": False,
-                        "error": "empty_or_unreadable_content",
-                    })
-            except Exception as exc:
+            if context.extraction_request_count >= context.max_extraction_requests:
                 extraction_diagnostics.append({
                     "url": result.url,
                     "success": False,
-                    "error": f"{type(exc).__name__}: {str(exc)[:160]}",
+                    "error": "skipped_budget",
                 })
+            else:
+                context.consume_extraction_request()
+                try:
+                    page = await context.content_extraction_provider.extract_url(result.url)
+                    extracted_text = _readable_extracted_text(page.raw_text)
+                    if extracted_text:
+                        raw_excerpt = extracted_text[:12000]
+                        source_title = page.title or source_title
+                        extraction_provider = page.extraction_provider or type(context.content_extraction_provider).__name__
+                        extraction_metadata = dict(page.extraction_metadata or {})
+                        extracted_at = datetime.now(UTC)
+                        extraction_diagnostics.append({
+                            "url": result.url,
+                            "success": True,
+                            "provider": extraction_provider,
+                        })
+                    else:
+                        extraction_diagnostics.append({
+                            "url": result.url,
+                            "success": False,
+                            "error": "empty_or_unreadable_content",
+                        })
+                except Exception as exc:
+                    extraction_diagnostics.append({
+                        "url": result.url,
+                        "success": False,
+                        "error": f"{type(exc).__name__}: {str(exc)[:160]}",
+                    })
         if context.source_verification_provider is not None:
             try:
                 assessment = await context.source_verification_provider.assess_source(
@@ -256,13 +305,17 @@ async def search_web(tool_call, context: KernelRuntimeContext) -> KernelObservat
             extraction_provider=extraction_provider,
             extraction_metadata=extraction_metadata,
             collection_metadata={
-                "query": result_queries.get(result.url or "", queries[0]),
+                **result_provenance.get(result_url, {
+                    "search_attempt_id": search_attempt_id,
+                    "query": result_queries.get(result_url, queries[0]),
+                    "phase": "preferred",
+                    "provider_id": str((result.provider_metadata or {}).get("provider") or "unknown"),
+                    "effective_allowed_domains": allowed_domains,
+                    "effective_blocked_domains": blocked_domains,
+                    "fallback_used": False,
+                }),
                 "source_pack_ids": constraints.source_pack_ids,
                 "source_enforcement": constraints.enforcement,
-                "effective_allowed_domains": allowed_domains,
-                "effective_blocked_domains": blocked_domains,
-                "fallback_used": fallback_used,
-                "provider_request_count": provider_request_count,
             },
             extracted_at=extracted_at,
             source_quality=source_quality,
@@ -331,6 +384,9 @@ async def search_web(tool_call, context: KernelRuntimeContext) -> KernelObservat
             "source_enforcement": constraints.enforcement,
             "fallback_used": fallback_used,
             "provider_request_count": provider_request_count,
+            "provider_outcomes": provider_outcomes,
+            "run_provider_request_count": context.provider_request_count,
+            "run_extraction_request_count": context.extraction_request_count,
             "raw_result_count": len(results),
             "accepted_count": len(accepted),
             "rejected_count": rejected,

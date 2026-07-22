@@ -221,6 +221,8 @@ def test_search_web_preferred_pack_falls_back_and_records_policy() -> None:
     assert observation.data["fallback_used"] is True
     assert repository.evidence[0].collection_metadata["source_pack_ids"] == ["tech_frontier_pack"]
     assert repository.evidence[0].collection_metadata["fallback_used"] is True
+    assert repository.evidence[0].collection_metadata["phase"] == "fallback"
+    assert repository.evidence[0].collection_metadata["effective_allowed_domains"] == []
 
 
 def test_search_web_required_pack_rejects_out_of_domain_results() -> None:
@@ -270,6 +272,70 @@ def test_search_web_required_pack_rejects_out_of_domain_results() -> None:
     assert observation.data["fallback_used"] is False
     assert "untrusted.example" not in observation.data["allowed_domains"]
     assert observation.data["rejected_by_domain"] == 1
+
+
+def test_search_web_enforces_actual_provider_and_extraction_request_budgets() -> None:
+    class CountingProvider:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def search(self, query):
+            self.calls += 1
+            return [SearchResult(
+                title=f"Result {self.calls}",
+                url=f"https://example.com/{self.calls}",
+                snippet="usable snippet",
+            )]
+
+    class FakeRepository:
+        def __init__(self) -> None:
+            self.evidence = []
+
+        def list_evidence(self, project_id):
+            return self.evidence
+
+        def add_evidence(self, evidence):
+            self.evidence.append(evidence)
+
+    provider = CountingProvider()
+    repository = FakeRepository()
+    context = KernelRuntimeContext(
+        project=_project(),
+        repository=repository,  # type: ignore[arg-type]
+        state=SectorBreakerState.initialize(project_id="project-kernel", domain="API中转站", user_goal="建库"),
+        search_provider=provider,  # type: ignore[arg-type]
+        content_extraction_provider=FakeContentExtractionProvider({}),
+        llm_provider=None,
+        emit_event=lambda event: _async_value(None),
+        max_provider_requests=1,
+        max_extraction_requests=0,
+    )
+
+    observation = asyncio.run(search_web(
+        ToolCall(
+            tool_name="search_web",
+            args={
+                "query": "first",
+                "queries": ["first", "second"],
+                "search_goal": "budget test",
+            },
+        ),
+        context,
+    ))
+
+    assert provider.calls == 1
+    assert context.provider_request_count == 1
+    assert context.extraction_request_count == 0
+    assert context.state.run_budget_usage.provider_requests == 1
+    assert context.state.run_budget_usage.extraction_requests == 0
+    assert context.state.run_budget_usage.search_calls == 1
+    assert any(item["status"] == "skipped_budget" for item in observation.data["provider_outcomes"])
+    assert observation.data["extraction_diagnostics"][0]["error"] == "skipped_budget"
+    assert len(repository.evidence) == 1
+    metadata = repository.evidence[0].collection_metadata
+    assert metadata["phase"] == "preferred"
+    assert metadata["provider_id"] == "unknown"
+    assert "provider_outcomes" not in metadata
 
 
 def test_search_web_extracts_page_body_and_persists_honest_assessment() -> None:

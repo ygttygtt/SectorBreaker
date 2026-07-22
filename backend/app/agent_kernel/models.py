@@ -155,6 +155,8 @@ class KernelTraceEvent(BaseModel):
 class KernelLoopConfig(BaseModel):
     max_iterations: int = Field(default=36, ge=1)
     max_search_calls: int = Field(default=16, ge=0)
+    max_provider_requests: int = Field(default=32, ge=0)
+    max_extraction_requests: int = Field(default=12, ge=0)
     max_writer_calls: int = Field(default=16, ge=0)
     max_consecutive_failed_tools: int = Field(default=3, ge=1)
 

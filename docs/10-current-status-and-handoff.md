@@ -26,7 +26,8 @@ SectorBreaker V3 is a local-first, multi-Agent autonomous knowledge-base managem
 
 - V3 State contains ArtifactMemory, AutonomyPolicy, Vault/health/task references, maintenance objective, and delegation log.
 - Continuation restores active artifacts before Agent decisions.
-- Search/writer/file/byte budgets are runtime-enforced.
+- Search-tool, actual Provider-request, extraction-request, writer, file, and
+  byte budgets are runtime-enforced.
 - `user_materials_only` and disabled network policy block SearchProvider dispatch.
 - Dynamic Specialist roles have typed results and role-level tool allowlists; no Specialist can apply changes.
 - Specialist prompts receive bounded active-artifact and local Hybrid RAG context; structured result summaries persist in the delegation log.
@@ -39,7 +40,13 @@ SectorBreaker V3 is a local-first, multi-Agent autonomous knowledge-base managem
 
 - Search adapters: Tavily, Serper, Brave, Exa, and Firecrawl.
 - `multi` executes providers concurrently, isolates failures, deduplicates URLs, and fairly merges source sets.
+- Every search execution returns typed per-Provider outcomes (`ok`, `empty`,
+  `timeout`, `error`, or `skipped_budget`) with latency, result count, safe
+  error diagnostics, and actual request consumption.
 - Agent search supports explicit preferred domains; source-pack connectors report executable, missing-config, manual, or planned status honestly.
+- Project-level source-pack, custom allow/block domain, and `prefer`/`require`
+  enforcement are persisted and restored into Agent State. `require` is a hard
+  allowlist; `prefer` records explicit fallback.
 - The configuration workbench can load a dedicated source pack into the real search/extraction self-test.
 - Agent decision heartbeat no longer adds a mandatory 10-second delay to fast LLM decisions.
 - Production Agent search now extracts readable bodies from up to three
@@ -56,6 +63,11 @@ SectorBreaker V3 is a local-first, multi-Agent autonomous knowledge-base managem
   `available_not_selected`.
 - Search self-test fails closed for `user_materials_only`, zero accepted
   results, and empty/short/binary extraction output.
+- Search and extraction adapters reject local/private/reserved targets, and the
+  local HTTP extractor revalidates every redirect target.
+- Runtime search configuration is written through a temporary file plus atomic
+  replace and keeps one recoverable backup; best-effort owner-only permissions
+  are applied where the platform supports them.
 
 ### Human Resume
 
@@ -84,7 +96,7 @@ SectorBreaker V3 is a local-first, multi-Agent autonomous knowledge-base managem
 
 ## Verification Baseline
 
-- Backend: `217 passed`, one existing Starlette/httpx deprecation warning.
+- Backend: `244 passed`, one existing Starlette/httpx deprecation warning.
 - Frontend: `30 passed`.
 - Frontend production build: passed; existing >500 kB chunk warning remains.
 - Version isolation: passed.
@@ -102,16 +114,10 @@ The current implementation is real local Hybrid RAG, not keyword matching behind
 
 ## Remaining Work
 
-- Persist selected source packs/domains as project-level Agent policy; the
-  settings button is still a self-test helper only.
 - Replace whole-State artifact evidence attachment and ID-presence review with
   claim-level citation existence/support checks.
 - Reconcile stale `running` runs after process restart and expose an explicit
   interrupted/recoverable status.
-- Count actual provider fan-out requests in search budgets and expose partial
-  multi-provider failures.
-- Add SSRF/private-network protection and safer atomic/permission-restricted
-  runtime secret storage.
 - Better claim-level semantic verification and counterevidence linking.
 - Per-Specialist bounded tool execution and validated promotion of findings into StateDelta/ChangeSets.
 - Optional Firecrawl map/crawl contract after crawl budgets, robots/policy handling, and persistence are designed.

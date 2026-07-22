@@ -38,6 +38,9 @@ Evidence collection metadata.
 - Completion gate: historical active artifacts do not count as work completed
   in the current run. `finish`/`finish_run` requires a new artifact in this
   execution or an artifact durably attributed to the same resumed run id.
+- Budget durability gate: consumed search-tool, Provider, extraction, and
+  writer counts are typed State. Same-run human resume restores those counts;
+  only a new run receives a fresh allowance.
 - Durability gate: artifact and final State checkpoint failures propagate to
   the API run boundary; they must not be swallowed while marking a run
   completed.

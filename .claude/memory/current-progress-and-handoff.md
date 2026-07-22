@@ -15,7 +15,11 @@ Implemented V3 loop:
 - Master Agent plus typed, allowlisted Specialists;
 - Specialists receive bounded active-artifact and local Hybrid RAG context;
 - Tavily/Serper/Brave/Exa/Firecrawl search with concurrent fair multi-provider merging and executable source-pack domain targeting;
+- persisted project source-pack/domain policy with explicit `prefer` fallback
+  and hard `require` enforcement;
+- actual Provider fan-out and extraction budgets with typed per-Provider diagnostics;
 - production search body extraction with persisted provenance and local domain-policy enforcement;
+- public-URL/redirect SSRF checks and atomic backed-up runtime configuration;
 - typed waiting-run resume with feedback injected into Agent State/ContextPack;
 - search-key preservation and honest discovery-only source-pack status;
 - current-run output completion gate and fail-loud checkpoint persistence;
@@ -33,7 +37,7 @@ Retired and deleted from production:
 
 Current verification baseline:
 
-- backend 217 passed;
+- backend 244 passed;
 - frontend 30 passed;
 - frontend build passed;
 - version isolation passed;
@@ -44,4 +48,6 @@ Current verification baseline:
 
 Current RAG is real local Hybrid RAG: `BAAI/bge-small-zh-v1.5`, content-hash incremental SQLite vectors, lexical/vector RRF, typed provenance, and explicit `lexical_degraded` fallback. The real-model smoke test proves vector-only recall without shared keywords.
 
-Next valuable work: persistent project-level source-pack policy, claim-level evidence gates, stale-run recovery, actual provider-request budgets, multi-provider diagnostics, SSRF protection, per-Specialist bounded tool execution, and Firecrawl map/crawl contracts.
+Next valuable work: claim-level evidence gates, stale-run lease/recovery,
+per-Specialist bounded tool execution, one real direct source connector, and
+optional Firecrawl map/crawl contracts.

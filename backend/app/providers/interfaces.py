@@ -1,7 +1,7 @@
 """Replaceable provider contracts."""
 
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 
 @dataclass(frozen=True)
@@ -26,6 +26,23 @@ class SearchResult:
     snippet: str
     published_date: str | None = None
     provider_metadata: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class ProviderOutcome:
+    provider_id: str
+    status: Literal["ok", "empty", "timeout", "error", "skipped_budget"]
+    latency_ms: int = 0
+    result_count: int = 0
+    error_code: str | None = None
+    error_message: str | None = None
+
+
+@dataclass(frozen=True)
+class SearchResponse:
+    results: list[SearchResult]
+    provider_outcomes: list[ProviderOutcome]
+    request_count: int
 
 
 @dataclass(frozen=True)

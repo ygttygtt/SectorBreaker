@@ -337,8 +337,17 @@ class AutonomyPolicy(BaseModel):
     max_files_per_run: int = Field(default=8, ge=1, le=100)
     max_changed_bytes: int = Field(default=200_000, ge=1)
     max_search_calls: int = Field(default=16, ge=0)
+    max_provider_requests: int = Field(default=32, ge=0)
+    max_extraction_requests: int = Field(default=12, ge=0)
     max_writer_calls: int = Field(default=16, ge=0)
     allowed_write_prefixes: list[str] = Field(default_factory=lambda: ["docs/", "cards/", "followups/"])
+
+
+class RunBudgetUsage(BaseModel):
+    search_calls: int = Field(default=0, ge=0)
+    provider_requests: int = Field(default=0, ge=0)
+    extraction_requests: int = Field(default=0, ge=0)
+    writer_calls: int = Field(default=0, ge=0)
 
 
 class SharedKnowledge(BaseModel):
@@ -417,6 +426,7 @@ class SectorBreakerState(BaseModel):
     active_maintenance_objective: str = ""
     delegation_log: list[str] = Field(default_factory=list)
     autonomy_policy: AutonomyPolicy = Field(default_factory=AutonomyPolicy)
+    run_budget_usage: RunBudgetUsage = Field(default_factory=RunBudgetUsage)
     human_feedback: list[str] = Field(default_factory=list)
     current_layer_id: KnowledgeLayerId | str | None = None
     current_task_id: str | None = None

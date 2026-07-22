@@ -39,10 +39,32 @@ class KernelRuntimeContext:
     initial_artifact_ids: set[str] = field(default_factory=set)
     run_id: str | None = None
     search_call_count: int = 0
+    provider_request_count: int = 0
+    extraction_request_count: int = 0
+    max_provider_requests: int = 32
+    max_extraction_requests: int = 12
     writer_call_count: int = 0
     project_retriever: "ProjectRetriever | None" = None
     # Optional callback: called after each successful artifact write for checkpointing
     on_artifact_written: Callable[[str, int], Awaitable[None]] | None = None
+
+    def consume_search_call(self) -> None:
+        self.search_call_count += 1
+        self.state.run_budget_usage.search_calls = self.search_call_count
+
+    def consume_provider_requests(self, count: int) -> None:
+        if count < 0:
+            raise ValueError("provider request count cannot be negative")
+        self.provider_request_count += count
+        self.state.run_budget_usage.provider_requests = self.provider_request_count
+
+    def consume_extraction_request(self) -> None:
+        self.extraction_request_count += 1
+        self.state.run_budget_usage.extraction_requests = self.extraction_request_count
+
+    def consume_writer_call(self) -> None:
+        self.writer_call_count += 1
+        self.state.run_budget_usage.writer_calls = self.writer_call_count
 
     def new_artifacts(self) -> list[Artifact]:
         return [artifact for artifact in self.artifacts if artifact.id not in self.initial_artifact_ids]

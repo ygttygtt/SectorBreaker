@@ -18,7 +18,7 @@
 
 - 当前个人知识库生产路径是单 Master Agent，不是成熟的多 Agent 协作系统；
 - `TaskMemory` 和 Reflection 模型已经存在，但生产 Pipeline 尚未自动为每个研究任务建立完整的工作记忆和 ToolAttempt；
-- `max_search_calls`、`max_writer_calls` 当前主要作为给 LLM 的软强度提示，运行时 `_budget_check()` 还没有真正执行硬限制；
+- `max_search_calls`、`max_writer_calls` 已由运行时 `_budget_check()` 执行硬限制；搜索还按真实 Provider 请求数和正文抽取请求数分别限额，聚合搜索不会再被当成一次免费调用；
 - claim 冲突处理目前更接近“相似项去重和冲突标记”，还不是严谨的事实矛盾识别与裁决系统；
 - `evaluate_coverage` 有量化公式，但它仍是启发式指标，不是经过标注数据验证的研究质量评分器。
 

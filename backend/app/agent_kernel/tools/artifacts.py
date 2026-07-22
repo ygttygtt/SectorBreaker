@@ -144,7 +144,7 @@ async def write_layer_document(tool_call, context: KernelRuntimeContext) -> Kern
     budget_error = _creation_budget_error(context)
     if budget_error:
         return _budget_observation("write_layer_document", budget_error)
-    context.writer_call_count += 1
+    context.consume_writer_call()
     layer_id = _layer_id(tool_call.args.get("layer_id"), context.state.current_layer_id)
     if layer_id is None:
         return KernelObservation(
@@ -219,7 +219,7 @@ async def write_explainer_card(tool_call, context: KernelRuntimeContext) -> Kern
         return _budget_observation("write_explainer_card", budget_error)
     if context.writer_call_count >= context.state.autonomy_policy.max_writer_calls:
         return _budget_observation("write_explainer_card", "writer budget exhausted")
-    context.writer_call_count += 1
+    context.consume_writer_call()
     title = str(tool_call.args.get("title") or "").strip()
     focus = str(tool_call.args.get("focus") or title).strip()
     if not title and focus:
@@ -442,7 +442,7 @@ async def revise_layer_document(tool_call, context: KernelRuntimeContext) -> Ker
             summary=f"修订失败：找不到 artifact_id={artifact_id}。",
             error="artifact not found",
         )
-    context.writer_call_count += 1
+    context.consume_writer_call()
     layer_id = tool_call.args.get("layer_id") or old_artifact.content_path or artifact_id
     context_text = _build_writer_context(context, layer_id=layer_id, title=old_artifact.title)
     revision_prompt = (

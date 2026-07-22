@@ -175,6 +175,11 @@ async def run_v2_agent_kernel_pipeline(
         if state.active_maintenance_objective:
             state.meta_context.user_goal = state.active_maintenance_objective
 
+    # A same-run human resume keeps consumed budgets. A new run starts with a
+    # fresh budget even when it restores project knowledge from a checkpoint.
+    if resume_request is None:
+        state.run_budget_usage = state.run_budget_usage.model_validate({})
+
     registry = build_default_tool_registry()
     active_artifacts = repository.list_artifacts(project.id)
     initial_artifact_ids = {artifact.id for artifact in active_artifacts}
@@ -213,6 +218,10 @@ async def run_v2_agent_kernel_pipeline(
         artifacts=list(active_artifacts),
         initial_artifact_ids=initial_artifact_ids,
         run_id=_run_id,
+        search_call_count=state.run_budget_usage.search_calls,
+        provider_request_count=state.run_budget_usage.provider_requests,
+        extraction_request_count=state.run_budget_usage.extraction_requests,
+        writer_call_count=state.run_budget_usage.writer_calls,
         project_retriever=project_retriever,
         on_artifact_written=_checkpoint_on_artifact,
     )
@@ -220,9 +229,15 @@ async def run_v2_agent_kernel_pipeline(
 
     loop_config = _kernel_config_for_project(project)
     loop_config.max_search_calls = min(loop_config.max_search_calls, state.autonomy_policy.max_search_calls)
+    loop_config.max_provider_requests = min(loop_config.max_provider_requests, state.autonomy_policy.max_provider_requests)
+    loop_config.max_extraction_requests = min(loop_config.max_extraction_requests, state.autonomy_policy.max_extraction_requests)
     loop_config.max_writer_calls = min(loop_config.max_writer_calls, state.autonomy_policy.max_writer_calls)
     state.autonomy_policy.max_search_calls = loop_config.max_search_calls
+    state.autonomy_policy.max_provider_requests = loop_config.max_provider_requests
+    state.autonomy_policy.max_extraction_requests = loop_config.max_extraction_requests
     state.autonomy_policy.max_writer_calls = loop_config.max_writer_calls
+    runtime_context.max_provider_requests = loop_config.max_provider_requests
+    runtime_context.max_extraction_requests = loop_config.max_extraction_requests
     runtime = AgentKernelRuntime(
         policy=LLMAgentPolicy(llm_provider),
         registry=registry,
@@ -308,16 +323,18 @@ def _kernel_config_for_project(project: ResearchProject) -> KernelLoopConfig:
     if env_config is not None:
         return env_config
     if project.depth.value == "deep":
-        return KernelLoopConfig(max_iterations=56, max_search_calls=24, max_writer_calls=28)
+        return KernelLoopConfig(max_iterations=56, max_search_calls=24, max_provider_requests=64, max_extraction_requests=24, max_writer_calls=28)
     if project.depth.value == "standard":
-        return KernelLoopConfig(max_iterations=44, max_search_calls=20, max_writer_calls=22)
-    return KernelLoopConfig(max_iterations=36, max_search_calls=16, max_writer_calls=16)
+        return KernelLoopConfig(max_iterations=44, max_search_calls=20, max_provider_requests=48, max_extraction_requests=20, max_writer_calls=22)
+    return KernelLoopConfig(max_iterations=36, max_search_calls=16, max_provider_requests=32, max_extraction_requests=12, max_writer_calls=16)
 
 
 def _kernel_config_from_env() -> KernelLoopConfig | None:
     keys = {
         "max_iterations": "SECTORBREAKER_KERNEL_MAX_ITERATIONS",
         "max_search_calls": "SECTORBREAKER_KERNEL_MAX_SEARCH_CALLS",
+        "max_provider_requests": "SECTORBREAKER_KERNEL_MAX_PROVIDER_REQUESTS",
+        "max_extraction_requests": "SECTORBREAKER_KERNEL_MAX_EXTRACTION_REQUESTS",
         "max_writer_calls": "SECTORBREAKER_KERNEL_MAX_WRITER_CALLS",
     }
     values = {}

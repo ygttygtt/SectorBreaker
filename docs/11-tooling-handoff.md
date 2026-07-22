@@ -27,12 +27,20 @@ Read, in order:
 - Write boundary: existing-note updates require ChangeSet approval/apply.
 - Retrieval: shared local Hybrid RAG with FastEmbed, incremental SQLite vectors, RRF, provenance, and honest degradation.
 - Web acquisition: Tavily/Serper/Brave/Exa/Firecrawl SearchProviders, concurrent fair `multi`, targeted source-pack domains, and separate HTTP/Firecrawl/Jina extraction.
+- Search execution reports typed per-Provider diagnostics and charges the Agent
+  budget for actual Provider fan-out; extraction requests have an independent
+  hard budget.
 - Production `search_web` now consumes HTTP/Firecrawl/Jina extraction for up to
   three accepted URLs, persists body/provenance, and post-filters domains.
+- Project source packs and custom domain policies persist on the project and
+  execute as `prefer` with explicit fallback or `require` as a hard allowlist.
 - Waiting Agent runs have a real typed `/resume` path; feedback is persisted and
   exposed to the next Master decision.
 - Search config preserves blanked stored keys and reports only non-secret key
   presence; domain-pack entries are discovery filters, not direct connectors.
+- Search/extraction dispatch rejects private and reserved network targets; local
+  HTTP redirects are validated hop by hop. Runtime config uses atomic replace
+  with one backup and best-effort owner-only permissions.
 - Runtime completion requires a current-run artifact, and checkpoint failures
   are fatal rather than hidden.
 - Specialists receive bounded artifact plus local retrieval context; they still recommend external tool calls to the Master rather than owning a nested ReAct loop.
@@ -65,7 +73,7 @@ Knowledge-management changes also require a Vault lifecycle acceptance test.
 
 ## Current Baseline
 
-- Backend: 217 passed.
+- Backend: 244 passed.
 - Frontend: 30 passed and production build passed.
 - Version isolation passed.
 - Temporary real Vault apply/export/rollback/re-export acceptance passed.

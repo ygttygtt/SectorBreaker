@@ -1896,6 +1896,9 @@ def test_api_resume_consumes_waiting_run_feedback(tmp_path: Path) -> None:
         domain="可恢复研究",
         user_goal="等待用户确认后继续",
     )
+    state.run_budget_usage.search_calls = 5
+    state.run_budget_usage.provider_requests = 7
+    state.run_budget_usage.extraction_requests = 3
     repo.save_run_state_checkpoint(
         run_id=run.id,
         project_id=project_id,
@@ -1923,6 +1926,9 @@ def test_api_resume_consumes_waiting_run_feedback(tmp_path: Path) -> None:
     checkpoint = repo.load_run_state_checkpoint(run_id=run.id)
     assert checkpoint is not None
     assert any("优先解释官方定义" in item for item in checkpoint.human_feedback)
+    assert checkpoint.run_budget_usage.search_calls >= 5
+    assert checkpoint.run_budget_usage.provider_requests >= 7
+    assert checkpoint.run_budget_usage.extraction_requests >= 3
 
 
 def test_api_exposes_source_registry_status(tmp_path: Path) -> None:
