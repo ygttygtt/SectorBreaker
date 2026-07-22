@@ -21,6 +21,8 @@ Implemented V3 loop:
 - production search body extraction with persisted provenance and local domain-policy enforcement;
 - public-URL/redirect SSRF checks and atomic backed-up runtime configuration;
 - typed waiting-run resume with feedback injected into Agent State/ContextPack;
+- owner-checked run leases, explicit interrupted/orphaned reconciliation, and
+  lineage-linked crash recovery in API/UI;
 - search-key preservation and honest discovery-only source-pack status;
 - current-run output completion gate and fail-loud checkpoint persistence;
 - unified active-only Hybrid RAG with local FastEmbed vectors and RRF;
@@ -37,8 +39,8 @@ Retired and deleted from production:
 
 Current verification baseline:
 
-- backend 244 passed;
-- frontend 30 passed;
+- backend 251 passed;
+- frontend 31 passed;
 - frontend build passed;
 - version isolation passed;
 - import/audit/apply/export/restart/rollback/re-export acceptance passed.
@@ -48,6 +50,6 @@ Current verification baseline:
 
 Current RAG is real local Hybrid RAG: `BAAI/bge-small-zh-v1.5`, content-hash incremental SQLite vectors, lexical/vector RRF, typed provenance, and explicit `lexical_degraded` fallback. The real-model smoke test proves vector-only recall without shared keywords.
 
-Next valuable work: claim-level evidence gates, stale-run lease/recovery,
-per-Specialist bounded tool execution, one real direct source connector, and
+Next valuable work: claim-level evidence gates, per-Specialist bounded tool
+execution, one real direct source connector, and
 optional Firecrawl map/crawl contracts.

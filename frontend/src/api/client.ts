@@ -69,8 +69,13 @@ export interface RunArtifactSummary {
 export interface RunSnapshot {
   run_id: string;
   project_id: string;
-  status: "idle" | "collecting" | "structuring" | "exporting" | "completed" | "failed";
+  status: "pending" | "running" | "waiting_for_human" | "interrupted" | "completed" | "failed"
+    | "idle" | "collecting" | "structuring" | "exporting";
   current_stage: string;
+  terminal_reason?: string | null;
+  resumed_from_run_id?: string | null;
+  can_resume?: boolean;
+  can_recover?: boolean;
   progress: RunProgress;
   events: RunEvent[];
   errors: RunEvent[];
@@ -870,6 +875,12 @@ export const api = {
     return requestJson<{ status: string; run_id: string }>(`/api/runs/${runId}/resume`, {
       method: "POST",
       body: JSON.stringify(data),
+    });
+  },
+
+  recoverRun(runId: string) {
+    return requestJson<{ status: string; run_id: string; resumed_from_run_id: string }>(`/api/runs/${runId}/recover`, {
+      method: "POST",
     });
   },
 };

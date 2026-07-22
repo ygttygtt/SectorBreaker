@@ -26,6 +26,8 @@ compatibility, but the public V3 contract has no enterprise mode selector.
 ### ResearchRun
 
 - id, project id, status, current gate/step;
+- heartbeat, lease owner/expiry, terminal reason, and recovery lineage;
+- explicit `interrupted` status for expired workers with a durable checkpoint;
 - checkpoint and completion metadata;
 - run events and user inputs.
 
@@ -110,6 +112,13 @@ Diagnostic/partial types:
 
 - `run_end_partial`: useful work exists but completion was not reached;
 - `run_end`: failed/blocked diagnostics only.
+
+Run leases are ownership, not decoration. Runtime event append and terminal
+status transitions compare the worker owner id. On startup, only expired
+`pending`/`running` leases are reconciled: runs with a valid checkpoint become
+`interrupted/recoverable`; runs without one become
+`failed/orphaned_no_checkpoint`. `waiting_for_human` is not expired by the
+worker lease.
 
 Default continuation loads only explicitly resumable checkpoints. It also loads
 active project artifacts into runtime context before any revise operation.

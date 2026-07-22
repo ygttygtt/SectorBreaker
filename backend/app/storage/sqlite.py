@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 import json
 from array import array
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -922,36 +922,86 @@ class SQLiteRepository:
 
     # ── Runs ──────────────────────────────────────────────────────
 
-    def create_run(self, project_id: str, run_id: str | None = None) -> ResearchRun:
+    def create_run(
+        self,
+        project_id: str,
+        run_id: str | None = None,
+        *,
+        resumed_from_run_id: str | None = None,
+    ) -> ResearchRun:
         now = datetime.now(UTC)
         run = ResearchRun(
             id=run_id or f"run-{uuid4().hex}",
             project_id=project_id,
             status=RunStatus.PENDING,
+            resumed_from_run_id=resumed_from_run_id,
             created_at=now,
         )
         with self._connect() as connection:
             connection.execute(
-                "INSERT INTO runs (id, project_id, status, created_at) VALUES (?, ?, ?, ?)",
-                (run.id, run.project_id, run.status.value, run.created_at.isoformat()),
+                "INSERT INTO runs (id, project_id, status, resumed_from_run_id, created_at) VALUES (?, ?, ?, ?, ?)",
+                (run.id, run.project_id, run.status.value, resumed_from_run_id, run.created_at.isoformat()),
             )
         return run
+
+    def create_claimed_run(
+        self,
+        project_id: str,
+        *,
+        lease_owner_id: str,
+        lease_seconds: int,
+        resumed_from_run_id: str | None = None,
+    ) -> ResearchRun:
+        now = datetime.now(UTC)
+        expires_at = now + timedelta(seconds=lease_seconds)
+        run_id = f"run-{uuid4().hex}"
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._reconcile_stale_runs(connection, now)
+            active = connection.execute(
+                """
+                SELECT id FROM runs
+                WHERE project_id = ? AND status IN (?, ?, ?)
+                LIMIT 1
+                """,
+                (
+                    project_id,
+                    RunStatus.PENDING.value,
+                    RunStatus.RUNNING.value,
+                    RunStatus.WAITING_FOR_HUMAN.value,
+                ),
+            ).fetchone()
+            if active is not None:
+                raise ValueError(f"project already has an active run: {active['id']}")
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO runs (
+                        id, project_id, status, heartbeat_at, lease_owner_id,
+                        lease_expires_at, resumed_from_run_id, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        run_id,
+                        project_id,
+                        RunStatus.RUNNING.value,
+                        now.isoformat(),
+                        lease_owner_id,
+                        expires_at.isoformat(),
+                        resumed_from_run_id,
+                        now.isoformat(),
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise ValueError("run recovery already exists") from exc
+        return self.get_run(run_id)
 
     def get_run(self, run_id: str) -> ResearchRun:
         with self._connect() as connection:
             row = connection.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
         if row is None:
             raise KeyError(f"run not found: {run_id}")
-        return ResearchRun(
-            id=row["id"],
-            project_id=row["project_id"],
-            status=RunStatus(row["status"]),
-            current_gate=row["current_gate"],
-            current_step=row["current_step"],
-            workflow_state=row["workflow_state"],
-            created_at=datetime.fromisoformat(row["created_at"]),
-            completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
-        )
+        return self._row_to_run(row)
 
     def get_active_run(self, project_id: str) -> ResearchRun | None:
         with self._connect() as connection:
@@ -971,16 +1021,7 @@ class SQLiteRepository:
             ).fetchone()
         if row is None:
             return None
-        return ResearchRun(
-            id=row["id"],
-            project_id=row["project_id"],
-            status=RunStatus(row["status"]),
-            current_gate=row["current_gate"],
-            current_step=row["current_step"],
-            workflow_state=row["workflow_state"],
-            created_at=datetime.fromisoformat(row["created_at"]),
-            completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
-        )
+        return self._row_to_run(row)
 
     def get_latest_run(self, project_id: str) -> ResearchRun | None:
         with self._connect() as connection:
@@ -995,6 +1036,10 @@ class SQLiteRepository:
             ).fetchone()
         if row is None:
             return None
+        return self._row_to_run(row)
+
+    @staticmethod
+    def _row_to_run(row: sqlite3.Row) -> ResearchRun:
         return ResearchRun(
             id=row["id"],
             project_id=row["project_id"],
@@ -1002,6 +1047,11 @@ class SQLiteRepository:
             current_gate=row["current_gate"],
             current_step=row["current_step"],
             workflow_state=row["workflow_state"],
+            heartbeat_at=datetime.fromisoformat(row["heartbeat_at"]) if row["heartbeat_at"] else None,
+            lease_owner_id=row["lease_owner_id"],
+            lease_expires_at=datetime.fromisoformat(row["lease_expires_at"]) if row["lease_expires_at"] else None,
+            terminal_reason=row["terminal_reason"],
+            resumed_from_run_id=row["resumed_from_run_id"],
             created_at=datetime.fromisoformat(row["created_at"]),
             completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
         )
@@ -1014,6 +1064,7 @@ class SQLiteRepository:
         current_step: str | None = None,
         completed_at: datetime | None = None,
         workflow_state: str | None = None,
+        terminal_reason: str | None = None,
     ) -> None:
         sets = []
         params: list[object] = []
@@ -1032,16 +1083,161 @@ class SQLiteRepository:
         if workflow_state is not None:
             sets.append("workflow_state = ?")
             params.append(workflow_state)
+        if terminal_reason is not None:
+            sets.append("terminal_reason = ?")
+            params.append(terminal_reason)
         if not sets:
             return
         params.append(run_id)
         with self._connect() as connection:
             connection.execute(f"UPDATE runs SET {', '.join(sets)} WHERE id = ?", params)
 
+    def claim_waiting_run(self, run_id: str, *, lease_owner_id: str, lease_seconds: int) -> bool:
+        now = datetime.now(UTC)
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE runs
+                SET status = ?, heartbeat_at = ?, lease_owner_id = ?,
+                    lease_expires_at = ?, terminal_reason = NULL, completed_at = NULL
+                WHERE id = ? AND status = ?
+                """,
+                (
+                    RunStatus.RUNNING.value,
+                    now.isoformat(),
+                    lease_owner_id,
+                    (now + timedelta(seconds=lease_seconds)).isoformat(),
+                    run_id,
+                    RunStatus.WAITING_FOR_HUMAN.value,
+                ),
+            )
+            return cursor.rowcount == 1
+
+    def finish_owned_run(
+        self,
+        run_id: str,
+        *,
+        lease_owner_id: str,
+        status: RunStatus,
+        current_gate: str,
+        terminal_reason: str | None = None,
+    ) -> None:
+        completed_at = datetime.now(UTC) if status in {RunStatus.COMPLETED, RunStatus.FAILED} else None
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE runs
+                SET status = ?, current_gate = ?, completed_at = ?,
+                    terminal_reason = ?, lease_owner_id = NULL, lease_expires_at = NULL
+                WHERE id = ? AND status = ? AND lease_owner_id = ?
+                  AND lease_expires_at > ?
+                """,
+                (
+                    status.value,
+                    current_gate,
+                    completed_at.isoformat() if completed_at else None,
+                    terminal_reason,
+                    run_id,
+                    RunStatus.RUNNING.value,
+                    lease_owner_id,
+                    datetime.now(UTC).isoformat(),
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise RuntimeError("run lease lost before finalization")
+
+    def reconcile_stale_runs(self, now: datetime | None = None) -> list[ResearchRun]:
+        effective_now = now or datetime.now(UTC)
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run_ids = self._reconcile_stale_runs(connection, effective_now)
+        return [self.get_run(run_id) for run_id in run_ids]
+
+    @staticmethod
+    def _reconcile_stale_runs(connection: sqlite3.Connection, now: datetime) -> list[str]:
+        rows = connection.execute(
+            """
+            SELECT id FROM runs
+            WHERE status IN (?, ?)
+              AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
+            """,
+            (RunStatus.PENDING.value, RunStatus.RUNNING.value, now.isoformat()),
+        ).fetchall()
+        reconciled: list[str] = []
+        for row in rows:
+            run_id = row["id"]
+            checkpoint = connection.execute(
+                "SELECT 1 FROM run_state_checkpoints WHERE run_id = ? LIMIT 1",
+                (run_id,),
+            ).fetchone()
+            status = RunStatus.INTERRUPTED if checkpoint is not None else RunStatus.FAILED
+            reason = "lease_expired" if checkpoint is not None else "orphaned_no_checkpoint"
+            connection.execute(
+                """
+                UPDATE runs
+                SET status = ?, terminal_reason = ?, lease_owner_id = NULL,
+                    lease_expires_at = NULL, completed_at = ?
+                WHERE id = ?
+                """,
+                (
+                    status.value,
+                    reason,
+                    now.isoformat() if status == RunStatus.FAILED else None,
+                    run_id,
+                ),
+            )
+            reconciled.append(run_id)
+        return reconciled
+
+    def has_run_state_checkpoint(self, run_id: str) -> bool:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM run_state_checkpoints WHERE run_id = ? LIMIT 1",
+                (run_id,),
+            ).fetchone()
+        return row is not None
+
+    def has_recovery_child(self, run_id: str) -> bool:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM runs WHERE resumed_from_run_id = ? LIMIT 1",
+                (run_id,),
+            ).fetchone()
+        return row is not None
+
     # ── Run Events ────────────────────────────────────────────────
 
-    def add_run_event(self, event: RunEvent, run_id: str) -> int:
+    def add_run_event(
+        self,
+        event: RunEvent,
+        run_id: str,
+        *,
+        lease_owner_id: str | None = None,
+        lease_seconds: int = 90,
+    ) -> int:
         with self._connect() as connection:
+            if lease_owner_id is not None:
+                now = datetime.now(UTC)
+                lease_cursor = connection.execute(
+                    """
+                    UPDATE runs
+                    SET heartbeat_at = ?, lease_expires_at = ?, current_gate = ?, current_step = ?
+                    WHERE id = ? AND status = ? AND lease_owner_id = ?
+                      AND lease_expires_at > ?
+                    """,
+                    (
+                        now.isoformat(),
+                        (now + timedelta(seconds=lease_seconds)).isoformat(),
+                        event.gate,
+                        event.step,
+                        run_id,
+                        RunStatus.RUNNING.value,
+                        lease_owner_id,
+                        now.isoformat(),
+                    ),
+                )
+                if lease_cursor.rowcount != 1:
+                    raise RuntimeError("run lease lost before event append")
             cursor = connection.execute(
                 """
                 INSERT INTO run_events (

@@ -101,6 +101,15 @@
 
 这些修复同时有 fake Provider 回归测试和下述真实 Tavily + HTTP extraction 生产验收。
 
+- 项目级 source pack/custom domain policy 已持久化，`prefer` fallback 和
+  `require` hard allowlist 会进入 Agent State、运行诊断和 Evidence provenance。
+- 搜索预算按真实 Provider fan-out 计费，抽取另有硬预算；同 run 恢复不会
+  重置消费计数，聚合失败会保守扣除已保留额度。
+- URL 抽取已拒绝私网/保留地址并逐跳校验 HTTP redirect；runtime config
+  使用原子替换、备份恢复和尽力 owner-only 权限。
+- stale run 已有 owner lease、heartbeat、`interrupted`/orphaned 区分和
+  lineage child recovery；waiting 事件、snapshot、SSE 和前端恢复按钮已接通。
+
 ## 真实验收结果（2026-07-22）
 
 使用本机实际配置 `deepseek-v4-flash + Tavily + HTTP extraction` 完成 V3 生产路径验收：
@@ -112,4 +121,6 @@
 - 导出目录：`exports/v3真实搜索抽取验收-闭环-20260722`；包含全部 `.sectorbreaker/*.json`、manifest 和 active artifact ids。
 - 真实运行约 10 分钟，期间一次 `propose_change_set` 因空 `after_content` 失败，Agent 后续自我修正并完成。这证明容错存在，也说明决策延迟和无效工具调用仍需优化。
 
-验收通过不等于所有审计项关闭。仍未完成的主要产品缺口是：项目级专用信源绑定、claim-level 证据支持门禁、stale run 恢复、真实 Provider 请求预算、multi-provider 降级诊断、SSRF 防护，以及 Specialist 独立工具循环。
+验收通过不等于所有审计项关闭。仍未完成的主要产品缺口是：claim-level
+证据支持门禁、follow-up 写回语义收紧、Specialist 独立工具循环、至少一个
+真实垂直站点 direct connector，以及 Firecrawl map/crawl 的受控契约。

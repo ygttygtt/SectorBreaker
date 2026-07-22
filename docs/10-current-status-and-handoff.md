@@ -74,6 +74,13 @@ SectorBreaker V3 is a local-first, multi-Agent autonomous knowledge-base managem
 - `POST /api/runs/{run_id}/resume` now restores a waiting run from its durable
   checkpoint, persists typed feedback, injects it into State/ContextPack, and
   internalizes an optional assistant brief as low-trust project material.
+- Run workers own expiring leases. Event append and terminal transitions fail
+  when the owner or expiry no longer matches.
+- Expired runs with durable checkpoints become `interrupted` and can create one
+  lineage-linked recovery child; orphaned runs without checkpoints fail
+  explicitly.
+- Waiting runs emit a typed event before releasing their lease, and duplicate
+  resume/recover requests are rejected atomically.
 
 ### Retrieval And Export
 
@@ -92,12 +99,14 @@ SectorBreaker V3 is a local-first, multi-Agent autonomous knowledge-base managem
 - Maintenance run launch.
 - ChangeSet diff, manual proposal, approve, apply, and rollback.
 - Hybrid RAG status/model/index diagnostics, reindex action, and citation provenance badges.
+- Real waiting/interrupted snapshot states, checkpoint recovery action, and
+  terminal workflow nodes without stale running spinners.
 - Enterprise talent/Boss UI is removed.
 
 ## Verification Baseline
 
-- Backend: `244 passed`, one existing Starlette/httpx deprecation warning.
-- Frontend: `30 passed`.
+- Backend: `251 passed`, one existing Starlette/httpx deprecation warning.
+- Frontend: `31 passed`.
 - Frontend production build: passed; existing >500 kB chunk warning remains.
 - Version isolation: passed.
 - Real temporary Vault acceptance: import -> audit -> ChangeSet -> approve -> apply -> export -> process restart -> rollback -> re-export passed.
@@ -116,8 +125,6 @@ The current implementation is real local Hybrid RAG, not keyword matching behind
 
 - Replace whole-State artifact evidence attachment and ID-presence review with
   claim-level citation existence/support checks.
-- Reconcile stale `running` runs after process restart and expose an explicit
-  interrupted/recoverable status.
 - Better claim-level semantic verification and counterevidence linking.
 - Per-Specialist bounded tool execution and validated promotion of findings into StateDelta/ChangeSets.
 - Optional Firecrawl map/crawl contract after crawl budgets, robots/policy handling, and persistence are designed.

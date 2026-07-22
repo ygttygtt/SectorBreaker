@@ -44,6 +44,12 @@ def test_sqlite_migrations_are_discoverable() -> None:
         "016_evidence_extraction_metadata.sql",
         "017_project_source_preferences.sql",
         "018_evidence_collection_metadata.sql",
+        "019_run_leases.sql",
+        "020_run_lease_owner.sql",
+        "021_run_lease_expiry.sql",
+        "022_run_terminal_reason.sql",
+        "023_run_recovery_lineage.sql",
+        "024_run_lease_indexes.sql",
     ]
 
 

@@ -11,6 +11,7 @@ class RunStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
     WAITING_FOR_HUMAN = "waiting_for_human"
+    INTERRUPTED = "interrupted"
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -52,8 +53,12 @@ class RunEvent(BaseModel):
 class RunSnapshot(BaseModel):
     run_id: str
     project_id: str
-    status: V1RunStage
+    status: RunStatus
     current_stage: str
+    terminal_reason: str | None = None
+    resumed_from_run_id: str | None = None
+    can_resume: bool = False
+    can_recover: bool = False
     progress: RunProgress = Field(default_factory=RunProgress)
     events: list[RunEvent] = Field(default_factory=list)
     errors: list[RunEvent] = Field(default_factory=list)
@@ -68,6 +73,11 @@ class ResearchRun(BaseModel):
     current_gate: str | None = None
     current_step: str | None = None
     workflow_state: str | None = None  # JSON-serialized workflow state for pause/resume
+    heartbeat_at: datetime | None = None
+    lease_owner_id: str | None = None
+    lease_expires_at: datetime | None = None
+    terminal_reason: str | None = None
+    resumed_from_run_id: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     completed_at: datetime | None = None
 

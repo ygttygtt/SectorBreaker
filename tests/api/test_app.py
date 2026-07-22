@@ -1,6 +1,7 @@
 import os
 import time
 import zipfile
+from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 
@@ -1929,6 +1930,57 @@ def test_api_resume_consumes_waiting_run_feedback(tmp_path: Path) -> None:
     assert checkpoint.run_budget_usage.search_calls >= 5
     assert checkpoint.run_budget_usage.provider_requests >= 7
     assert checkpoint.run_budget_usage.extraction_requests >= 3
+
+
+def test_api_recovers_interrupted_run_once_as_lineage_child(tmp_path: Path) -> None:
+    database_path = tmp_path / "sectorbreaker.sqlite3"
+    client = TestClient(create_app(
+        database_path=database_path,
+        export_root=tmp_path / "exports",
+        llm_provider=_default_fake_llm(),
+    ))
+    project_id = client.post(
+        "/api/projects",
+        json={"title": "Recovery", "domain": "恢复测试", "market_scope": "mixed", "depth": "quick"},
+    ).json()["id"]
+    repo = SQLiteRepository(database_path)
+    parent = repo.create_claimed_run(
+        project_id,
+        lease_owner_id="crashed-worker",
+        lease_seconds=60,
+    )
+    repo.save_run_state_checkpoint(
+        run_id=parent.id,
+        project_id=project_id,
+        state=SectorBreakerState.initialize(
+            project_id=project_id,
+            domain="恢复测试",
+            user_goal="继续",
+        ),
+        checkpoint_type="run_end",
+    )
+    with repo._connect() as connection:  # noqa: SLF001 - force an expired lease
+        connection.execute(
+            "UPDATE runs SET lease_expires_at = ? WHERE id = ?",
+            ((datetime.now(UTC) - timedelta(seconds=1)).isoformat(), parent.id),
+        )
+    repo.reconcile_stale_runs()
+
+    snapshot = client.get(f"/api/runs/{parent.id}/snapshot").json()
+    assert snapshot["status"] == "interrupted"
+    assert snapshot["terminal_reason"] == "lease_expired"
+    assert snapshot["can_recover"] is True
+
+    response = client.post(f"/api/runs/{parent.id}/recover")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["run_id"] != parent.id
+    assert payload["resumed_from_run_id"] == parent.id
+    child = client.get(f"/api/runs/{payload['run_id']}").json()
+    assert child["resumed_from_run_id"] == parent.id
+
+    duplicate = client.post(f"/api/runs/{parent.id}/recover")
+    assert duplicate.status_code == 409
 
 
 def test_api_exposes_source_registry_status(tmp_path: Path) -> None:

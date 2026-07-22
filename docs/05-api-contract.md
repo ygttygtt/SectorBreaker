@@ -47,9 +47,21 @@ Archived projects cannot start or continue runs.
 - `GET /api/runs/{run_id}/events`
 - `GET /api/runs/{run_id}/trace`
 - `POST /api/runs/{run_id}/resume`
+- `POST /api/runs/{run_id}/recover`
 
 The production auto-run owner is the Agent Kernel. Continuation restores the
 latest completed/resumable project checkpoint and active artifact revisions.
+
+`/resume` atomically claims a `waiting_for_human` run and keeps the same run id
+and budget usage. Duplicate claims return `409`. `/recover` accepts only an
+`interrupted` run with a durable checkpoint and creates one child run whose
+`resumed_from_run_id` points to the interrupted parent. Duplicate recovery also
+returns `409`.
+
+Run snapshots expose the real `RunStatus`, terminal reason, lineage,
+`can_resume`, and `can_recover`; they do not collapse waiting/interrupted states
+into a legacy progress stage. SSE ends only for terminal statuses. Idle streams
+send keepalive comments and never signal fake completion.
 
 V3 continuation target body:
 

@@ -44,6 +44,13 @@ Evidence collection metadata.
 - Durability gate: artifact and final State checkpoint failures propagate to
   the API run boundary; they must not be swallowed while marking a run
   completed.
+- Execution lease gate: a run worker must own an unexpired lease before it can
+  append runtime events or finalize status. A crashed `running` run becomes
+  `interrupted` only when a durable checkpoint exists; otherwise it fails as
+  `orphaned_no_checkpoint`.
+- Recovery gate: human feedback resumes the same waiting run through an atomic
+  claim. Crash recovery creates one child run with `resumed_from_run_id` and
+  keeps the parent's audit history immutable.
 
 ## Vault Auditor Specialist
 

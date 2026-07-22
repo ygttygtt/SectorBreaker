@@ -19,11 +19,12 @@ Current production architecture:
 - production body extraction with persisted provenance and post-filtered domain policy;
 - public-target/redirect SSRF checks and atomic backed-up runtime configuration;
 - typed waiting-run resume that feeds persisted user input into State;
+- owner-checked leases plus explicit interrupted recovery with child-run lineage;
 - blank search secrets preserve stored keys; source packs no longer masquerade as configured direct connectors;
 - historical artifacts cannot satisfy a new run's finish gate; checkpoint writes fail loudly;
 - active-only local Hybrid RAG and V3 Obsidian export;
 - no enterprise talent or old workflow production code.
 
-Verification baseline: backend 244 passed, frontend 30 passed/build passed, real local semantic smoke passed, version isolation passed. Real V3 web/Agent/ChangeSet/export acceptance passed on project `project-63a8ed6dcd05454ab28cc0443a4e765b`.
+Verification baseline: backend 251 passed, frontend 31 passed/build passed, real local semantic smoke passed, version isolation passed. Real V3 web/Agent/ChangeSet/export acceptance passed on project `project-63a8ed6dcd05454ab28cc0443a4e765b`.
 
 Do not claim an architecture change ready from unit tests alone. Run the real user path and inspect the exported Vault.

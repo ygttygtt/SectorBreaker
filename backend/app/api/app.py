@@ -64,7 +64,6 @@ from backend.app.schemas import (
     RunStatus,
     SourcePolicy,
     UserInput,
-    V1RunStage,
     ChangeSetProposalRequest,
     MaintenanceRunRequest,
     VaultImportRequest,
@@ -87,6 +86,8 @@ LEGACY_PERSONAL_RUN_MARKERS = (
     "已使用保底",
 )
 
+RUN_LEASE_SECONDS = 90
+
 
 def assert_no_legacy_personal_run_event(event: RunEvent) -> None:
     """Fail closed if archived V1/fixed-V2 workflow markers reach personal runs."""
@@ -108,28 +109,75 @@ def _finalize_kernel_run(
     repository: SQLiteRepository,
     run_id: str,
     result: KernelRunResult,
+    *,
+    lease_owner_id: str,
 ) -> None:
     if result.status == KernelRunStatus.COMPLETED:
-        repository.update_run(
+        repository.finish_owned_run(
             run_id,
+            lease_owner_id=lease_owner_id,
             status=RunStatus.COMPLETED,
             current_gate="completed",
-            completed_at=datetime.now(UTC),
+            terminal_reason=result.stop_reason,
         )
         return
     if result.status == KernelRunStatus.WAITING_FOR_HUMAN:
-        repository.update_run(
+        repository.add_run_event(
+            RunEvent(
+                event_type="waiting_for_human",
+                gate="human_feedback",
+                agent="V3 Master Agent",
+                message=result.stop_reason or "Agent 等待用户确认后继续。",
+                data={
+                    "reason": result.stop_reason,
+                    "checkpoint_available": repository.has_run_state_checkpoint(run_id),
+                    "can_resume": True,
+                },
+                severity="warning",
+            ),
             run_id,
+            lease_owner_id=lease_owner_id,
+            lease_seconds=RUN_LEASE_SECONDS,
+        )
+        repository.finish_owned_run(
+            run_id,
+            lease_owner_id=lease_owner_id,
             status=RunStatus.WAITING_FOR_HUMAN,
             current_gate="human_feedback",
+            terminal_reason=result.stop_reason,
         )
         return
-    repository.update_run(
+    repository.finish_owned_run(
         run_id,
+        lease_owner_id=lease_owner_id,
         status=RunStatus.FAILED,
         current_gate=result.status.value,
-        completed_at=datetime.now(UTC),
+        terminal_reason=result.stop_reason,
     )
+
+
+def _reconcile_and_record_stale_runs(repository: SQLiteRepository) -> list[ResearchRun]:
+    reconciled = repository.reconcile_stale_runs()
+    for stale_run in reconciled:
+        repository.add_run_event(
+            RunEvent(
+                event_type="run_interrupted" if stale_run.status == RunStatus.INTERRUPTED else "error",
+                gate=stale_run.current_gate or "unknown",
+                agent="Run Recovery",
+                message=(
+                    "运行进程已失联；检测到 durable checkpoint，可创建恢复运行。"
+                    if stale_run.status == RunStatus.INTERRUPTED
+                    else "运行进程已失联，且没有 durable checkpoint，无法恢复。"
+                ),
+                data={
+                    "terminal_reason": stale_run.terminal_reason,
+                    "can_recover": stale_run.status == RunStatus.INTERRUPTED,
+                },
+                severity="warning" if stale_run.status == RunStatus.INTERRUPTED else "error",
+            ),
+            stale_run.id,
+        )
+    return reconciled
 
 
 class ChatRequest(BaseModel):
@@ -523,6 +571,7 @@ def _build_search_config_status(
 
 
 def _build_run_snapshot(
+    repository: SQLiteRepository,
     run: ResearchRun,
     events: list[RunEvent],
     artifacts: list[Artifact],
@@ -543,8 +592,19 @@ def _build_run_snapshot(
     return RunSnapshot(
         run_id=run.id,
         project_id=run.project_id,
-        status=_v1_stage_from_run(run),
+        status=run.status,
         current_stage=run.current_gate or (latest_event.gate if latest_event else "idle"),
+        terminal_reason=run.terminal_reason,
+        resumed_from_run_id=run.resumed_from_run_id,
+        can_resume=(
+            run.status == RunStatus.WAITING_FOR_HUMAN
+            and repository.has_run_state_checkpoint(run.id)
+        ),
+        can_recover=(
+            run.status == RunStatus.INTERRUPTED
+            and repository.has_run_state_checkpoint(run.id)
+            and not repository.has_recovery_child(run.id)
+        ),
         progress=RunProgress(
             current=progress_current,
             total=progress_total,
@@ -562,21 +622,6 @@ def _build_run_snapshot(
         ],
         updated_at=updated_at,
     )
-
-
-def _v1_stage_from_run(run: ResearchRun) -> V1RunStage:
-    if run.status == RunStatus.COMPLETED:
-        return V1RunStage.COMPLETED
-    if run.status == RunStatus.FAILED:
-        return V1RunStage.FAILED
-    if run.status == RunStatus.PENDING:
-        return V1RunStage.IDLE
-    gate = run.current_gate or ""
-    if "export" in gate:
-        return V1RunStage.EXPORTING
-    if any(marker in gate for marker in ("knowledge", "artifact", "structur", "analysis", "map")):
-        return V1RunStage.STRUCTURING
-    return V1RunStage.COLLECTING
 
 
 def _connector_execution_status(
@@ -719,6 +764,7 @@ def create_app(
 ) -> FastAPI:
     init_database(database_path)
     repository = SQLiteRepository(database_path)
+    _reconcile_and_record_stale_runs(repository)
     vault_service = VaultKnowledgeService(repository)
     change_set_service = ChangeSetService(repository)
     runtime_config_path = get_runtime_config_path(database_path)
@@ -854,6 +900,10 @@ def create_app(
             repository.get_project(project_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="project not found") from exc
+        # Compatibility endpoint used by the frontend to restore the latest
+        # run, even when it is already terminal. Admission control uses the
+        # transactional create_claimed_run path instead.
+        _reconcile_and_record_stale_runs(repository)
         run = repository.get_active_run(project_id) or repository.get_latest_run(project_id)
         if run is None:
             return None
@@ -990,15 +1040,23 @@ def create_app(
         if project.status.value == "archived":
             raise HTTPException(status_code=400, detail="archived projects cannot be run")
 
-        run = repository.create_run(project_id)
-        repository.update_run(run.id, status=RunStatus.RUNNING)
+        _reconcile_and_record_stale_runs(repository)
+        lease_owner_id = f"worker-{uuid4().hex}"
+        try:
+            run = repository.create_claimed_run(
+                project_id,
+                lease_owner_id=lease_owner_id,
+                lease_seconds=RUN_LEASE_SECONDS,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         async def emit_event(event: RunEvent) -> None:
             assert_no_legacy_personal_run_event(event)
-            repository.add_run_event(event, run.id)
-            repository.update_run(
+            repository.add_run_event(
+                event,
                 run.id,
-                current_gate=event.gate,
-                current_step=event.step,
+                lease_owner_id=lease_owner_id,
+                lease_seconds=RUN_LEASE_SECONDS,
             )
 
         async def run_in_background() -> None:
@@ -1014,7 +1072,7 @@ def create_app(
                     run_id=run.id,
                     project_retriever=project_retriever,
                 )
-                _finalize_kernel_run(repository, run.id, result)
+                _finalize_kernel_run(repository, run.id, result, lease_owner_id=lease_owner_id)
             except Exception as exc:
                 error_message = str(exc)
                 safe_message = (
@@ -1022,14 +1080,23 @@ def create_app(
                     if error_message.startswith("legacy event blocked:")
                     else f"工作流执行失败：{error_message}"
                 )
-                repository.add_run_event(RunEvent(
-                    event_type="error",
-                    gate="agent_decide" if error_message.startswith("legacy event blocked:") else "unknown",
-                    agent="V3 Agent Kernel",
-                    message=safe_message,
-                    severity="error",
-                ), run.id)
-                repository.update_run(run.id, status=RunStatus.FAILED, completed_at=datetime.now(UTC))
+                try:
+                    repository.add_run_event(RunEvent(
+                        event_type="error",
+                        gate="agent_decide" if error_message.startswith("legacy event blocked:") else "unknown",
+                        agent="V3 Agent Kernel",
+                        message=safe_message,
+                        severity="error",
+                    ), run.id, lease_owner_id=lease_owner_id, lease_seconds=RUN_LEASE_SECONDS)
+                    repository.finish_owned_run(
+                        run.id,
+                        lease_owner_id=lease_owner_id,
+                        status=RunStatus.FAILED,
+                        current_gate="failed",
+                        terminal_reason=error_message[:300],
+                    )
+                except RuntimeError:
+                    return
 
         background_tasks.add_task(run_in_background)
         return repository.get_run(run.id).model_dump(mode="json")
@@ -1043,19 +1110,31 @@ def create_app(
             raise HTTPException(status_code=404, detail="project not found") from exc
         if project.status.value == "archived":
             raise HTTPException(status_code=400, detail="archived projects cannot be continued")
+        _reconcile_and_record_stale_runs(repository)
         resumed_state = repository.load_latest_resumable_project_checkpoint(project_id=project_id)
         if resumed_state is None:
             raise HTTPException(
                 status_code=404,
                 detail="no state checkpoint found — run the project at least once first",
             )
-        run = repository.create_run(project_id)
-        repository.update_run(run.id, status=RunStatus.RUNNING)
+        lease_owner_id = f"worker-{uuid4().hex}"
+        try:
+            run = repository.create_claimed_run(
+                project_id,
+                lease_owner_id=lease_owner_id,
+                lease_seconds=RUN_LEASE_SECONDS,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
         async def emit_event_continue(event: RunEvent) -> None:
             assert_no_legacy_personal_run_event(event)
-            repository.add_run_event(event, run.id)
-            repository.update_run(run.id, current_gate=event.gate, current_step=event.step)
+            repository.add_run_event(
+                event,
+                run.id,
+                lease_owner_id=lease_owner_id,
+                lease_seconds=RUN_LEASE_SECONDS,
+            )
 
         async def continue_in_background() -> None:
             try:
@@ -1071,16 +1150,25 @@ def create_app(
                     resume_state=resumed_state,
                     project_retriever=project_retriever,
                 )
-                _finalize_kernel_run(repository, run.id, result)
+                _finalize_kernel_run(repository, run.id, result, lease_owner_id=lease_owner_id)
             except Exception as exc:
-                repository.add_run_event(RunEvent(
-                    event_type="error",
-                    gate="agent_decide",
-                    agent="V3 Agent Kernel",
-                    message=str(exc)[:800],
-                    severity="error",
-                ), run.id)
-                repository.update_run(run.id, status=RunStatus.FAILED, completed_at=datetime.now(UTC))
+                try:
+                    repository.add_run_event(RunEvent(
+                        event_type="error",
+                        gate="agent_decide",
+                        agent="V3 Agent Kernel",
+                        message=str(exc)[:800],
+                        severity="error",
+                    ), run.id, lease_owner_id=lease_owner_id, lease_seconds=RUN_LEASE_SECONDS)
+                    repository.finish_owned_run(
+                        run.id,
+                        lease_owner_id=lease_owner_id,
+                        status=RunStatus.FAILED,
+                        current_gate="failed",
+                        terminal_reason=str(exc)[:300],
+                    )
+                except RuntimeError:
+                    return
 
         background_tasks.add_task(continue_in_background)
         return {"run_id": run.id, "status": "started", "resumed_from_checkpoint": True}
@@ -1102,14 +1190,26 @@ def create_app(
         if unknown:
             raise HTTPException(status_code=400, detail={"unknown_task_ids": unknown})
 
+        _reconcile_and_record_stale_runs(repository)
         resumed_state = repository.load_latest_resumable_project_checkpoint(project_id=project_id)
-        run = repository.create_run(project_id)
-        repository.update_run(run.id, status=RunStatus.RUNNING)
+        lease_owner_id = f"worker-{uuid4().hex}"
+        try:
+            run = repository.create_claimed_run(
+                project_id,
+                lease_owner_id=lease_owner_id,
+                lease_seconds=RUN_LEASE_SECONDS,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
         async def emit_maintenance_event(event: RunEvent) -> None:
             assert_no_legacy_personal_run_event(event)
-            repository.add_run_event(event, run.id)
-            repository.update_run(run.id, current_gate=event.gate, current_step=event.step)
+            repository.add_run_event(
+                event,
+                run.id,
+                lease_owner_id=lease_owner_id,
+                lease_seconds=RUN_LEASE_SECONDS,
+            )
 
         async def maintain_in_background() -> None:
             try:
@@ -1126,16 +1226,25 @@ def create_app(
                     maintenance_request=payload,
                     project_retriever=project_retriever,
                 )
-                _finalize_kernel_run(repository, run.id, result)
+                _finalize_kernel_run(repository, run.id, result, lease_owner_id=lease_owner_id)
             except Exception as exc:
-                repository.add_run_event(RunEvent(
-                    event_type="error",
-                    gate="agent_decide",
-                    agent="V3 Knowledge Manager",
-                    message=str(exc)[:800],
-                    severity="error",
-                ), run.id)
-                repository.update_run(run.id, status=RunStatus.FAILED, completed_at=datetime.now(UTC))
+                try:
+                    repository.add_run_event(RunEvent(
+                        event_type="error",
+                        gate="agent_decide",
+                        agent="V3 Knowledge Manager",
+                        message=str(exc)[:800],
+                        severity="error",
+                    ), run.id, lease_owner_id=lease_owner_id, lease_seconds=RUN_LEASE_SECONDS)
+                    repository.finish_owned_run(
+                        run.id,
+                        lease_owner_id=lease_owner_id,
+                        status=RunStatus.FAILED,
+                        current_gate="failed",
+                        terminal_reason=str(exc)[:300],
+                    )
+                except RuntimeError:
+                    return
 
         background_tasks.add_task(maintain_in_background)
         return {
@@ -1151,21 +1260,23 @@ def create_app(
         try:
             run = repository.get_run(run_id)
             data = run.model_dump(mode="json")
-            # Don't expose workflow_state to frontend
+            # Internal workflow/lease ownership is not a public capability.
             data.pop("workflow_state", None)
+            data.pop("lease_owner_id", None)
             return data
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="run not found") from exc
 
     @app.get("/api/runs/{run_id}/snapshot")
     def get_run_snapshot(run_id: str):
+        _reconcile_and_record_stale_runs(repository)
         try:
             run = repository.get_run(run_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="run not found") from exc
         events = repository.list_run_events(run_id)
         artifacts = repository.list_artifacts(run.project_id)
-        return _build_run_snapshot(run, events, artifacts).model_dump(mode="json")
+        return _build_run_snapshot(repository, run, events, artifacts).model_dump(mode="json")
 
     @app.get("/api/runs/{run_id}/workflow-definition")
     def get_run_workflow_definition(run_id: str):
@@ -1208,14 +1319,13 @@ def create_app(
                 last_id = event_id
 
             # If run is already done (or waiting), close after replay
-            if run.status in (RunStatus.COMPLETED, RunStatus.FAILED):
+            if run.status in (RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.INTERRUPTED):
                 yield "data: [DONE]\n\n"
                 return
 
             # Poll for new events
             idle_count = 0
-            max_idle = 600  # 5 minutes timeout at 0.5s intervals
-            while idle_count < max_idle:
+            while True:
                 await asyncio.sleep(0.5)
                 new_events = repository.list_run_event_records(run_id, after_id=last_id)
                 if new_events:
@@ -1229,7 +1339,7 @@ def create_app(
                 # Check if run completed or paused
                 try:
                     current_run = repository.get_run(run_id)
-                    if current_run.status in (RunStatus.COMPLETED, RunStatus.FAILED):
+                    if current_run.status in (RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.INTERRUPTED):
                         remaining = repository.list_run_event_records(run_id, after_id=last_id)
                         for event_id, event in remaining:
                             yield f"data: {event.model_dump_json()}\n\n"
@@ -1248,8 +1358,9 @@ def create_app(
                 except KeyError:
                     yield "data: [DONE]\n\n"
                     return
-
-            yield "data: [DONE]\n\n"
+                if idle_count >= 30:
+                    yield ": keepalive\n\n"
+                    idle_count = 0
 
         return StreamingResponse(
             event_generator(),
@@ -1294,6 +1405,14 @@ def create_app(
         if resumed_state is None:
             raise HTTPException(status_code=409, detail="waiting run has no durable state checkpoint")
 
+        lease_owner_id = f"worker-{uuid4().hex}"
+        if not repository.claim_waiting_run(
+            run_id,
+            lease_owner_id=lease_owner_id,
+            lease_seconds=RUN_LEASE_SECONDS,
+        ):
+            raise HTTPException(status_code=409, detail="waiting run was already resumed")
+
         for input_type, content in (
             ("guidance", payload.guidance),
             ("evidence_data", payload.evidence_data),
@@ -1310,12 +1429,14 @@ def create_app(
                 content=cleaned,
             ))
 
-        repository.update_run(run_id, status=RunStatus.RUNNING, current_gate="initialize_state")
-
         async def emit_resume_event(event: RunEvent) -> None:
             assert_no_legacy_personal_run_event(event)
-            repository.add_run_event(event, run_id)
-            repository.update_run(run_id, current_gate=event.gate, current_step=event.step)
+            repository.add_run_event(
+                event,
+                run_id,
+                lease_owner_id=lease_owner_id,
+                lease_seconds=RUN_LEASE_SECONDS,
+            )
 
         async def resume_in_background() -> None:
             try:
@@ -1332,19 +1453,103 @@ def create_app(
                     resume_request=payload,
                     project_retriever=project_retriever,
                 )
-                _finalize_kernel_run(repository, run_id, result)
+                _finalize_kernel_run(repository, run_id, result, lease_owner_id=lease_owner_id)
             except Exception as exc:
-                repository.add_run_event(RunEvent(
-                    event_type="error",
-                    gate="agent_decide",
-                    agent="V3 Agent Kernel",
-                    message=str(exc)[:800],
-                    severity="error",
-                ), run_id)
-                repository.update_run(run_id, status=RunStatus.FAILED, completed_at=datetime.now(UTC))
+                try:
+                    repository.add_run_event(RunEvent(
+                        event_type="error",
+                        gate="agent_decide",
+                        agent="V3 Agent Kernel",
+                        message=str(exc)[:800],
+                        severity="error",
+                    ), run_id, lease_owner_id=lease_owner_id, lease_seconds=RUN_LEASE_SECONDS)
+                    repository.finish_owned_run(
+                        run_id,
+                        lease_owner_id=lease_owner_id,
+                        status=RunStatus.FAILED,
+                        current_gate="failed",
+                        terminal_reason=str(exc)[:300],
+                    )
+                except RuntimeError:
+                    return
 
         background_tasks.add_task(resume_in_background)
         return {"status": "resumed", "run_id": run_id}
+
+    @app.post("/api/runs/{run_id}/recover")
+    async def recover_interrupted_run(run_id: str, background_tasks: BackgroundTasks):
+        try:
+            parent = repository.get_run(run_id)
+            project = repository.get_project(parent.project_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="run not found") from exc
+        if parent.status != RunStatus.INTERRUPTED:
+            raise HTTPException(status_code=409, detail="only interrupted runs can be recovered")
+        resumed_state = repository.load_run_state_checkpoint(run_id=run_id)
+        if resumed_state is None:
+            raise HTTPException(status_code=409, detail="interrupted run has no durable state checkpoint")
+
+        lease_owner_id = f"worker-{uuid4().hex}"
+        try:
+            child = repository.create_claimed_run(
+                parent.project_id,
+                lease_owner_id=lease_owner_id,
+                lease_seconds=RUN_LEASE_SECONDS,
+                resumed_from_run_id=parent.id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        async def emit_recovery_event(event: RunEvent) -> None:
+            assert_no_legacy_personal_run_event(event)
+            repository.add_run_event(
+                event,
+                child.id,
+                lease_owner_id=lease_owner_id,
+                lease_seconds=RUN_LEASE_SECONDS,
+            )
+
+        async def recover_in_background() -> None:
+            try:
+                result = await run_v2_agent_kernel_pipeline(
+                    project=project,
+                    repository=repository,
+                    search_provider=active_search_provider,
+                    content_extraction_provider=active_content_extraction_provider,
+                    source_verification_provider=source_verifier,
+                    llm_provider=active_llm_provider,
+                    emit=emit_recovery_event,
+                    run_id=child.id,
+                    resume_state=resumed_state,
+                    preserve_run_budget=True,
+                    project_retriever=project_retriever,
+                )
+                _finalize_kernel_run(repository, child.id, result, lease_owner_id=lease_owner_id)
+            except Exception as exc:
+                try:
+                    repository.add_run_event(RunEvent(
+                        event_type="error",
+                        gate="agent_decide",
+                        agent="V3 Agent Kernel Recovery",
+                        message=str(exc)[:800],
+                        severity="error",
+                    ), child.id, lease_owner_id=lease_owner_id, lease_seconds=RUN_LEASE_SECONDS)
+                    repository.finish_owned_run(
+                        child.id,
+                        lease_owner_id=lease_owner_id,
+                        status=RunStatus.FAILED,
+                        current_gate="failed",
+                        terminal_reason=str(exc)[:300],
+                    )
+                except RuntimeError:
+                    return
+
+        background_tasks.add_task(recover_in_background)
+        return {
+            "status": "recovery_started",
+            "run_id": child.id,
+            "resumed_from_run_id": parent.id,
+        }
 
     # ── Evidence & Artifacts ──────────────────────────────────────
 

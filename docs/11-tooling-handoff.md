@@ -36,6 +36,9 @@ Read, in order:
   execute as `prefer` with explicit fallback or `require` as a hard allowlist.
 - Waiting Agent runs have a real typed `/resume` path; feedback is persisted and
   exposed to the next Master decision.
+- Run workers use expiring owner leases. Stale runs reconcile to honest
+  interrupted/recoverable or orphaned/failed states; crash recovery creates one
+  lineage child and the UI exposes the real action.
 - Search config preserves blanked stored keys and reports only non-secret key
   presence; domain-pack entries are discovery filters, not direct connectors.
 - Search/extraction dispatch rejects private and reserved network targets; local
@@ -73,8 +76,8 @@ Knowledge-management changes also require a Vault lifecycle acceptance test.
 
 ## Current Baseline
 
-- Backend: 244 passed.
-- Frontend: 30 passed and production build passed.
+- Backend: 251 passed.
+- Frontend: 31 passed and production build passed.
 - Version isolation passed.
 - Temporary real Vault apply/export/rollback/re-export acceptance passed.
 - Real V3 web/Agent/ChangeSet/export acceptance passed on project

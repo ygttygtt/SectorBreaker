@@ -14,6 +14,7 @@ const {
   mockUpdateSearchConfig,
   mockTestSearchConnection,
   mockResumeRun,
+  mockRecoverRun,
   mockCreateDocument,
   mockUploadDocument,
   mockListArtifacts,
@@ -173,6 +174,7 @@ const {
     configured: true,
   }),
   mockResumeRun: vi.fn().mockResolvedValue({ status: "resumed", run_id: "run-1" }),
+  mockRecoverRun: vi.fn().mockResolvedValue({ status: "recovery_started", run_id: "run-child", resumed_from_run_id: "run-1" }),
   mockCreateDocument: vi.fn().mockResolvedValue({
     id: "doc-text-1",
     project_id: "project-1",
@@ -345,6 +347,7 @@ vi.mock("./api/client", () => ({
     testLLMConnection: vi.fn().mockResolvedValue({ success: true, message: "OK" }),
     addUserInput: vi.fn().mockResolvedValue({ status: "ok", input_id: "ui-1" }),
     resumeRun: mockResumeRun,
+    recoverRun: mockRecoverRun,
     getVaultStatus: mockGetVaultStatus,
     importVault: mockImportVault,
     auditVault: mockAuditVault,
@@ -651,10 +654,37 @@ test("failed snapshot renders visible error instead of blank screen", async () =
 
   expect((await screen.findAllByText("LLM 调用失败")).length).toBeGreaterThan(0);
   expect(screen.getByText(/运行状态：failed/)).toBeInTheDocument();
-  expect(screen.getByText("运行中断，但当前进度已保留")).toBeInTheDocument();
+  expect(screen.getByText("运行失败")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "查看已生成内容" })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "查看已生成内容" }));
   expect(await screen.findByText("证据账本")).toBeInTheDocument();
+});
+
+test("interrupted snapshot offers real checkpoint recovery", async () => {
+  mockGetRunSnapshot.mockResolvedValueOnce({
+    run_id: "run-1",
+    project_id: "project-1",
+    status: "interrupted",
+    current_stage: "agent_decide",
+    terminal_reason: "lease_expired",
+    can_recover: true,
+    progress: { current: 1, total: 3 },
+    events: [],
+    errors: [],
+    artifact_summary: [],
+    updated_at: new Date().toISOString(),
+  });
+
+  render(<App />);
+  fireEvent.change(screen.getByPlaceholderText(/AI Agent 工具/), { target: { value: "AI Agent 工具" } });
+  await waitFor(() => expect(screen.getByRole("button", { name: /开始构建知识库/ })).not.toBeDisabled());
+  fireEvent.click(screen.getByRole("button", { name: /开始构建知识库/ }));
+  await waitFor(() => expect(onCompleteRef).toBeTruthy());
+  await onCompleteRef!();
+
+  expect(await screen.findByText("运行已中断，可从检查点恢复")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "恢复运行" }));
+  await waitFor(() => expect(mockRecoverRun).toHaveBeenCalledWith("run-1"));
 });
 
 test("config panel can test search connectivity", async () => {
@@ -829,12 +859,13 @@ test("renders QA report as readable action lists", async () => {
   mockGetRunSnapshot.mockResolvedValueOnce({
     run_id: "run-1",
     project_id: "project-1",
-    status: "collecting",
+    status: "waiting_for_human",
     current_stage: "qa_critic",
     progress: { current: 2, total: 3 },
     events: mockEventsState.current,
     errors: [],
     artifact_summary: [],
+    can_resume: true,
     updated_at: new Date().toISOString(),
   });
 

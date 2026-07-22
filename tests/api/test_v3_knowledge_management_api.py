@@ -124,13 +124,17 @@ def test_kernel_waiting_for_review_is_not_reported_as_completed(tmp_path: Path) 
         depth=ResearchDepth.QUICK,
         source_policy=SourcePolicy.USER_MATERIALS_ONLY,
     ))
-    run = repository.create_run(project.id)
+    run = repository.create_claimed_run(
+        project.id,
+        lease_owner_id="worker-test",
+        lease_seconds=60,
+    )
 
     _finalize_kernel_run(repository, run.id, KernelRunResult(
         status=KernelRunStatus.WAITING_FOR_HUMAN,
         state_version="3",
         stop_reason="ChangeSet requires review",
-    ))
+    ), lease_owner_id="worker-test")
 
     persisted = repository.get_run(run.id)
     assert persisted.status == RunStatus.WAITING_FOR_HUMAN

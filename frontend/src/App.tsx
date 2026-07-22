@@ -479,7 +479,11 @@ function QAReportPanel({ qa }: { qa: QaPayload }) {
   );
 }
 
-function deriveStatuses(events: RunEvent[], definition: WorkflowDefinition | null = null): Record<string, NodeStatus> {
+function deriveStatuses(
+  events: RunEvent[],
+  definition: WorkflowDefinition | null = null,
+  runStatus?: RunSnapshot["status"],
+): Record<string, NodeStatus> {
   const statuses: Record<string, NodeStatus> = {};
   for (const event of events) {
     const nodeId = nodeIdForDefinition(event, definition);
@@ -491,6 +495,19 @@ function deriveStatuses(events: RunEvent[], definition: WorkflowDefinition | nul
     if (event.event_type === "node_blocked") statuses[nodeId] = "blocked";
     if (event.event_type === "node_failed" || event.event_type === "error") statuses[nodeId] = "failed";
     if (event.event_type === "human_input_required" || event.event_type === "waiting_for_human") statuses[nodeId] = "waiting_for_user";
+  }
+  if (runStatus === "completed") {
+    for (const nodeId of Object.keys(statuses)) {
+      if (statuses[nodeId] === "running") statuses[nodeId] = "completed";
+    }
+  } else if (runStatus === "failed") {
+    for (const nodeId of Object.keys(statuses)) {
+      if (statuses[nodeId] === "running") statuses[nodeId] = "failed";
+    }
+  } else if (runStatus === "interrupted") {
+    for (const nodeId of Object.keys(statuses)) {
+      if (statuses[nodeId] === "running") statuses[nodeId] = "blocked";
+    }
   }
   return statuses;
 }
@@ -773,7 +790,7 @@ function LandingView({
       <aside className="landing-panel landing-panel--flow">
         <div className="panel-title">
           <Network size={16} />
-          <span>知识库自治运行图</span>
+          <span>能力流程图（非本次运行）</span>
         </div>
         <WorkflowEditor isCompact showControls={false} fillHeight variant="domain_knowledge" />
       </aside>
@@ -793,6 +810,7 @@ function ResearchView({
   isConnected,
   onBack,
   onViewPartialResult,
+  onRecover,
   searchConfigured,
 }: {
   project: Project;
@@ -806,13 +824,14 @@ function ResearchView({
   isConnected: boolean;
   onBack: () => void;
   onViewPartialResult: () => void;
+  onRecover: () => void;
   searchConfigured: boolean;
 }) {
   const [selectedNode, setSelectedNode] = useState<WorkflowNode | null>(null);
   const [isLogOpen, setIsLogOpen] = useState(false);
   const [startedAt] = useState(Date.now());
   const [elapsed, setElapsed] = useState("00:00");
-  const statuses = useMemo(() => deriveStatuses(events, workflowDefinition), [events, workflowDefinition]);
+  const statuses = useMemo(() => deriveStatuses(events, workflowDefinition, snapshot?.status), [events, workflowDefinition, snapshot?.status]);
   const latest = events[events.length - 1];
   const initialNodeId = project.project_mode === "domain_knowledge" ? "initialize_state" : "scope";
   const activeNodeId = latest ? nodeIdForDefinition(latest, workflowDefinition) : initialNodeId;
@@ -878,14 +897,24 @@ function ResearchView({
           <section className="agent-focus-card">
             <div className="agent-focus-head">
               <span>{activeAgent ?? snapshot?.current_stage ?? "Agent Kernel"}</span>
-              {snapshot?.status === "failed" || latest?.severity === "error" ? <AlertTriangle size={18} /> : <Loader2 size={18} className={isConnected ? "spinner" : ""} />}
+              {snapshot?.status === "failed" || snapshot?.status === "interrupted" || latest?.severity === "error" ? <AlertTriangle size={18} /> : <Loader2 size={18} className={isConnected ? "spinner" : ""} />}
             </div>
             <p>{activeMessage ?? latest?.message ?? "正在构建可导出的知识系统。"}</p>
             {snapshot && <p className="inline-note">运行状态：{snapshot.status}，产物 {snapshot.artifact_summary.length} 个。</p>}
+            {snapshot?.status === "interrupted" && (
+              <div className="run-recovery-card">
+                <strong>运行已中断，可从检查点恢复</strong>
+                <span>{snapshot.terminal_reason ?? "原 worker 已失联。恢复会创建新的子运行，并保留原运行审计记录。"}</span>
+                <div>
+                  {snapshot.can_recover && <button className="primary btn-sm" onClick={onRecover} type="button">恢复运行</button>}
+                  <button className="secondary btn-sm" onClick={onViewPartialResult} type="button">查看已生成内容</button>
+                </div>
+              </div>
+            )}
             {snapshot?.status === "failed" && (
               <div className="run-recovery-card">
-                <strong>运行中断，但当前进度已保留</strong>
-                <span>你可以先查看已生成内容，或回到首页重新运行。若已有产物，也可以在结果页尝试导出已有结果。</span>
+                <strong>运行失败</strong>
+                <span>{snapshot.terminal_reason ?? "本次运行未完成。只有带 durable checkpoint 的运行才支持恢复。"}</span>
                 <div>
                   <button className="primary btn-sm" onClick={onViewPartialResult} type="button">查看已生成内容</button>
                   <button className="secondary btn-sm" onClick={onBack} type="button">重新运行</button>
@@ -1577,6 +1606,9 @@ export function App() {
         if (definition) setWorkflowDefinition(definition);
         if (snapshot.status === "completed") {
           setPhase("result");
+        } else if (snapshot.status === "waiting_for_human") {
+          setReviewingGate(snapshot.current_stage || "human_feedback");
+          setPhase("reviewing");
         } else {
           setPhase("researching");
         }
@@ -1606,9 +1638,11 @@ export function App() {
       } else if (snapshot.status === "failed") {
         setPhase("researching");
         error(snapshot.errors[0]?.message ?? "运行失败");
-      } else {
+      } else if (snapshot.status === "waiting_for_human") {
         setReviewingGate(snapshot.current_stage || "export");
         setPhase("reviewing");
+      } else {
+        setPhase("researching");
       }
     } catch {
       error("获取研究结果失败");
@@ -1619,7 +1653,11 @@ export function App() {
   const effectiveEvents = runSnapshot?.events.length ? runSnapshot.events : events;
 
   useEffect(() => {
-    if (!runId || phase !== "researching" || runSnapshot?.status === "failed") return;
+    if (
+      !runId
+      || phase !== "researching"
+      || ["completed", "failed", "interrupted", "waiting_for_human"].includes(runSnapshot?.status ?? "")
+    ) return;
     const activeRunId = runId;
     let disposed = false;
     async function refreshSnapshot() {
@@ -1638,6 +1676,9 @@ export function App() {
           setPhase("result");
         } else if (snapshot.status === "failed") {
           error(snapshot.errors[0]?.message ?? "运行失败");
+        } else if (snapshot.status === "waiting_for_human") {
+          setReviewingGate(snapshot.current_stage || "human_feedback");
+          setPhase("reviewing");
         }
       } catch {
         // Snapshot polling is a recovery path; SSE can continue driving live events.
@@ -1781,6 +1822,23 @@ export function App() {
     }
   }
 
+  async function handleRecoverRun() {
+    if (!runId || !project) return;
+    try {
+      const recovered = await api.recoverRun(runId);
+      resetEvents();
+      setRunId(recovered.run_id);
+      rememberRun(project.id, recovered.run_id);
+      setRunSnapshot(null);
+      setActiveAgent("Run Recovery");
+      setActiveMessage("已从 durable checkpoint 创建恢复运行。");
+      setPhase("researching");
+      success("已创建恢复运行");
+    } catch (err) {
+      error(err instanceof Error ? err.message : "恢复运行失败");
+    }
+  }
+
   async function handleReviewSkip() {
     if (reviewingGate === "export") {
       setPhase("result");
@@ -1825,6 +1883,7 @@ export function App() {
           isConnected={isConnected}
           onBack={resetToLanding}
           onViewPartialResult={() => setPhase("result")}
+          onRecover={handleRecoverRun}
           searchConfigured={searchConfigured}
         />
       )}

@@ -43,6 +43,7 @@ async def run_v2_agent_kernel_pipeline(
     run_id: str | None = None,
     resume_state: SectorBreakerState | None = None,
     resume_request: ResumeRequest | None = None,
+    preserve_run_budget: bool = False,
     maintenance_request: MaintenanceRunRequest | None = None,
     project_retriever: ProjectRetriever | None = None,
 ) -> KernelRunResult:
@@ -79,6 +80,21 @@ async def run_v2_agent_kernel_pipeline(
                 "knowledge_schema_strategy": state.knowledge_schema.strategy,
             },
         ))
+        await emit_event(RunEvent(
+            event_type="node_completed",
+            gate="initialize_state",
+            agent="V3 Agent Kernel",
+            message="Existing State checkpoint restored and validated.",
+            data={"resumed": True, "state_version": state.state_version},
+        ))
+        if resume_request is None or not str(resume_request.assistant_brief or "").strip():
+            await emit_event(RunEvent(
+                event_type="node_completed",
+                gate="external_materials",
+                agent="V3 Agent Kernel",
+                message="External material memories restored from the durable State checkpoint.",
+                data={"restored_from_checkpoint": True},
+            ))
         if resume_request is not None:
             feedback_items = _resume_feedback_items(resume_request)
             state.human_feedback.extend(feedback_items)
@@ -144,6 +160,13 @@ async def run_v2_agent_kernel_pipeline(
                 "state": state.model_dump(mode="json"),
             },
         ))
+        await emit_event(RunEvent(
+            event_type="node_completed",
+            gate="initialize_state",
+            agent="V3 Agent Kernel",
+            message="New Agent State initialized and validated.",
+            data={"resumed": False, "state_version": state.state_version},
+        ))
         await _internalize_uploaded_documents(
             project=project,
             repository=repository,
@@ -177,7 +200,7 @@ async def run_v2_agent_kernel_pipeline(
 
     # A same-run human resume keeps consumed budgets. A new run starts with a
     # fresh budget even when it restores project knowledge from a checkpoint.
-    if resume_request is None:
+    if not preserve_run_budget and resume_request is None:
         state.run_budget_usage = state.run_budget_usage.model_validate({})
 
     registry = build_default_tool_registry()
@@ -360,21 +383,23 @@ async def _internalize_uploaded_documents(
     documents = repository.list_documents(project.id)
     if document_ids is not None:
         documents = [document for document in documents if document.id in document_ids]
-    if not documents:
-        await emit_event(RunEvent(
-            event_type="node_progress",
-            gate="external_materials",
-            agent="V3 Agent Kernel",
-            message="No uploaded materials found; Agent starts from current State and search tools.",
-        ))
-        return
-    internalizer = ReportInternalizer()
     await emit_event(RunEvent(
         event_type="node_started",
         gate="external_materials",
         agent="V3 Report Internalizer",
-        message="Writing uploaded materials into Agent State: " + str(len(documents)) + " documents.",
+        message="Inspecting uploaded materials before Agent decisions.",
+        data={"document_count": len(documents)},
     ))
+    if not documents:
+        await emit_event(RunEvent(
+            event_type="node_completed",
+            gate="external_materials",
+            agent="V3 Agent Kernel",
+            message="No uploaded materials found; Agent starts from current State and search tools.",
+            data={"document_count": 0},
+        ))
+        return
+    internalizer = ReportInternalizer()
     for document in documents:
         report = internalizer.internalize(document, domain=project.domain)
         internalizer.apply_to_state(state, report)
@@ -393,6 +418,13 @@ async def _internalize_uploaded_documents(
     state.add_decision(AgentDecision(
         action=AgentAction.CONTINUE,
         reason="Uploaded materials have been internalized into Agent State. Subsequent searches should supplement, not blindly re-search.",
+    ))
+    await emit_event(RunEvent(
+        event_type="node_completed",
+        gate="external_materials",
+        agent="V3 Report Internalizer",
+        message="Uploaded materials are now available in Agent State.",
+        data={"document_count": len(documents)},
     ))
 
 
