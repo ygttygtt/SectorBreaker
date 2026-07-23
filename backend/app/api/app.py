@@ -1859,13 +1859,42 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="project not found") from exc
 
-        question = payload.question.strip()
+        question = " ".join(payload.question.split())
         if not question:
             raise HTTPException(status_code=400, detail="question is required")
 
         answer = await _answer_project_question(project_id, question)
         now = datetime.now(UTC)
         title = f"追问：{_followup_title(question)}"
+        existing = next(
+            (
+                item
+                for item in repository.list_artifacts(project_id)
+                if item.active
+                and item.artifact_type == ArtifactType.FOLLOW_UP_NOTE
+                and item.title == title
+                and f"## 用户追问\n\n{question}\n" in item.content
+            ),
+            None,
+        )
+        if existing is not None:
+            return FollowUpResponse(
+                answer=answer.answer,
+                citations=answer.citations,
+                citation_details=answer.citation_details,
+                retrieval_mode=answer.retrieval_mode,
+                embedding_model=answer.embedding_model,
+                retrieval_diagnostics=answer.retrieval_diagnostics,
+                artifact_id=existing.id,
+                artifact_path=existing.content_path,
+                updated_artifact_count=0,
+            ).model_dump(mode="json")
+
+        project_evidence_ids = {item.id for item in repository.list_evidence(project_id)}
+        evidence_citations = [item for item in answer.citations if item in project_evidence_ids]
+        evidence_details = [
+            item for item in answer.citation_details if str(item.get("source_id") or "") in project_evidence_ids
+        ]
         slug = _safe_followup_slug(question)
         artifact = Artifact(
             id=f"ART-FOLLOWUP-{uuid4().hex[:12]}",
@@ -1877,9 +1906,9 @@ def create_app(
                 project_title=project.title,
                 question=question,
                 answer=answer.answer,
-                citation_details=answer.citation_details,
+                citation_details=evidence_details,
             ),
-            source_evidence_ids=answer.citations,
+            source_evidence_ids=evidence_citations,
             schema_version="living-vault-followup-v1",
             created_at=now,
         )
@@ -1907,7 +1936,7 @@ def create_app(
             retrieval_diagnostics=answer.retrieval_diagnostics,
             artifact_id=artifact.id,
             artifact_path=artifact.content_path,
-            updated_artifact_count=len(repository.list_artifacts(project_id)),
+            updated_artifact_count=1,
         ).model_dump(mode="json")
 
     # ── LLM Config ────────────────────────────────────────────────

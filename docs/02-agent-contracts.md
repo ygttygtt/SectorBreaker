@@ -151,6 +151,12 @@ This is a service, not an LLM Agent.
 - May not: silently overwrite a hash conflict or execute delete/move in first
   V3.
 
+Evidence is fail-closed at this boundary: every referenced id must resolve to
+an Evidence row in the same project. An `EV-*` string alone cannot satisfy a
+factual-change gate. Artifact review resolves ids found in front matter and
+content, and rejects missing ids. Claims presented as `verified` are downgraded
+when their evidence is absent from the project.
+
 ## Artifact Writer And Reviewer
 
 - Writers create Markdown through plain-text LLM completion, not JSON parsing.
@@ -176,6 +182,11 @@ inputs, restores the same run from its durable checkpoint, writes feedback into
 `SectorBreakerState.human_feedback`, and exposes it in the next Master Agent
 ContextPack. An assistant brief is additionally stored as a low-trust project
 document and internalized; it is not promoted to verified evidence.
+
+Follow-up pages are idempotent for the same normalized question. Repeated
+questions return the existing active page with `updated_artifact_count=0`.
+Only citations that resolve to current-project evidence ids are persisted as
+follow-up source evidence; other retrieval source ids remain contextual only.
 
 ## Web Acquisition
 

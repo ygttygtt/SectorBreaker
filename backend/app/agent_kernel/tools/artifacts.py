@@ -409,7 +409,12 @@ async def review_artifact(tool_call, context: KernelRuntimeContext) -> KernelObs
             error="artifact not found",
         )
     heading_count = artifact.content.count("\n## ") + artifact.content.count("\n### ")
-    has_evidence = "EV-" in artifact.content or bool(artifact.source_evidence_ids)
+    referenced_ids = set(re.findall(r"EV-[A-Za-z0-9_-]+", artifact.content))
+    referenced_ids.update(artifact.source_evidence_ids)
+    project_evidence = {item.id for item in context.repository.list_evidence(context.project.id)}
+    valid_evidence_ids = sorted(referenced_ids & project_evidence)
+    missing_evidence_ids = sorted(referenced_ids - project_evidence)
+    has_evidence = bool(valid_evidence_ids) and not missing_evidence_ids
     detailed = len(artifact.content) >= 900 and heading_count >= 2
     summary = (
         f"Artifact Review: {artifact.title} 详细度={'通过' if detailed else '不足'}，"
@@ -419,7 +424,14 @@ async def review_artifact(tool_call, context: KernelRuntimeContext) -> KernelObs
         tool_name="review_artifact",
         success=detailed and has_evidence,
         summary=summary,
-        data={"artifact_id": artifact.id, "chars": len(artifact.content), "heading_count": heading_count, "has_evidence": has_evidence},
+        data={
+            "artifact_id": artifact.id,
+            "chars": len(artifact.content),
+            "heading_count": heading_count,
+            "has_evidence": has_evidence,
+            "valid_evidence_ids": valid_evidence_ids,
+            "missing_evidence_ids": missing_evidence_ids,
+        },
         state_delta=KernelStateDelta(task_notes=[summary], coverage_gaps=[] if detailed and has_evidence else ["artifact_too_thin_or_missing_evidence"]),
     )
 

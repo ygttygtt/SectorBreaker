@@ -9,11 +9,13 @@ from backend.app.schemas import (
     ChangeSet,
     ChangeSetProposalRequest,
     ChangeSetStatus,
+    EvidenceItem,
     MarketScope,
     ResearchDepth,
     ResearchProjectCreate,
     SourcePolicy,
     VaultImportRequest,
+    VerificationStatus,
 )
 from backend.app.storage.sqlite import SQLiteRepository, init_database
 
@@ -34,6 +36,15 @@ def _setup(tmp_path: Path):
     original = "---\nevidence_ids: []\n---\n# RAG\n\nOriginal content.\n"
     (vault / "RAG.md").write_bytes(original.encode("utf-8"))
     VaultKnowledgeService(repository).import_vault(project, VaultImportRequest(source_path=str(vault)))
+    repository.add_evidence(EvidenceItem(
+        id="EV-001",
+        project_id=project.id,
+        source_title="Local source",
+        snippet="Evidence for the controlled test.",
+        source_url="https://example.com/source",
+        confidence=0.7,
+        verification_status=VerificationStatus.PARTIALLY_VERIFIED,
+    ))
     return repository, project, original
 
 
@@ -125,3 +136,21 @@ def test_multi_operation_conflict_writes_nothing(tmp_path: Path) -> None:
 
     assert result.status == ChangeSetStatus.CONFLICTED
     assert [item.content_path for item in repository.list_artifacts(project.id)] == ["RAG.md"]
+
+
+def test_apply_denies_unknown_project_evidence(tmp_path: Path) -> None:
+    repository, project, _ = _setup(tmp_path)
+    service = ChangeSetService(repository)
+    change_set = service.propose(project.id, ChangeSetProposalRequest(
+        summary="reject fabricated evidence",
+        path="RAG.md",
+        after_content="# revised",
+        evidence_ids=["EV-NOT-IN-DATABASE"],
+        factual_change=True,
+    ))
+    service.approve(change_set.id)
+
+    applied = service.apply(change_set.id)
+
+    assert applied.status == ChangeSetStatus.DENIED
+    assert "outside the project" in (applied.error or "")

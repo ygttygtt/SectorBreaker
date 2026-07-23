@@ -84,6 +84,13 @@ class ChangeSetService:
         changed_bytes = sum(len(item.after_content.encode("utf-8")) for item in change_set.operations)
         if changed_bytes > policy.max_changed_bytes:
             return self._deny(change_set, "change set exceeds max_changed_bytes")
+        evidence_by_id = {item.id: item for item in self.repository.list_evidence(change_set.project_id)}
+        missing_evidence = sorted(set(change_set.evidence_ids) - set(evidence_by_id))
+        if missing_evidence:
+            return self._deny(
+                change_set,
+                "change set references evidence outside the project: " + ", ".join(missing_evidence[:8]),
+            )
         if any(item.factual_change for item in change_set.operations) and policy.require_evidence_for_fact_change:
             if not change_set.evidence_ids:
                 return self._deny(change_set, "factual changes require evidence ids")

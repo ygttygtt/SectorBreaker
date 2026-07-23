@@ -21,6 +21,8 @@ SectorBreaker V3 is a local-first, multi-Agent autonomous knowledge-base managem
 - Immutable artifact revisions with content hash, active status, supersession links, run id, and ChangeSet id.
 - ChangeSet propose/approve/apply/conflict/rollback, factual evidence gate, file/byte limits, and whole-journal prevalidation.
 - Existing-note Agent revision now produces a ChangeSet and waits for review instead of mutating the active artifact.
+- Factual ChangeSet apply and artifact review now resolve every evidence id
+  against the owning project; fabricated/cross-project `EV-*` ids fail closed.
 
 ### Agent And Permissions
 
@@ -35,6 +37,8 @@ SectorBreaker V3 is a local-first, multi-Agent autonomous knowledge-base managem
   must produce a new artifact in the current execution.
 - Artifact/final checkpoint failures fail the run visibly instead of being
   swallowed behind a completed status.
+- Claims presented as `verified` are downgraded when their evidence ids are not
+  present in the project.
 
 ### Web Sources
 
@@ -102,10 +106,13 @@ SectorBreaker V3 is a local-first, multi-Agent autonomous knowledge-base managem
 - Real waiting/interrupted snapshot states, checkpoint recovery action, and
   terminal workflow nodes without stale running spinners.
 - Enterprise talent/Boss UI is removed.
+- Follow-up page creation is idempotent for repeated normalized questions,
+  persists only real project evidence ids, and reports the current request's
+  changed-artifact count instead of the project's total artifact count.
 
 ## Verification Baseline
 
-- Backend: `251 passed`, one existing Starlette/httpx deprecation warning.
+- Backend: `254 passed`, one existing Starlette/httpx deprecation warning.
 - Frontend: `31 passed`.
 - Frontend production build: passed; existing >500 kB chunk warning remains.
 - Version isolation: passed.
@@ -123,8 +130,9 @@ The current implementation is real local Hybrid RAG, not keyword matching behind
 
 ## Remaining Work
 
-- Replace whole-State artifact evidence attachment and ID-presence review with
-  claim-level citation existence/support checks.
+- Replace whole-State artifact evidence attachment with claim-level citation
+  support checks. ID existence/project ownership now fail closed; semantic
+  claim-to-source support is still pending.
 - Better claim-level semantic verification and counterevidence linking.
 - Per-Specialist bounded tool execution and validated promotion of findings into StateDelta/ChangeSets.
 - Optional Firecrawl map/crawl contract after crawl budgets, robots/policy handling, and persistence are designed.

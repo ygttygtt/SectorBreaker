@@ -225,6 +225,7 @@ class AgentKernelRuntime:
             observation.state_delta,
             decision=decision,
             observation=observation,
+            known_evidence_ids={item.id for item in context.repository.list_evidence(context.project.id)},
         )
         state_event = KernelTraceEvent(
             kind=TraceEventKind.STATE_UPDATE,

@@ -266,6 +266,10 @@ def test_agent_kernel_runtime_can_finish_after_same_run_resume() -> None:
 
 
 def test_agent_kernel_runtime_fails_loudly_when_artifact_checkpoint_fails() -> None:
+    class FakeRepository:
+        def list_evidence(self, project_id):
+            return []
+
     class WritePolicy:
         async def decide(self, **kwargs):
             return AgentDecision(
@@ -302,7 +306,7 @@ def test_agent_kernel_runtime_fails_loudly_when_artifact_checkpoint_fails() -> N
     registry.register(ToolSpec(name="write", description="test"), write)
     context = KernelRuntimeContext(
         project=_project(),
-        repository=object(),  # type: ignore[arg-type]
+        repository=FakeRepository(),  # type: ignore[arg-type]
         state=SectorBreakerState.initialize(project_id="project-kernel", domain="API中转站", user_goal="建库"),
         search_provider=None,
         llm_provider=None,

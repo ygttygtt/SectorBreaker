@@ -37,6 +37,12 @@ Evidence retains source channel, source quality, verification status, claim
 strength, bias/conflict metadata, and artifact usage. Verified claims require
 acceptable evidence.
 
+Evidence references are fail-closed at write boundaries: ChangeSets and
+artifact reviews resolve ids against the owning project's evidence rows.
+Unknown or cross-project ids cannot satisfy a factual-change gate. Follow-up
+artifacts retain only resolved evidence ids; lexical/vector citation ids for
+other source types are not silently reclassified as evidence.
+
 Search Evidence also retains collection metadata: selected project source
 packs, enforcement mode, effective allow/block domains, query, provider
 request count, and whether a preferred-source fallback occurred.

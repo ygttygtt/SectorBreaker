@@ -4,7 +4,15 @@ from fastapi.testclient import TestClient
 
 from backend.app.agent_kernel.models import KernelRunResult, KernelRunStatus
 from backend.app.api.app import _finalize_kernel_run, create_app
-from backend.app.schemas import MarketScope, ResearchDepth, ResearchProjectCreate, RunStatus, SourcePolicy
+from backend.app.schemas import (
+    EvidenceItem,
+    MarketScope,
+    ResearchDepth,
+    ResearchProjectCreate,
+    RunStatus,
+    SourcePolicy,
+    VerificationStatus,
+)
 from backend.app.storage.sqlite import SQLiteRepository, init_database
 
 
@@ -25,6 +33,15 @@ def test_v3_vault_audit_changeset_apply_restart_and_rollback(tmp_path: Path) -> 
     export_root = tmp_path / "exports"
     client = TestClient(create_app(database_path=database_path, export_root=export_root))
     project_id = _create_project(client)
+    SQLiteRepository(database_path).add_evidence(EvidenceItem(
+        id="EV-LOCAL-001",
+        project_id=project_id,
+        source_title="Local acceptance source",
+        snippet="A controlled evidence record for the vault lifecycle.",
+        source_url="https://example.com/local-acceptance",
+        confidence=0.7,
+        verification_status=VerificationStatus.PARTIALLY_VERIFIED,
+    ))
 
     vault = tmp_path / "source-vault"
     vault.mkdir()

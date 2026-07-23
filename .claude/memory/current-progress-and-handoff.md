@@ -27,6 +27,9 @@ Implemented V3 loop:
 - current-run output completion gate and fail-loud checkpoint persistence;
 - unified active-only Hybrid RAG with local FastEmbed vectors and RRF;
 - ChangeSet diff/approval/apply/conflict/rollback;
+- project-owned evidence resolution for ChangeSet apply/artifact review, plus
+  verified-claim downgrade when evidence ids are unknown;
+- idempotent follow-up pages with real-evidence-only artifact metadata;
 - immutable Artifact revisions and ArtifactMemory continuation;
 - V3 Obsidian export with full `.sectorbreaker/` metadata;
 - frontend Vault/health/backlog/ChangeSet workbench.
@@ -39,7 +42,7 @@ Retired and deleted from production:
 
 Current verification baseline:
 
-- backend 251 passed;
+- backend 254 passed;
 - frontend 31 passed;
 - frontend build passed;
 - version isolation passed;
@@ -50,6 +53,6 @@ Current verification baseline:
 
 Current RAG is real local Hybrid RAG: `BAAI/bge-small-zh-v1.5`, content-hash incremental SQLite vectors, lexical/vector RRF, typed provenance, and explicit `lexical_degraded` fallback. The real-model smoke test proves vector-only recall without shared keywords.
 
-Next valuable work: claim-level evidence gates, per-Specialist bounded tool
+Next valuable work: claim-level semantic support/counterevidence gates, per-Specialist bounded tool
 execution, one real direct source connector, and
 optional Firecrawl map/crawl contracts.

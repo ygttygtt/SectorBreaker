@@ -17,14 +17,21 @@ def apply_state_delta(
     *,
     decision: AgentDecision,
     observation: KernelObservation,
+    known_evidence_ids: set[str] | None = None,
 ) -> SectorBreakerState:
     """Validate and apply useful state updates while keeping noise out."""
 
     _apply_state_governance_operations(state, delta)
     state.shared_knowledge.source_memories.extend(_dedupe_source_memories(state, delta))
     state.shared_knowledge.entities.extend(_dedupe_entities(state, delta))
-    _apply_updated_claims(state, delta)
-    state.shared_knowledge.claims.extend(_valid_new_claims(state, delta))
+    if known_evidence_ids is None:
+        valid_evidence_ids = set(state.evidence_refs)
+        valid_evidence_ids.update(delta.evidence_ids)
+        valid_evidence_ids.update(observation.evidence_ids)
+    else:
+        valid_evidence_ids = set(known_evidence_ids)
+    _apply_updated_claims(state, delta, valid_evidence_ids=valid_evidence_ids)
+    state.shared_knowledge.claims.extend(_valid_new_claims(state, delta, valid_evidence_ids=valid_evidence_ids))
     state.shared_knowledge.relationships.extend(_dedupe_relationships(state, delta))
     new_open_questions = _dedupe_open_questions(state, delta)
     state.shared_knowledge.open_questions.extend(new_open_questions)
@@ -81,11 +88,17 @@ def _apply_state_governance_operations(state: SectorBreakerState, delta: KernelS
             question.status = "resolved"
 
 
-def _apply_updated_claims(state: SectorBreakerState, delta: KernelStateDelta) -> None:
+def _apply_updated_claims(
+    state: SectorBreakerState,
+    delta: KernelStateDelta,
+    *,
+    valid_evidence_ids: set[str],
+) -> None:
     if not delta.updated_claims:
         return
     existing = {claim.id: claim for claim in state.shared_knowledge.claims}
     for updated in delta.updated_claims:
+        updated = _downgrade_claim_without_valid_evidence(updated, valid_evidence_ids)
         if updated.id in existing:
             index = state.shared_knowledge.claims.index(existing[updated.id])
             state.shared_knowledge.claims[index] = updated
@@ -162,12 +175,11 @@ def _dedupe_entities(state: SectorBreakerState, delta: KernelStateDelta):
     return result
 
 
-def _valid_new_claims(state: SectorBreakerState, delta: KernelStateDelta):
+def _valid_new_claims(state: SectorBreakerState, delta: KernelStateDelta, *, valid_evidence_ids: set[str]):
     seen = {_norm(item.text) for item in state.shared_knowledge.claims}
     result = []
     for claim in delta.claims:
-        if claim.verification_status == "verified" and not claim.evidence_ids:
-            continue
+        claim = _downgrade_claim_without_valid_evidence(claim, valid_evidence_ids)
         key = _norm(claim.text)
         if key in seen:
             continue
@@ -178,6 +190,27 @@ def _valid_new_claims(state: SectorBreakerState, delta: KernelStateDelta):
         seen.add(key)
         result.append(claim)
     return result
+
+
+def _downgrade_claim_without_valid_evidence(claim, valid_evidence_ids: set[str]):
+    valid_ids = [item for item in claim.evidence_ids if item in valid_evidence_ids]
+    if claim.verification_status != "verified":
+        return claim
+    if not valid_ids:
+        return claim.model_copy(update={
+            "evidence_ids": [],
+            "verification_status": "unverified",
+            "needs_verification": True,
+            "notes": (claim.notes + "; " if claim.notes else "") + "verified claim downgraded: no project evidence",
+        })
+    if len(valid_ids) != len(claim.evidence_ids):
+        return claim.model_copy(update={
+            "evidence_ids": valid_ids,
+            "verification_status": "partially_verified",
+            "needs_verification": True,
+            "notes": (claim.notes + "; " if claim.notes else "") + "some evidence ids were not found in the project",
+        })
+    return claim
 
 
 def _dedupe_relationships(state: SectorBreakerState, delta: KernelStateDelta):

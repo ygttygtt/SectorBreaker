@@ -109,6 +109,10 @@
   使用原子替换、备份恢复和尽力 owner-only 权限。
 - stale run 已有 owner lease、heartbeat、`interrupted`/orphaned 区分和
   lineage child recovery；waiting 事件、snapshot、SSE 和前端恢复按钮已接通。
+- ChangeSet apply 与 artifact review 已按项目解析 Evidence；伪造或跨项目
+  `EV-*` 无法通过。LLM 提交的 verified claim 若找不到项目 Evidence 会被降级。
+- follow-up 已按完整规范化问题幂等，重复追问不再重复建页；artifact 只保存
+  真实项目 Evidence id，`updated_artifact_count` 只表示本次变更。
 
 ## 真实验收结果（2026-07-22）
 
@@ -122,5 +126,5 @@
 - 真实运行约 10 分钟，期间一次 `propose_change_set` 因空 `after_content` 失败，Agent 后续自我修正并完成。这证明容错存在，也说明决策延迟和无效工具调用仍需优化。
 
 验收通过不等于所有审计项关闭。仍未完成的主要产品缺口是：claim-level
-证据支持门禁、follow-up 写回语义收紧、Specialist 独立工具循环、至少一个
+语义支持/反证门禁、Specialist 独立工具循环、至少一个
 真实垂直站点 direct connector，以及 Firecrawl map/crawl 的受控契约。

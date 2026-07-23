@@ -22,9 +22,12 @@ Current production architecture:
 - owner-checked leases plus explicit interrupted recovery with child-run lineage;
 - blank search secrets preserve stored keys; source packs no longer masquerade as configured direct connectors;
 - historical artifacts cannot satisfy a new run's finish gate; checkpoint writes fail loudly;
+- ChangeSet/artifact review evidence ids must exist in the owning project;
+  unknown evidence downgrades verified claims;
+- follow-up pages are idempotent and persist only resolved project evidence ids;
 - active-only local Hybrid RAG and V3 Obsidian export;
 - no enterprise talent or old workflow production code.
 
-Verification baseline: backend 251 passed, frontend 31 passed/build passed, real local semantic smoke passed, version isolation passed. Real V3 web/Agent/ChangeSet/export acceptance passed on project `project-63a8ed6dcd05454ab28cc0443a4e765b`.
+Verification baseline: backend 254 passed, frontend 31 passed/build passed, real local semantic smoke passed, version isolation passed. Real V3 web/Agent/ChangeSet/export acceptance passed on project `project-63a8ed6dcd05454ab28cc0443a4e765b`.
 
 Do not claim an architecture change ready from unit tests alone. Run the real user path and inspect the exported Vault.

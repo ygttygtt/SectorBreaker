@@ -324,6 +324,15 @@ def test_api_follow_up_creates_living_vault_artifact(tmp_path: Path) -> None:
     assert artifacts[0]["schema_version"] == "living-vault-followup-v1"
     assert "反向代理" in artifacts[0]["content"]
 
+    repeated = client.post(
+        f"/api/projects/{project_id}/follow-up",
+        json={"question": "反向代理是什么，为什么 API 中转站需要它？"},
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["artifact_id"] == payload["artifact_id"]
+    assert repeated.json()["updated_artifact_count"] == 0
+    assert len(client.get(f"/api/projects/{project_id}/artifacts").json()) == 1
+
 
 def test_api_rejects_legacy_events_in_personal_auto_run(tmp_path: Path) -> None:
     class LegacyLeakLLM(FakeLLMProvider):

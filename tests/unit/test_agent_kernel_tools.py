@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from backend.app.agent_kernel.models import ToolCall
 from backend.app.agent_kernel.reducer import apply_state_delta
 from backend.app.agent_kernel.tool_registry import KernelRuntimeContext
-from backend.app.agent_kernel.tools.artifacts import write_explainer_card, write_layer_document, write_vault_index
+from backend.app.agent_kernel.tools.artifacts import review_artifact, write_explainer_card, write_layer_document, write_vault_index
 from backend.app.agent_kernel.tools.search import search_web
 from backend.app.agent_kernel.tools.state import evaluate_coverage, internalize_observation, manage_state_memory, reflect_on_progress
 from backend.app.agent_state import KnowledgeClaim, SectorBreakerState, SourceMemory
@@ -19,6 +19,8 @@ from backend.app.schemas import (
     ResearchProject,
     SourceEnforcement,
     SourcePolicy,
+    Artifact,
+    ArtifactType,
 )
 
 
@@ -745,3 +747,68 @@ def _fake_decision():
         action_type=AgentActionType.CALL_TOOL,
         tool_call=ToolCall(tool_name="update_task_state", args={}, reason="测试"),
     )
+
+
+def test_reducer_downgrades_verified_claim_with_unknown_evidence() -> None:
+    from backend.app.agent_kernel.models import KernelObservation, KernelStateDelta
+
+    state = SectorBreakerState.initialize(project_id="project-kernel", domain="API中转站", user_goal="建库")
+    delta = KernelStateDelta(claims=[KnowledgeClaim(
+        text="伪造的已验证事实",
+        evidence_ids=["EV-NOT-IN-PROJECT"],
+        verification_status="verified",
+        needs_verification=False,
+    )])
+    observation = KernelObservation(tool_name="test", success=True, summary="测试")
+
+    apply_state_delta(
+        state,
+        delta,
+        decision=_fake_decision(),
+        observation=observation,
+        known_evidence_ids=set(),
+    )
+
+    claim = state.shared_knowledge.claims[0]
+    assert claim.verification_status == "unverified"
+    assert claim.needs_verification is True
+    assert claim.evidence_ids == []
+
+
+def test_artifact_review_rejects_unresolved_evidence_id() -> None:
+    class FakeRepository:
+        def list_evidence(self, project_id):
+            return []
+
+        def list_artifacts(self, project_id):
+            return []
+
+    async def emit(event):
+        return None
+
+    artifact = Artifact(
+        id="ART-REVIEW",
+        project_id="project-kernel",
+        artifact_type=ArtifactType.DOMAIN_OVERVIEW,
+        title="审查对象",
+        content_path="docs/review.md",
+        content="# 审查对象\n\n## 章节一\n\n" + "正文" * 500 + " [^EV-FAKE]\n\n## 章节二\n\n结论。",
+        source_evidence_ids=["EV-FAKE"],
+    )
+    context = KernelRuntimeContext(
+        project=_project(),
+        repository=FakeRepository(),  # type: ignore[arg-type]
+        state=SectorBreakerState.initialize(project_id="project-kernel", domain="API中转站", user_goal="建库"),
+        search_provider=None,
+        llm_provider=None,
+        emit_event=emit,
+        artifacts=[artifact],
+    )
+
+    observation = asyncio.run(review_artifact(
+        ToolCall(tool_name="review_artifact", args={"artifact_id": artifact.id}, reason="审查"),
+        context,
+    ))
+
+    assert observation.success is False
+    assert observation.data["missing_evidence_ids"] == ["EV-FAKE"]

@@ -136,6 +136,12 @@ Apply validates project ownership, allowed operation/path, approval/policy,
 base content hash, evidence requirement, active revision, and byte/file budget.
 A mismatch returns conflict and writes nothing.
 
+Evidence ids must resolve to rows belonging to the same project. Artifact
+review fails closed when Markdown/front matter references an unknown `EV-*`
+id. Follow-up requests are idempotent for the same normalized question and
+return `updated_artifact_count=0` when no new page was written; only resolved
+project evidence ids are persisted on the page.
+
 Rollback restores the exact prior active content as a recorded revision/event.
 
 ## Evidence, Documents, And Artifacts

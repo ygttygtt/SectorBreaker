@@ -46,6 +46,10 @@ Read, in order:
   with one backup and best-effort owner-only permissions.
 - Runtime completion requires a current-run artifact, and checkpoint failures
   are fatal rather than hidden.
+- ChangeSet apply and artifact review resolve evidence ids against the owning
+  project; verified claims with unknown ids are downgraded.
+- Repeated follow-up questions reuse the active page, and follow-up artifacts
+  persist only real project evidence ids.
 - Specialists receive bounded artifact plus local retrieval context; they still recommend external tool calls to the Master rather than owning a nested ReAct loop.
 - UI: V3 knowledge-management panel includes semantic-index status and rebuild controls.
 - Export: active-only Obsidian vault with full `.sectorbreaker/` control metadata.
@@ -76,7 +80,7 @@ Knowledge-management changes also require a Vault lifecycle acceptance test.
 
 ## Current Baseline
 
-- Backend: 251 passed.
+- Backend: 254 passed.
 - Frontend: 31 passed and production build passed.
 - Version isolation passed.
 - Temporary real Vault apply/export/rollback/re-export acceptance passed.
