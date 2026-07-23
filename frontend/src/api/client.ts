@@ -59,6 +59,17 @@ export interface RunProgress {
   total: number;
 }
 
+export interface RunBudgetSnapshot {
+  search_calls: number;
+  max_search_calls: number;
+  provider_requests: number;
+  max_provider_requests: number;
+  extraction_requests: number;
+  max_extraction_requests: number;
+  writer_calls: number;
+  max_writer_calls: number;
+}
+
 export interface RunArtifactSummary {
   id: string;
   title: string;
@@ -77,6 +88,7 @@ export interface RunSnapshot {
   can_resume?: boolean;
   can_recover?: boolean;
   progress: RunProgress;
+  budget: RunBudgetSnapshot;
   events: RunEvent[];
   errors: RunEvent[];
   artifact_summary: RunArtifactSummary[];

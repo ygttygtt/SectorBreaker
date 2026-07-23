@@ -232,6 +232,11 @@ POST /api/runs/{run_id}/resume
 persists the typed user input, resumes the same run so its SSE stream remains
 continuous, and injects the feedback into the next Agent ContextPack.
 
+Run snapshots also expose a typed `budget` object containing durable usage and
+policy limits for search calls, provider requests, extraction requests, and
+writer calls. The workbench uses these values for runtime diagnostics; they
+are telemetry only and do not replace backend enforcement.
+
 ## Version Isolation And Enterprise Cutover
 
 The retired `talent_demand` product mode, Boss/job-source providers, frontend

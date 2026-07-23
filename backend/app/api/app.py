@@ -58,6 +58,7 @@ from backend.app.schemas import (
     ResearchRun,
     ResumeRequest,
     RunArtifactSummary,
+    RunBudgetSnapshot,
     RunEvent,
     RunProgress,
     RunSnapshot,
@@ -589,6 +590,9 @@ def _build_run_snapshot(
         for event in events
         if event.event_type == "error" or event.severity in {"error", "critical"}
     ]
+    checkpoint = repository.load_run_state_checkpoint(run_id=run.id)
+    usage = checkpoint.run_budget_usage if checkpoint is not None else None
+    policy = checkpoint.autonomy_policy if checkpoint is not None else None
     return RunSnapshot(
         run_id=run.id,
         project_id=run.project_id,
@@ -608,6 +612,16 @@ def _build_run_snapshot(
         progress=RunProgress(
             current=progress_current,
             total=progress_total,
+        ),
+        budget=RunBudgetSnapshot(
+            search_calls=usage.search_calls if usage else 0,
+            max_search_calls=policy.max_search_calls if policy else 0,
+            provider_requests=usage.provider_requests if usage else 0,
+            max_provider_requests=policy.max_provider_requests if policy else 0,
+            extraction_requests=usage.extraction_requests if usage else 0,
+            max_extraction_requests=policy.max_extraction_requests if policy else 0,
+            writer_calls=usage.writer_calls if usage else 0,
+            max_writer_calls=policy.max_writer_calls if policy else 0,
         ),
         events=events,
         errors=errors,

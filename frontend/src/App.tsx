@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import gsap from "gsap";
 import {
   AlertTriangle,
@@ -11,22 +11,24 @@ import {
   FileText,
   Filter,
   FolderInput,
+  Gauge,
   Loader2,
   Network,
   Play,
   Search,
   Settings,
   Sparkles,
+  Wrench,
   X,
 } from "lucide-react";
 
 import "./styles.css";
 import { ToastContainer, useToast } from "./components/Toast";
-import { ConfigPanel } from "./components/ConfigPanel";
-import { KnowledgeManagementPanel } from "./components/KnowledgeManagementPanel";
+const ConfigPanel = lazy(() => import("./components/ConfigPanel").then((module) => ({ default: module.ConfigPanel })));
+const KnowledgeManagementPanel = lazy(() => import("./components/KnowledgeManagementPanel").then((module) => ({ default: module.KnowledgeManagementPanel })));
 import { Logo } from "./components/Logo";
 import { LogStream } from "./components/LogStream";
-import { WorkflowEditor, type NodeStatus } from "./components/WorkflowEditor";
+import { type NodeStatus } from "./components/WorkflowEditor";
 import { api } from "./api/client";
 import { useRunEvents } from "./hooks/useRunEvents";
 import type {
@@ -38,6 +40,7 @@ import type {
   ProjectSourcePreferences,
   RunEvent,
   RunSnapshot,
+  RetrievalDiagnostics,
   SupervisorPlan,
   SourcePackStatus,
   WorkflowDefinition,
@@ -45,6 +48,12 @@ import type {
 } from "./api/client";
 
 type AppPhase = "landing" | "researching" | "reviewing" | "result";
+
+const WorkflowEditor = lazy(() => import("./components/WorkflowEditor").then((module) => ({ default: module.WorkflowEditor })));
+
+function DeferredPanel({ children }: { children: ReactNode }) {
+  return <Suspense fallback={<div className="deferred-panel-loading">正在载入工作区…</div>}>{children}</Suspense>;
+}
 
 const sourcePolicies = [
   { value: "reliable_first", label: "可靠优先", desc: "先查公开可靠源，不足再补开放网络。" },
@@ -447,6 +456,8 @@ function resultQualityMetrics(
     reviewEventCount: events.filter((event) => event.gate === "artifact_review").length,
     unresolvedQuestionCount: cardArtifacts.filter((artifact) => artifact.content_path.startsWith("questions/")).length,
     exportFileCount: exportManifest?.artifact_paths.length ?? 0,
+    verifiedEvidenceCount: evidence.filter((item) => item.verification_status === "verified").length,
+    attentionEvidenceCount: evidence.filter((item) => item.needs_counterevidence || item.verification_status === "conflicting").length,
   };
 }
 
@@ -530,6 +541,7 @@ function LandingView({
   searchProviders,
   extractionProviders,
   sourcePacks,
+  retrievalStatus,
 }: {
   onStart: (
     domain: string,
@@ -547,6 +559,7 @@ function LandingView({
   searchProviders: string[];
   extractionProviders: string[];
   sourcePacks: SourcePackStatus[];
+  retrievalStatus: RetrievalDiagnostics | null;
 }) {
   const [domain, setDomain] = useState("");
   const [sourcePolicy, setSourcePolicy] = useState("reliable_first");
@@ -557,6 +570,7 @@ function LandingView({
   const [assistantBrief, setAssistantBrief] = useState("");
   const [assistantBriefFile, setAssistantBriefFile] = useState<File | null>(null);
   const [vaultPath, setVaultPath] = useState("");
+  const [entryMode, setEntryMode] = useState<"bootstrap" | "adopt">("bootstrap");
   const [showBrief, setShowBrief] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -594,6 +608,12 @@ function LandingView({
     && selectedSourcePackIds.length === 0
     && parseDomains(customAllowedDomains).length === 0;
   const mode = MODE_CONFIG.domain_knowledge;
+  const readiness = [
+    { label: "LLM 决策", state: llmConfigured ? "ready" : "action", detail: llmConfigured ? "已配置，可进行自适应规划" : "未配置，将无法运行 Agent 决策", action: onOpenSettings },
+    { label: "网络搜索", state: searchConfigured ? "ready" : "action", detail: searchConfigured ? `${searchProviders.join("、") || "已配置"} · 受项目源策略约束` : "未配置，只能使用本地材料", action: onOpenSettings },
+    { label: "正文抽取", state: extractionProviders.length ? "ready" : "partial", detail: extractionProviders.length ? `已启用 ${extractionProviders.join("、")}` : "使用 HTTP 兜底，深层页面可能不完整", action: onOpenSettings },
+    { label: "本地语义检索", state: retrievalStatus?.effective_mode === "hybrid" ? "ready" : "partial", detail: retrievalStatus ? (retrievalStatus.effective_mode === "hybrid" ? `${retrievalStatus.embedding_model || "本地模型"} · 已建立索引` : "当前为关键词降级，运行仍可继续") : "状态读取中", action: onOpenSettings },
+  ] as const;
 
   return (
     <div ref={containerRef} className="landing-pro landing-pro--personal">
@@ -672,9 +692,14 @@ function LandingView({
             </button>
           ))}
         </div>
+        <div className="entry-mode-control" role="tablist" aria-label="项目开始方式">
+          <button role="tab" aria-selected={entryMode === "bootstrap"} className={entryMode === "bootstrap" ? "is-active" : ""} onClick={() => setEntryMode("bootstrap")} type="button"><Sparkles size={15} /><span><strong>创建新知识库</strong><small>从一个主题开始研究并生成 Vault</small></span></button>
+          <button role="tab" aria-selected={entryMode === "adopt"} className={entryMode === "adopt" ? "is-active" : ""} onClick={() => setEntryMode("adopt")} type="button"><FolderInput size={15} /><span><strong>接管现有 Vault</strong><small>只读导入、审计并建立受管镜像</small></span></button>
+        </div>
         {sourcePolicy !== "user_materials_only" && sourcePacks.length > 0 && (
           <fieldset className="project-source-selector">
             <legend>本项目专用信源</legend>
+            <p className="source-pack-honesty">这些信源包会把通用搜索限制到可信域名；只有设置页标记“直连接口已配置”的来源才是直接 API 接入。</p>
             <div className="project-source-options">
               {sourcePacks.map((pack) => (
                 <label key={pack.name}>
@@ -730,17 +755,26 @@ function LandingView({
             </details>
           </fieldset>
         )}
-        <label className="field-label" htmlFor="vault-path">已有 Obsidian / Markdown Vault（可选）</label>
-        <div className="landing-input-wrap">
-          <FolderInput size={18} className="landing-input-icon" />
-          <input
-            id="vault-path"
-            className="landing-input"
-            value={vaultPath}
-            onChange={(event) => setVaultPath(event.target.value)}
-            placeholder="例如 D:\\Knowledge\\MyVault；接管时不会修改源目录"
-          />
-        </div>
+        <section className="readiness-panel" aria-label="运行准备度">
+          <div className="readiness-panel-head"><div><strong>开始前准备度</strong><span>缺少配置不会被隐藏，系统会说明对结果的影响。</span></div><button className="text-button" onClick={onOpenSettings} type="button"><Settings size={13} />打开设置</button></div>
+          <div className="readiness-grid">
+            {readiness.map((item) => <button key={item.label} className={`readiness-item readiness-item--${item.state}`} onClick={item.action} type="button"><span className="readiness-item-head"><strong>{item.label}</strong><span>{item.state === "ready" ? "就绪" : item.state === "partial" ? "部分可用" : "需配置"}</span></span><small>{item.detail}</small></button>)}
+          </div>
+        </section>
+        {entryMode === "adopt" && <>
+          <label className="field-label" htmlFor="vault-path">源 Vault 绝对路径</label>
+          <div className="landing-input-wrap">
+            <FolderInput size={18} className="landing-input-icon" />
+            <input
+              id="vault-path"
+              className="landing-input"
+              value={vaultPath}
+              onChange={(event) => setVaultPath(event.target.value)}
+              placeholder="例如 D:\\Knowledge\\MyVault；源目录保持只读"
+            />
+          </div>
+          <p className="vault-safety-note">SectorBreaker 不会改写这个目录。审批后的版本写入受管知识库，并通过导出交给 Obsidian。</p>
+        </>}
         <button className="brief-toggle" type="button" onClick={() => setShowBrief((value) => !value)}>
           <Sparkles size={15} />
           {showBrief ? "收起外部 AI 报告" : mode.reportToggle}
@@ -768,19 +802,11 @@ function LandingView({
           </div>
         )}
         <div className="landing-actions">
-          <button className="primary" disabled={!domain.trim() || isLoading || !llmConfigured || requireAllowListMissing} onClick={() => submit()} type="button">
-            {isLoading ? <Loader2 size={16} className="spinner" /> : <Play size={16} />}
-            {mode.cta}
-          </button>
-          <button
-            className="secondary"
-            disabled={!domain.trim() || !vaultPath.trim() || isLoading}
-            onClick={() => onAdoptVault(domain.trim(), sourcePolicy, buildSourcePreferences(), vaultPath.trim())}
-            type="button"
-          >
-            {isLoading ? <Loader2 size={16} className="spinner" /> : <FolderInput size={16} />}
-            接管现有 Vault
-          </button>
+          {entryMode === "bootstrap" ? <button className="primary" disabled={!domain.trim() || isLoading || !llmConfigured || requireAllowListMissing} onClick={() => submit()} type="button">
+            {isLoading ? <Loader2 size={16} className="spinner" /> : <Play size={16} />}{mode.cta}
+          </button> : <button className="primary" disabled={!domain.trim() || !vaultPath.trim() || isLoading} onClick={() => onAdoptVault(domain.trim(), sourcePolicy, buildSourcePreferences(), vaultPath.trim())} type="button">
+            {isLoading ? <Loader2 size={16} className="spinner" /> : <FolderInput size={16} />}导入并审计 Vault
+          </button>}
           <button className="secondary" onClick={onOpenSettings} type="button">
             <Settings size={16} />
             LLM 设置
@@ -792,7 +818,7 @@ function LandingView({
           <Network size={16} />
           <span>能力流程图（非本次运行）</span>
         </div>
-        <WorkflowEditor isCompact showControls={false} fillHeight variant="domain_knowledge" />
+        <DeferredPanel><WorkflowEditor isCompact showControls={false} fillHeight variant="domain_knowledge" /></DeferredPanel>
       </aside>
     </div>
   );
@@ -811,6 +837,7 @@ function ResearchView({
   onBack,
   onViewPartialResult,
   onRecover,
+  onOpenSettings,
   searchConfigured,
 }: {
   project: Project;
@@ -825,6 +852,7 @@ function ResearchView({
   onBack: () => void;
   onViewPartialResult: () => void;
   onRecover: () => void;
+  onOpenSettings: () => void;
   searchConfigured: boolean;
 }) {
   const [selectedNode, setSelectedNode] = useState<WorkflowNode | null>(null);
@@ -879,19 +907,21 @@ function ResearchView({
         </div>
       </header>
       <div className={`workbench-grid ${isLogOpen ? "workbench-grid--log-open" : "workbench-grid--log-collapsed"}`}>
-        <aside className="workbench-left">
-          <div className="panel-title">
-            <Network size={15} />
-            <span>运行图</span>
-          </div>
-          <WorkflowEditor
-            definition={workflowDefinition}
-            activeNodeId={activeNodeId}
-            nodeStatuses={statuses}
-            onNodeClick={setSelectedNode}
-            showMinimap={false}
-            fillHeight
-          />
+        <aside className="workbench-left workbench-left--secondary">
+          <details className="workflow-reference">
+            <summary><Network size={15} /><span>能力流程参考</span></summary>
+            <p>这是系统能力定义；本次运行以右侧真实时间线为准。</p>
+            <div className="workflow-reference-canvas">
+              <DeferredPanel><WorkflowEditor
+                definition={workflowDefinition}
+                activeNodeId={activeNodeId}
+                nodeStatuses={statuses}
+                onNodeClick={setSelectedNode}
+                showMinimap={false}
+                fillHeight
+              /></DeferredPanel>
+            </div>
+          </details>
         </aside>
         <main className="workbench-center">
           <section className="agent-focus-card">
@@ -925,7 +955,10 @@ function ResearchView({
               <p className="inline-warning" key={`${item.timestamp}-${item.message}`}>{item.message}</p>
             ))}
             {!searchConfigured && (
-              <p className="inline-warning">搜索未配置：系统不会主动联网搜索，关键事实覆盖会受限。</p>
+              <div className="run-action-message">
+                <p className="inline-warning">搜索未配置：系统不会主动联网搜索，关键事实覆盖会受限。</p>
+                <button className="secondary btn-sm" onClick={onOpenSettings} type="button"><Settings size={14} />配置搜索</button>
+              </div>
             )}
             {snapshotProgress !== null ? (
               <div className="progress-line">
@@ -939,6 +972,7 @@ function ResearchView({
               <div className="heartbeat-line" />
             )}
           </section>
+          <RunTimeline events={events} snapshot={snapshot} elapsed={elapsed} />
           <AgentLiveBrief cards={agentBriefCards} latest={latest} />
           <section className="metrics-strip">
             <div>
@@ -1001,6 +1035,41 @@ function ResearchView({
         )}
       </div>
     </div>
+  );
+}
+
+function RunTimeline({ events, snapshot, elapsed }: { events: RunEvent[]; snapshot: RunSnapshot | null; elapsed: string }) {
+  const budget = snapshot?.budget;
+  const budgetItems = budget ? [
+    ["搜索", budget.search_calls, budget.max_search_calls],
+    ["Provider", budget.provider_requests, budget.max_provider_requests],
+    ["抽取", budget.extraction_requests, budget.max_extraction_requests],
+    ["写作", budget.writer_calls, budget.max_writer_calls],
+  ] as const : [];
+  const timeline = [...events].slice(-8).reverse();
+  return (
+    <section className="run-timeline-panel" aria-label="本次运行时间线">
+      <div className="run-timeline-head">
+        <div><span className="eyebrow">真实运行时间线</span><h2>{snapshot?.current_stage || "正在启动"}</h2></div>
+        <div className="run-diagnostics-summary"><span><Clock3 size={14} />{elapsed}</span><span><FileText size={14} />{events.length} 事件</span><span><Gauge size={14} />{snapshot?.status ?? "pending"}</span></div>
+      </div>
+      {snapshot?.status === "running" && <p className="run-control-hint">运行由本地后台继续执行；关闭页面不会停止任务。当前版本没有即时暂停/取消，异常中断后只有持久检查点可恢复。</p>}
+      {budgetItems.length > 0 && (
+        <div className="run-budget-grid">
+          {budgetItems.map(([label, used, limit]) => {
+            const percent = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
+            return <div className="run-budget-item" key={label}><div><span>{label}</span><strong>{used}/{limit || "—"}</strong></div><div className="run-budget-bar"><i style={{ width: `${percent}%` }} /></div></div>;
+          })}
+        </div>
+      )}
+      {timeline.length > 0 ? <ol className="run-event-timeline">
+        {timeline.map((event) => <li key={`${event.timestamp}-${event.message}`} className={`run-event-timeline-item run-event-timeline-item--${event.severity ?? "info"}`}>
+          <span className="run-event-dot" />
+          <div><div className="run-event-meta"><strong>{event.gate || event.step || "运行"}</strong><time>{formatEventTime(event.timestamp)}</time></div><p>{event.message}</p>{event.agent && <small>{event.agent}</small>}</div>
+        </li>)}
+      </ol> : <p className="run-timeline-empty"><Wrench size={16} />正在等待第一个后台事件。</p>}
+      {snapshot?.errors[0] && <div className="run-timeline-error"><AlertTriangle size={16} /><div><strong>需要处理</strong><p>{snapshot.errors[0].message}</p></div></div>}
+    </section>
   );
 }
 
@@ -1274,6 +1343,13 @@ function ResultView({
     () => resultQualityMetrics(artifacts, evidence, events, exportManifest),
     [artifacts, evidence, events, exportManifest],
   );
+  const qualityVerdict = qualityMetrics.attentionEvidenceCount > 0
+    ? { tone: "attention", title: "可使用，但仍有证据风险", detail: `${qualityMetrics.attentionEvidenceCount} 条证据需要反证或存在冲突。`, action: "先查看风险证据，再安排维护运行。" }
+    : qualityMetrics.evidenceCount === 0
+      ? { tone: "attention", title: "当前结果缺少证据", detail: "知识产物尚未建立可审计的证据账本。", action: "配置搜索或导入材料后重新研究。" }
+      : !exportManifest
+        ? { tone: "ready", title: "知识库已生成，等待导出", detail: `${qualityMetrics.mainDocumentCount + qualityMetrics.knowledgeCardCount} 个知识产物，${qualityMetrics.evidenceCount} 条证据。`, action: "导出受管 Vault，并在 Obsidian 中检查导航结构。" }
+        : { tone: "ready", title: "受管知识库可继续生长", detail: `已导出 ${qualityMetrics.exportFileCount} 个文件，后续修改仍会经过版本与 ChangeSet。`, action: qualityMetrics.unresolvedQuestionCount > 0 ? "优先处理待验证问题。" : "可以继续追问或执行一次知识健康审计。" };
 
   async function askQuestion() {
     if (!question.trim()) return;
@@ -1348,13 +1424,17 @@ function ResultView({
         <button className="secondary btn-sm" onClick={onNewResearch} type="button"><Play size={14} />新研究</button>
       </header>
       <main className="result-pro-grid">
-        <KnowledgeManagementPanel
+        <section className={`result-next-action result-next-action--${qualityVerdict.tone}`}>
+          <div><span className="eyebrow">结果判定</span><h2>{qualityVerdict.title}</h2><p>{qualityVerdict.detail}</p></div>
+          <div className="result-next-action-command"><strong>下一步</strong><span>{qualityVerdict.action}</span>{!exportManifest && qualityMetrics.evidenceCount > 0 && <button className="primary btn-sm" onClick={exportProject} disabled={isExporting} type="button">{isExporting ? <Loader2 size={14} className="spinner" /> : <Download size={14} />}导出 Vault</button>}</div>
+        </section>
+        <DeferredPanel><KnowledgeManagementPanel
           projectId={project.id}
           onMaintenanceStarted={onMaintenanceStarted}
           onArtifactsChanged={async () => setArtifacts(await api.listArtifacts(project.id))}
           onError={toastError}
           onSuccess={toastSuccess}
-        />
+        /></DeferredPanel>
         <section className="result-card result-card--wide result-card--trace">
           <h3><Clock3 size={16} />运行轨迹</h3>
           {traceEvents.length > 0 ? (
@@ -1380,6 +1460,8 @@ function ResultView({
             <div><strong>{qualityMetrics.reviewEventCount}</strong><span>审查补写事件</span></div>
             <div><strong>{qualityMetrics.unresolvedQuestionCount}</strong><span>待验证问题</span></div>
             <div><strong>{qualityMetrics.exportFileCount || "未导出"}</strong><span>导出文件</span></div>
+            <div><strong>{qualityMetrics.verifiedEvidenceCount}</strong><span>已验证证据</span></div>
+            <div><strong>{qualityMetrics.attentionEvidenceCount}</strong><span>风险证据</span></div>
           </div>
           {!exportManifest && <p className="result-empty">点击导出生成 Obsidian Vault，导出后会写入 README、证据账本、主文档、知识卡片和 `.sectorbreaker` 流档状态包。</p>}
         </section>
@@ -1541,6 +1623,7 @@ export function App() {
   const [searchProviders, setSearchProviders] = useState<string[]>([]);
   const [extractionProviders, setExtractionProviders] = useState<string[]>([]);
   const [sourcePacks, setSourcePacks] = useState<SourcePackStatus[]>([]);
+  const [retrievalStatus, setRetrievalStatus] = useState<RetrievalDiagnostics | null>(null);
 
   const refreshRuntimeStatus = useCallback(async () => {
     try {
@@ -1566,6 +1649,12 @@ export function App() {
       setSourcePacks(registry.packs);
     } catch {
       setSourcePacks([]);
+    }
+
+    try {
+      setRetrievalStatus(await api.getRetrievalStatus());
+    } catch {
+      setRetrievalStatus(null);
     }
   }, []);
 
@@ -1850,13 +1939,13 @@ export function App() {
   return (
     <main className="shell">
       <ToastContainer toasts={toasts} onRemove={removeToast} />
-      <ConfigPanel
+      <Suspense fallback={null}><ConfigPanel
         isOpen={showConfig}
         onClose={() => setShowConfig(false)}
         onSuccess={success}
         onError={error}
         onConfigChanged={refreshRuntimeStatus}
-      />
+      /></Suspense>
       {phase === "landing" && (
         <LandingView
           onStart={startResearch}
@@ -1868,6 +1957,7 @@ export function App() {
           searchProviders={searchProviders}
           extractionProviders={extractionProviders}
           sourcePacks={sourcePacks}
+          retrievalStatus={retrievalStatus}
         />
       )}
       {phase === "researching" && project && (
@@ -1884,6 +1974,7 @@ export function App() {
           onBack={resetToLanding}
           onViewPartialResult={() => setPhase("result")}
           onRecover={handleRecoverRun}
+          onOpenSettings={() => setShowConfig(true)}
           searchConfigured={searchConfigured}
         />
       )}

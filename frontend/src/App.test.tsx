@@ -463,6 +463,8 @@ test("shows configured search and extraction providers on landing page", async (
   expect(screen.getByText("tavily")).toBeInTheDocument();
   expect(screen.getByText("抽取 Provider")).toBeInTheDocument();
   expect(screen.getByText("firecrawl")).toBeInTheDocument();
+  expect(screen.getByText("开始前准备度")).toBeInTheDocument();
+  expect(screen.getByText("本地语义检索")).toBeInTheDocument();
 });
 
 test("shows explicit warning when search is not configured", async () => {
@@ -507,11 +509,12 @@ test("startRun is called when button is clicked", async () => {
 
 test("adopts an existing Vault without requiring an Agent bootstrap run", async () => {
   render(<App />);
+  fireEvent.click(screen.getByRole("tab", { name: /接管现有 Vault/ }));
   fireEvent.change(screen.getByPlaceholderText(/AI Agent 工具/), { target: { value: "RAG 知识库" } });
-  fireEvent.change(screen.getByLabelText("已有 Obsidian / Markdown Vault（可选）"), {
+  fireEvent.change(screen.getByLabelText("源 Vault 绝对路径"), {
     target: { value: "D:\\Knowledge\\RAG" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "接管现有 Vault" }));
+  fireEvent.click(screen.getByRole("button", { name: "导入并审计 Vault" }));
 
   await waitFor(() => expect(mockCreateProject).toHaveBeenCalled());
   expect(mockImportVault).toHaveBeenCalledWith("project-1", { source_path: "D:\\Knowledge\\RAG" });
@@ -669,6 +672,12 @@ test("interrupted snapshot offers real checkpoint recovery", async () => {
     terminal_reason: "lease_expired",
     can_recover: true,
     progress: { current: 1, total: 3 },
+    budget: {
+      search_calls: 1, max_search_calls: 16,
+      provider_requests: 2, max_provider_requests: 32,
+      extraction_requests: 1, max_extraction_requests: 12,
+      writer_calls: 0, max_writer_calls: 16,
+    },
     events: [],
     errors: [],
     artifact_summary: [],
@@ -683,6 +692,8 @@ test("interrupted snapshot offers real checkpoint recovery", async () => {
   await onCompleteRef!();
 
   expect(await screen.findByText("运行已中断，可从检查点恢复")).toBeInTheDocument();
+  expect(screen.getByText("真实运行时间线")).toBeInTheDocument();
+  expect(screen.getByText("1/16")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "恢复运行" }));
   await waitFor(() => expect(mockRecoverRun).toHaveBeenCalledWith("run-1"));
 });
@@ -997,6 +1008,8 @@ test("completed result shows run trace and cleans long evidence snippets", async
   expect(await screen.findByText("运行轨迹")).toBeInTheDocument();
   expect(screen.getByText("V1 知识系统生成完成")).toBeInTheDocument();
   expect(screen.getByText("结果质量摘要")).toBeInTheDocument();
+  expect(screen.getByText("结果判定")).toBeInTheDocument();
+  expect(screen.getByText("可使用，但仍有证据风险")).toBeInTheDocument();
   expect(screen.getByText("知识卡片")).toBeInTheDocument();
   expect(screen.getByText("审查补写事件")).toBeInTheDocument();
   expect(screen.getByText("待验证问题")).toBeInTheDocument();

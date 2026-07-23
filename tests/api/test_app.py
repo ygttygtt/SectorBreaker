@@ -1917,6 +1917,18 @@ def test_api_resume_consumes_waiting_run_feedback(tmp_path: Path) -> None:
         iteration=1,
     )
 
+    snapshot = client.get(f"/api/runs/{run.id}/snapshot").json()
+    assert snapshot["budget"] == {
+        "search_calls": 5,
+        "max_search_calls": 16,
+        "provider_requests": 7,
+        "max_provider_requests": 32,
+        "extraction_requests": 3,
+        "max_extraction_requests": 12,
+        "writer_calls": 0,
+        "max_writer_calls": 16,
+    }
+
     response = client.post(
         f"/api/runs/{run.id}/resume",
         json={

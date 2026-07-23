@@ -33,6 +33,10 @@ Implemented V3 loop:
 - immutable Artifact revisions and ArtifactMemory continuation;
 - V3 Obsidian export with full `.sectorbreaker/` metadata;
 - frontend Vault/health/backlog/ChangeSet workbench.
+- frontend readiness matrix, real run timeline with durable budget telemetry,
+  result quality next-action verdicts, remembered Vault paths/read-only export
+  guidance, and evidence/base-hash ChangeSet review summary;
+- lazy-loaded ConfigPanel, KnowledgeManagementPanel and WorkflowEditor chunks.
 
 Retired and deleted from production:
 
@@ -54,5 +58,5 @@ Current verification baseline:
 Current RAG is real local Hybrid RAG: `BAAI/bge-small-zh-v1.5`, content-hash incremental SQLite vectors, lexical/vector RRF, typed provenance, and explicit `lexical_degraded` fallback. The real-model smoke test proves vector-only recall without shared keywords.
 
 Next valuable work: claim-level semantic support/counterevidence gates, per-Specialist bounded tool
-execution, one real direct source connector, and
-optional Firecrawl map/crawl contracts.
+execution, one real direct source connector, optional Firecrawl map/crawl
+contracts, scheduled monitoring, and direct bidirectional Vault sync.

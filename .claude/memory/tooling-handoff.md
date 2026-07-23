@@ -27,7 +27,10 @@ Current production architecture:
 - follow-up pages are idempotent and persist only resolved project evidence ids;
 - active-only local Hybrid RAG and V3 Obsidian export;
 - no enterprise talent or old workflow production code.
+- UI now reports start-up readiness and truthful provider consequences, exposes
+  typed run budget/timeline diagnostics, gives result next actions, remembers
+  Vault paths, and lazy-loads heavy control-plane/ReactFlow chunks.
 
-Verification baseline: backend 254 passed, frontend 31 passed/build passed, real local semantic smoke passed, version isolation passed. Real V3 web/Agent/ChangeSet/export acceptance passed on project `project-63a8ed6dcd05454ab28cc0443a4e765b`.
+Verification baseline: backend 254 passed, frontend 32 passed/build passed, real local semantic smoke passed, version isolation passed. Real V3 web/Agent/ChangeSet/export acceptance passed on project `project-63a8ed6dcd05454ab28cc0443a4e765b`.
 
 Do not claim an architecture change ready from unit tests alone. Run the real user path and inspect the exported Vault.

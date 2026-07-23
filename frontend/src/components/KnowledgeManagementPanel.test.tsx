@@ -173,6 +173,14 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  window.localStorage.clear();
+});
+
+test("restores the remembered Vault path for this project", async () => {
+  window.localStorage.setItem("sectorbreaker:vault-path:project-1", "D:\\Remembered\\Vault");
+  renderPanel();
+  expect(await screen.findByDisplayValue("D:\\Remembered\\Vault")).toBeInTheDocument();
+  expect(screen.getByText(/源目录只读/)).toBeInTheDocument();
 });
 
 test("imports a local Vault and immediately creates a deterministic health report", async () => {

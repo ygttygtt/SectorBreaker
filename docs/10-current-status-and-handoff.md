@@ -109,12 +109,22 @@ SectorBreaker V3 is a local-first, multi-Agent autonomous knowledge-base managem
 - Follow-up page creation is idempotent for repeated normalized questions,
   persists only real project evidence ids, and reports the current request's
   changed-artifact count instead of the project's total artifact count.
+- Landing separates bootstrap/adopt entry flows and shows a typed readiness
+  matrix with truthful consequences for missing LLM/search/extraction/RAG setup.
+- Run snapshots expose durable budget usage/limits; the research view makes a
+  real event timeline primary and keeps the workflow definition collapsible.
+- Result quality has an explicit verdict/next action; Vault paths are remembered
+  per project, source read-only/export boundaries are visible, and ChangeSet
+  review shows evidence/base-hash gates and conflict recovery guidance.
+- Config, knowledge management, and ReactFlow panels are lazy-loaded into
+  separate frontend chunks.
 
 ## Verification Baseline
 
 - Backend: `254 passed`, one existing Starlette/httpx deprecation warning.
-- Frontend: `31 passed`.
-- Frontend production build: passed; existing >500 kB chunk warning remains.
+- Frontend: `32 passed`.
+- Frontend production build: passed; main chunk is ~332 kB (gzip ~109 kB), with
+  ReactFlow/config/knowledge panels split into lazy chunks.
 - Version isolation: passed.
 - Real temporary Vault acceptance: import -> audit -> ChangeSet -> approve -> apply -> export -> process restart -> rollback -> re-export passed.
 - Real V3 web acceptance passed on 2026-07-22 with configured
@@ -139,7 +149,7 @@ The current implementation is real local Hybrid RAG, not keyword matching behind
 - Scheduled/incremental monitoring.
 - Direct bidirectional source-Vault synchronization.
 - Move/delete operations with stronger recovery semantics.
-- Frontend bundle splitting.
+- One real direct source connector and optional Firecrawl map/crawl contracts.
 
 ## Required Handoff Rule
 

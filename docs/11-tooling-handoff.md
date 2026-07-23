@@ -53,6 +53,10 @@ Read, in order:
 - Specialists receive bounded artifact plus local retrieval context; they still recommend external tool calls to the Master rather than owning a nested ReAct loop.
 - UI: V3 knowledge-management panel includes semantic-index status and rebuild controls.
 - Export: active-only Obsidian vault with full `.sectorbreaker/` control metadata.
+- Frontend control plane now has a readiness matrix, typed run budget/timeline
+  diagnostics, result next-action verdicts, remembered Vault paths and explicit
+  read-only/export boundaries. Heavy config, knowledge and ReactFlow panels
+  are lazy-loaded.
 
 ## Do Not Reintroduce
 
@@ -81,7 +85,8 @@ Knowledge-management changes also require a Vault lifecycle acceptance test.
 ## Current Baseline
 
 - Backend: 254 passed.
-- Frontend: 31 passed and production build passed.
+- Frontend: 32 passed and production build passed; main chunk ~332 kB before
+  gzip with heavy panels split into separate chunks.
 - Version isolation passed.
 - Temporary real Vault apply/export/rollback/re-export acceptance passed.
 - Real V3 web/Agent/ChangeSet/export acceptance passed on project

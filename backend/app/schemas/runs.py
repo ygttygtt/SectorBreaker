@@ -30,6 +30,19 @@ class RunProgress(BaseModel):
     total: int = 0
 
 
+class RunBudgetSnapshot(BaseModel):
+    """Durable budget telemetry exposed to the run control plane."""
+
+    search_calls: int = 0
+    max_search_calls: int = 0
+    provider_requests: int = 0
+    max_provider_requests: int = 0
+    extraction_requests: int = 0
+    max_extraction_requests: int = 0
+    writer_calls: int = 0
+    max_writer_calls: int = 0
+
+
 class RunArtifactSummary(BaseModel):
     id: str
     title: str
@@ -60,6 +73,7 @@ class RunSnapshot(BaseModel):
     can_resume: bool = False
     can_recover: bool = False
     progress: RunProgress = Field(default_factory=RunProgress)
+    budget: RunBudgetSnapshot = Field(default_factory=RunBudgetSnapshot)
     events: list[RunEvent] = Field(default_factory=list)
     errors: list[RunEvent] = Field(default_factory=list)
     artifact_summary: list[RunArtifactSummary] = Field(default_factory=list)

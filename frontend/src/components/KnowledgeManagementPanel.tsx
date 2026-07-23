@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
+  AlertTriangle,
   ArchiveRestore,
   Bot,
   Check,
@@ -8,6 +9,8 @@ import {
   ChevronUp,
   ClipboardCheck,
   Database,
+  Download,
+  ExternalLink,
   FileDiff,
   FolderInput,
   GitPullRequest,
@@ -127,6 +130,8 @@ export function KnowledgeManagementPanel({
     factual_change: false,
   });
   const [proposalEvidence, setProposalEvidence] = useState("");
+  const [vaultSnapshotBeforeImport, setVaultSnapshotBeforeImport] = useState<string | null>(null);
+  const [exportDir, setExportDir] = useState<string | null>(null);
 
   const refreshControlPlane = useCallback(async () => {
     setBusyAction((current) => current ?? "refresh");
@@ -155,6 +160,8 @@ export function KnowledgeManagementPanel({
   }, [onError, projectId]);
 
   useEffect(() => {
+    const remembered = window.localStorage.getItem(`sectorbreaker:vault-path:${projectId}`);
+    if (remembered) setVaultPath(remembered);
     void refreshControlPlane();
   }, [refreshControlPlane]);
 
@@ -167,6 +174,8 @@ export function KnowledgeManagementPanel({
     if (!vaultPath.trim()) return;
     setBusyAction("import");
     try {
+      setVaultSnapshotBeforeImport(vault?.latest_import?.snapshot_hash ?? null);
+      window.localStorage.setItem(`sectorbreaker:vault-path:${projectId}`, vaultPath.trim());
       const imported = await api.importVault(projectId, { source_path: vaultPath.trim() });
       const report = await api.auditVault(projectId);
       await Promise.all([refreshControlPlane(), onArtifactsChanged()]);
@@ -190,6 +199,29 @@ export function KnowledgeManagementPanel({
       onError(errorMessage(error, "知识健康审计失败"));
     } finally {
       setBusyAction(null);
+    }
+  }
+
+  async function exportVault() {
+    setBusyAction("export");
+    try {
+      const manifest = await api.exportProject(projectId);
+      setExportDir(manifest.export_dir ?? null);
+      onSuccess(`已导出 ${manifest.artifact_paths.length} 个文件`);
+    } catch (error) {
+      onError(errorMessage(error, "Vault 导出失败"));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function openExport() {
+    if (!exportDir) return;
+    try {
+      await api.openExportFolder(exportDir);
+      onSuccess("已打开受管 Vault 文件夹");
+    } catch (error) {
+      onError(errorMessage(error, "打开导出文件夹失败"));
     }
   }
 
@@ -293,7 +325,7 @@ export function KnowledgeManagementPanel({
           <h3 id="knowledge-control-title"><Activity size={17} />知识库自治管理</h3>
           <p>导入、审计、维护、审批和回滚都保留版本与证据链；源 Vault 不会被直接修改。</p>
         </div>
-        <button className="secondary btn-sm" onClick={() => void refreshControlPlane()} disabled={isBusy} type="button">
+          <button className="secondary btn-sm" onClick={() => void refreshControlPlane()} disabled={isBusy} type="button">
           <RefreshCw size={14} className={busyAction === "refresh" ? "spinner" : ""} />刷新状态
         </button>
       </div>
@@ -321,6 +353,14 @@ export function KnowledgeManagementPanel({
           <span>快照 <code>{compactHash(vault?.latest_import?.snapshot_hash)}</code></span>
           <span>{vault?.latest_import ? `最近导入 ${dateLabel(vault.latest_import.created_at)}` : "当前项目尚未导入外部 Vault"}</span>
         </div>
+        <div className="vault-control-actions">
+          <span className="vault-readonly-badge"><ShieldCheck size={13} />源目录只读 · 受管版本可导出</span>
+          <button className="secondary btn-sm" onClick={() => void exportVault()} disabled={isBusy}><Download size={13} />导出受管 Vault</button>
+          {exportDir && <button className="ghost-chip" onClick={() => void openExport()} type="button"><ExternalLink size={13} />打开</button>}
+        </div>
+        {vaultSnapshotBeforeImport && vault?.latest_import?.snapshot_hash && vaultSnapshotBeforeImport !== vault.latest_import.snapshot_hash && (
+          <p className="vault-conflict-warning"><AlertTriangle size={14} />检测到源 Vault 快照已变化。现有受管修订未被覆盖，请先审阅健康报告和 ChangeSet。</p>
+        )}
       </div>
 
       <div className="knowledge-control-section retrieval-status-section">
@@ -459,11 +499,16 @@ export function KnowledgeManagementPanel({
               <article className={`changeset-card changeset-card--${changeSet.status}`} key={changeSet.id}>
                 <button className="changeset-summary" onClick={() => toggleChangeSet(changeSet.id)} type="button" aria-expanded={expanded}>
                   <span className={`status-pill status-pill--${changeSet.status}`}>{changeStatusLabels[changeSet.status]}</span>
-                  <div><strong>{changeSet.summary}</strong><span>{changeSet.operations.length} 项操作 · {changeSet.created_by_agent} · {dateLabel(changeSet.created_at)}</span></div>
+                  <div><strong>{changeSet.summary}</strong><span>{changeSet.operations.map((item) => item.path).join("、")} · {changeSet.evidence_ids.length} 条证据 · {dateLabel(changeSet.created_at)}</span></div>
                   {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                 </button>
                 {expanded && (
                   <div className="changeset-detail">
+                    <div className="changeset-review-summary">
+                      <span className={changeSet.operations.some((item) => item.factual_change) && changeSet.evidence_ids.length === 0 ? "is-risk" : "is-ok"}><strong>证据门</strong>{changeSet.operations.some((item) => item.factual_change) ? `${changeSet.evidence_ids.length} 条关联证据` : "非事实性修改"}</span>
+                      <span className={changeSet.operations.every((item) => item.base_hash || item.operation === "create") ? "is-ok" : "is-risk"}><strong>版本基线</strong>{changeSet.operations.every((item) => item.base_hash || item.operation === "create") ? "可校验" : "缺少基线"}</span>
+                      <span><strong>影响范围</strong>{changeSet.operations.length} 个文件</span>
+                    </div>
                     {changeSet.operations.map((operation, index) => (
                       <div className="changeset-operation" key={`${operation.path}-${index}`}>
                         <div><strong>{operation.operation === "create" ? "新建" : "更新"} · {operation.path}</strong><span>基线 {compactHash(operation.base_hash)}{operation.factual_change ? " · 事实性修改" : ""}</span></div>
@@ -471,7 +516,7 @@ export function KnowledgeManagementPanel({
                       </div>
                     ))}
                     {changeSet.evidence_ids.length > 0 && <p className="changeset-evidence">证据：{changeSet.evidence_ids.join("、")}</p>}
-                    {changeSet.error && <p className="changeset-error">{changeSet.error}</p>}
+                    {changeSet.error && <p className="changeset-error"><AlertTriangle size={14} />{changeSet.error}<span>请重新导入源 Vault 或基于当前版本创建新的 ChangeSet。</span></p>}
                     <div className="changeset-actions">
                       {changeSet.status === "proposed" && <button className="secondary btn-sm" onClick={() => void mutateChangeSet(changeSet.id, "approve")} disabled={isBusy} type="button"><Check size={14} />批准</button>}
                       {changeSet.status === "approved" && <button className="primary btn-sm" onClick={() => void mutateChangeSet(changeSet.id, "apply")} disabled={isBusy} type="button"><Check size={14} />应用新修订</button>}
