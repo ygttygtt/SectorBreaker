@@ -3,9 +3,10 @@
 import asyncio
 import json
 import os
+import sqlite3
 import subprocess
 import sys
-import time
+import tempfile
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -23,12 +24,12 @@ from backend.app.exporters.markdown import MarkdownExporter
 from backend.app.evidence_builder import citation_to_evidence
 from backend.app.agent_kernel.workflow_definition import build_agent_kernel_workflow_definition
 from backend.app.providers.factory import (
-    build_content_extraction_provider,
+    build_backup_content_extraction_provider,
+    build_backup_llm_provider,
     build_content_extraction_provider_from_config,
     build_embedding_provider,
     build_llm_provider,
     build_llm_provider_from_config,
-    build_search_provider,
     build_search_provider_from_config,
     build_source_registry,
 )
@@ -47,7 +48,6 @@ from backend.app.providers.source_policy import search_constraints_for_policy, u
 from backend.app.providers.source_verification import HeuristicSourceVerificationProvider
 from backend.app.rag import ProjectRetriever
 from backend.app.knowledge_base import ChangeSetService, VaultKnowledgeService
-from backend.app.agent_state.models import AutonomyPolicy
 from backend.app.schemas import (
     Artifact,
     ArtifactType,
@@ -68,7 +68,17 @@ from backend.app.schemas import (
     ChangeSetProposalRequest,
     MaintenanceRunRequest,
     VaultImportRequest,
+    DemoReadiness,
+    LiveChallengeRequest,
+    MissionStatus,
+    ReadinessCheck,
+    TaskBudget,
+    WorkOrder,
+    WorkOrderType,
 )
+from backend.app.agent_network.a2a_transport import A2AClientTransport
+from backend.app.agent_network.registry import build_demo_agent_registry
+from backend.app.providers.search_execution import execute_search
 from backend.app.storage.sqlite import SQLiteRepository, init_database
 from backend.app.agent_kernel import run_v2_agent_kernel_pipeline
 from backend.app.agent_kernel.models import KernelRunResult, KernelRunStatus
@@ -302,6 +312,10 @@ class SearchTestResult(BaseModel):
     results: list[dict] = Field(default_factory=list)
     extracted_page: dict | None = None
     source_assessment: dict | None = None
+
+
+class _DemoLLMProbe(BaseModel):
+    ok: bool
 
 
 class LLMTestResult(BaseModel):
@@ -773,6 +787,8 @@ def create_app(
     search_provider: SearchProvider | None = None,
     content_extraction_provider: ContentExtractionProvider | None = None,
     llm_provider: LLMProvider | None = None,
+    backup_content_extraction_provider: ContentExtractionProvider | None = None,
+    backup_llm_provider: LLMProvider | None = None,
     embedding_provider: EmbeddingProvider | None = None,
     embedding_mode: str = "disabled",
 ) -> FastAPI:
@@ -844,6 +860,10 @@ def create_app(
         )
     else:
         active_llm_provider = build_llm_provider()
+    active_backup_llm_provider = backup_llm_provider or build_backup_llm_provider()
+    active_backup_content_extraction_provider = (
+        backup_content_extraction_provider or build_backup_content_extraction_provider()
+    )
     source_registry = build_source_registry()
     source_verifier = HeuristicSourceVerificationProvider(source_registry=source_registry)
     project_retriever = ProjectRetriever(
@@ -852,6 +872,217 @@ def create_app(
         embedding_mode=embedding_mode,
     )
     app = FastAPI(title="SectorBreaker")
+
+    async def build_demo_readiness() -> DemoReadiness:
+        checks: list[ReadinessCheck] = []
+
+        async def probe_llm(key: str, label: str, provider: LLMProvider | None) -> None:
+            if provider is None:
+                checks.append(ReadinessCheck(
+                    key=key,
+                    label=label,
+                    ready=False,
+                    detail="未配置。",
+                    action=f"配置 {key.upper()} 的 URL、API Key 与模型。",
+                ))
+                return
+            try:
+                result = await asyncio.wait_for(provider.complete_structured(
+                    [ChatMessage(role="user", content="Return JSON with ok=true. No other fields.")],
+                    _DemoLLMProbe,
+                ), timeout=15)
+                ready = bool(_DemoLLMProbe.model_validate(result).ok)
+                checks.append(ReadinessCheck(
+                    key=key,
+                    label=label,
+                    ready=ready,
+                    detail="最小结构化调用成功。" if ready else "结构化调用未返回 ok=true。",
+                    action=None if ready else "检查模型是否支持严格 JSON 输出。",
+                ))
+            except Exception as exc:
+                checks.append(ReadinessCheck(
+                    key=key,
+                    label=label,
+                    ready=False,
+                    detail=f"调用失败：{type(exc).__name__}",
+                    action="检查模型凭证、网络、限流与结构化输出兼容性。",
+                ))
+
+        llm_probes = asyncio.gather(
+            probe_llm("primary_llm", "Primary LLM", active_llm_provider),
+            probe_llm("backup_llm", "Backup LLM", active_backup_llm_provider),
+        )
+
+        providers = _search_provider_names(active_search_provider)
+        search_response = None
+        if active_search_provider is None:
+            checks.append(ReadinessCheck(
+                key="search", label="Search Providers", ready=False,
+                detail="未配置真实搜索通道。", action="至少配置两个 SearchProvider。",
+            ))
+        else:
+            try:
+                search_response = await asyncio.wait_for(execute_search(
+                    active_search_provider,
+                    SearchQuery(
+                        query="SectorBreaker live demo readiness",
+                        market_scope="global",
+                        max_results=1,
+                    ),
+                    request_budget=max(1, len(providers)),
+                ), timeout=20)
+                successful = [item for item in search_response.provider_outcomes if item.status == "ok"]
+                ready = bool(search_response.results) and len(providers) >= 2
+                checks.append(ReadinessCheck(
+                    key="search",
+                    label="Search Providers",
+                    ready=ready,
+                    detail=(
+                        f"已配置 {len(providers)} 个通道，本次 {len(successful)} 个成功并返回真实结果。"
+                        if search_response.results else
+                        f"已配置 {len(providers)} 个通道，但本次没有返回结果。"
+                    ),
+                    action=None if ready else "至少配置两个搜索通道，并修复到至少一个能真实返回。",
+                ))
+            except Exception as exc:
+                checks.append(ReadinessCheck(
+                    key="search", label="Search Providers", ready=False,
+                    detail=f"调用失败：{type(exc).__name__}", action="检查搜索凭证、网络与额度。",
+                ))
+
+        await llm_probes
+        llm_independent = (
+            active_llm_provider is not None
+            and active_backup_llm_provider is not None
+            and active_llm_provider is not active_backup_llm_provider
+        )
+        checks.append(ReadinessCheck(
+            key="llm_independence",
+            label="Independent LLM Channels",
+            ready=llm_independent,
+            detail="Primary 与 Backup 是独立 Provider 实例。" if llm_independent else "Primary 与 Backup 未独立配置。",
+            action=None if llm_independent else "配置独立 LLM_BACKUP_* 通道，不要复用同一实例。",
+        ))
+
+        extraction_ready = False
+        extraction_detail = "搜索没有提供可用于抽取的 URL。"
+        if search_response and search_response.results:
+            url = search_response.results[0].url
+            extraction_attempts = [
+                ("primary", active_content_extraction_provider),
+                ("backup", active_backup_content_extraction_provider),
+            ]
+            outcomes: list[str] = []
+            for channel, provider in extraction_attempts:
+                try:
+                    page = await asyncio.wait_for(provider.extract_url(url), timeout=20)
+                    readable = len(page.raw_text.strip()) >= 120
+                    outcomes.append(f"{channel}={'ok' if readable else 'too_short'}")
+                    extraction_ready = extraction_ready or readable
+                except Exception as exc:
+                    outcomes.append(f"{channel}={type(exc).__name__}")
+            extraction_detail = "；".join(outcomes)
+        extraction_independent = (
+            active_content_extraction_provider is not active_backup_content_extraction_provider
+            and type(active_content_extraction_provider) is not type(active_backup_content_extraction_provider)
+        )
+        checks.append(ReadinessCheck(
+            key="extraction",
+            label="Extraction Channels",
+            ready=extraction_ready and extraction_independent,
+            detail=extraction_detail + ("；通道独立" if extraction_independent else "；Primary/Backup 类型重复"),
+            action=None if extraction_ready and extraction_independent else "配置不同类型的 Primary/Backup Extraction，并确保至少一个能返回可读正文。",
+        ))
+
+        a2a_endpoint = (os.getenv("SECTORBREAKER_A2A_RESEARCHER_URL") or "").strip()
+        if not a2a_endpoint:
+            checks.append(ReadinessCheck(
+                key="a2a", label="A2A Researcher", ready=False,
+                detail="未配置远端 Researcher。",
+                action="启动 tools/demo_a2a_researcher.py 并设置 SECTORBREAKER_A2A_RESEARCHER_URL。",
+            ))
+        else:
+            try:
+                transport = A2AClientTransport()
+                card = await asyncio.wait_for(transport.discover(a2a_endpoint), timeout=10)
+                skills = card.get("skills", [])
+                probe = WorkOrder(
+                    id=f"WO-PREFLIGHT-{uuid4().hex[:6]}",
+                    mission_id=f"MISSION-PREFLIGHT-{uuid4().hex[:6]}",
+                    task_type=WorkOrderType.RESEARCH,
+                    objective="执行最小真实检索，证明 A2A Worker 能接收 Task 并返回结构化 Artifact。",
+                    research_angle="demo readiness",
+                    required_capabilities=["research_ecosystem"],
+                    acceptance_criteria=["返回至少一个真实来源候选"],
+                    budget=TaskBudget(
+                        max_steps=3,
+                        max_search_calls=1,
+                        max_provider_requests=2,
+                        max_extraction_requests=1,
+                        max_llm_calls=2,
+                        deadline_seconds=75,
+                    ),
+                )
+                deliverable = await asyncio.wait_for(transport.execute(
+                    a2a_endpoint,
+                    probe,
+                    domain="AI agent interoperability",
+                    timeout_seconds=75,
+                ), timeout=80)
+                task_ready = bool(deliverable.evidence_candidates and deliverable.output_hash)
+                checks.append(ReadinessCheck(
+                    key="a2a", label="A2A Researcher", ready=bool(skills) and task_ready,
+                    detail=f"Agent Card 可发现，声明 {len(skills)} 个 skill；测试 Task 已返回 Artifact。",
+                    action=None if skills and task_ready else "检查 Agent Card skill 与结构化 Artifact 合同。",
+                ))
+            except Exception as exc:
+                checks.append(ReadinessCheck(
+                    key="a2a", label="A2A Researcher", ready=False,
+                    detail=f"预检失败：{type(exc).__name__}", action="检查 Worker 进程、端口、Agent Card 与测试 Task 超时。",
+                ))
+
+        try:
+            with sqlite3.connect(database_path) as connection:
+                connection.execute("SELECT 1 FROM agent_missions LIMIT 1")
+            checks.append(ReadinessCheck(
+                key="sqlite", label="SQLite + Migrations", ready=True,
+                detail="数据库可读写且 Agent Mission 迁移存在。",
+            ))
+        except Exception as exc:
+            checks.append(ReadinessCheck(
+                key="sqlite", label="SQLite + Migrations", ready=False,
+                detail=f"检查失败：{type(exc).__name__}", action="执行数据库迁移并检查目录权限。",
+            ))
+
+        try:
+            export_root.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(dir=export_root, prefix=".demo-readiness-", delete=True):
+                pass
+            checks.append(ReadinessCheck(
+                key="export", label="Export Directory", ready=True, detail="导出目录可写。",
+            ))
+        except Exception as exc:
+            checks.append(ReadinessCheck(
+                key="export", label="Export Directory", ready=False,
+                detail=f"检查失败：{type(exc).__name__}", action="修复导出目录权限。",
+            ))
+
+        _reconcile_and_record_stale_runs(repository)
+        with sqlite3.connect(database_path) as connection:
+            running_count = int(connection.execute(
+                "SELECT COUNT(*) FROM runs WHERE status = ?",
+                (RunStatus.RUNNING.value,),
+            ).fetchone()[0])
+        checks.append(ReadinessCheck(
+            key="stale_runs", label="Run State", ready=running_count == 0,
+            detail="没有遗留 running run。" if running_count == 0 else f"仍有 {running_count} 个运行中任务。",
+            action=None if running_count == 0 else "等待当前任务结束，或先处理遗留租约。",
+        ))
+        return DemoReadiness(ready=all(item.ready for item in checks if item.critical), checks=checks)
+
+    @app.get("/api/demo/readiness")
+    async def get_demo_readiness():
+        return (await build_demo_readiness()).model_dump(mode="json")
 
     # ── Projects ──────────────────────────────────────────────────
 
@@ -1009,6 +1240,29 @@ def create_app(
             if change_set.project_id != project_id:
                 raise KeyError(change_set_id)
             change_set = change_set_service.apply(change_set_id)
+            if change_set.origin_run_id:
+                try:
+                    mission = repository.get_agent_mission(change_set.origin_run_id)
+                except KeyError:
+                    mission = None
+                if mission is not None:
+                    mission.status = MissionStatus.COMPLETED
+                    mission.updated_at = datetime.now(UTC)
+                    repository.save_agent_mission(mission)
+                    repository.update_run(
+                        change_set.origin_run_id,
+                        status=RunStatus.COMPLETED,
+                        current_gate="completed",
+                        completed_at=datetime.now(UTC),
+                        terminal_reason="Starter Note approved and applied",
+                    )
+                    repository.add_run_event(RunEvent(
+                        event_type="mission_completed",
+                        gate="publish",
+                        agent="V3 Master Agent",
+                        message="Starter Note 已经人工批准并应用，Mission 正式完成。",
+                        data={"change_set_id": change_set.id},
+                    ), change_set.origin_run_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="change set not found") from exc
         except ValueError as exc:
@@ -1039,6 +1293,131 @@ def create_app(
         return build_agent_kernel_workflow_definition().model_dump(mode="json")
 
     # ── Runs ──────────────────────────────────────────────────────
+
+    @app.post("/api/projects/{project_id}/challenge-runs")
+    async def start_challenge_run(
+        project_id: str,
+        payload: LiveChallengeRequest,
+        background_tasks: BackgroundTasks,
+    ):
+        try:
+            project = repository.get_project(project_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="project not found") from exc
+        if project.status.value == "archived":
+            raise HTTPException(status_code=400, detail="archived projects cannot be run")
+        if active_llm_provider is None or active_search_provider is None:
+            raise HTTPException(
+                status_code=503,
+                detail="live challenge requires real LLM and SearchProvider configuration",
+            )
+
+        _reconcile_and_record_stale_runs(repository)
+        lease_owner_id = f"demo-worker-{uuid4().hex}"
+        try:
+            run = repository.create_claimed_run(
+                project_id,
+                lease_owner_id=lease_owner_id,
+                lease_seconds=RUN_LEASE_SECONDS,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        async def emit_challenge_event(event: RunEvent) -> None:
+            assert_no_legacy_personal_run_event(event)
+            repository.add_run_event(
+                event,
+                run.id,
+                lease_owner_id=lease_owner_id,
+                lease_seconds=RUN_LEASE_SECONDS,
+            )
+
+        async def challenge_in_background() -> None:
+            try:
+                result = await run_v2_agent_kernel_pipeline(
+                    project=project,
+                    repository=repository,
+                    search_provider=active_search_provider,
+                    content_extraction_provider=active_content_extraction_provider,
+                    source_verification_provider=source_verifier,
+                    llm_provider=active_llm_provider,
+                    backup_llm_provider=active_backup_llm_provider,
+                    backup_content_extraction_provider=active_backup_content_extraction_provider,
+                    emit=emit_challenge_event,
+                    run_id=run.id,
+                    challenge_request=payload,
+                    project_retriever=project_retriever,
+                )
+                _finalize_kernel_run(repository, run.id, result, lease_owner_id=lease_owner_id)
+            except Exception as exc:
+                try:
+                    try:
+                        mission = repository.get_agent_mission(run.id)
+                    except KeyError:
+                        mission = None
+                    if mission is not None:
+                        mission.status = MissionStatus.FAILED
+                        mission.failure_reason = str(exc)[:300]
+                        mission.updated_at = datetime.now(UTC)
+                        repository.save_agent_mission(mission)
+                    repository.add_run_event(RunEvent(
+                        event_type="error",
+                        gate="live_challenge",
+                        agent="V3 Master Agent",
+                        message=f"现场挑战失败：{type(exc).__name__}: {str(exc)[:500]}",
+                        severity="error",
+                    ), run.id, lease_owner_id=lease_owner_id, lease_seconds=RUN_LEASE_SECONDS)
+                    repository.finish_owned_run(
+                        run.id,
+                        lease_owner_id=lease_owner_id,
+                        status=RunStatus.FAILED,
+                        current_gate="failed",
+                        terminal_reason=str(exc)[:300],
+                    )
+                except RuntimeError:
+                    return
+
+        background_tasks.add_task(challenge_in_background)
+        return repository.get_run(run.id).model_dump(mode="json")
+
+    @app.get("/api/runs/{run_id}/agent-mission")
+    def get_run_agent_mission(run_id: str):
+        try:
+            repository.get_run(run_id)
+            return repository.get_agent_mission(run_id).model_dump(mode="json")
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="agent mission not found") from exc
+
+    @app.get("/api/projects/{project_id}/agent-registry")
+    async def get_project_agent_registry(project_id: str):
+        try:
+            repository.get_project(project_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="project not found") from exc
+        endpoint = (os.getenv("SECTORBREAKER_A2A_RESEARCHER_URL") or "").strip() or None
+        available = False
+        capabilities: list[str] = []
+        if endpoint:
+            try:
+                card = await asyncio.wait_for(A2AClientTransport().discover(endpoint), timeout=5)
+                declared = [
+                    value
+                    for skill in card.get("skills", []) if isinstance(skill, dict)
+                    for value in [str(skill.get("id") or ""), *[str(tag) for tag in skill.get("tags", [])]]
+                ]
+                allowed = {"research_ecosystem", "web_search", "evidence_extract"}
+                capabilities = list(dict.fromkeys(item for item in declared if item in allowed))
+                available = "research_ecosystem" in capabilities
+            except Exception:
+                available = False
+        registry = build_demo_agent_registry(
+            repository,
+            project_id,
+            a2a_endpoint=endpoint,
+            a2a_available=available,
+            a2a_capabilities=capabilities or None,
+        )
+        return [manifest.model_dump(mode="json") for manifest in registry.list()]
 
     @app.post("/api/projects/{project_id}/runs")
     async def run_project(project_id: str, background_tasks: BackgroundTasks, auto_run: bool = False):

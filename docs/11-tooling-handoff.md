@@ -23,6 +23,9 @@ Read, in order:
 
 - Product: local-first autonomous knowledge-base management, not talent intelligence or a one-shot report writer.
 - Production owner: `backend.app.agent_kernel.run_v2_agent_kernel_pipeline`.
+- Live demo path: `LiveChallengeRequest` enters that same owner and persists an
+  `AgentMission` contract network. Read `docs/27-demo-first-agent-contract-network.md`
+  before changing demo orchestration.
 - Source Vault: read-only input; managed revisions live in SQLite/export.
 - Write boundary: existing-note updates require ChangeSet approval/apply.
 - Retrieval: shared local Hybrid RAG with FastEmbed, incremental SQLite vectors, RRF, provenance, and honest degradation.
@@ -51,6 +54,10 @@ Read, in order:
 - Repeated follow-up questions reuse the active page, and follow-up artifacts
   persist only real project evidence ids.
 - Specialists receive bounded artifact plus local retrieval context; they still recommend external tool calls to the Master rather than owning a nested ReAct loop.
+- Demo Specialists now own a bounded Mini-ReAct execution contract and return
+  typed `AgentDeliverable`s; they still cannot mutate Master State, apply a
+  ChangeSet, or write the Vault. The general maintenance Specialist path is
+  unchanged.
 - UI: V3 knowledge-management panel includes semantic-index status and rebuild controls.
 - Export: active-only Obsidian vault with full `.sectorbreaker/` control metadata.
 - Frontend control plane now has a readiness matrix, typed run budget/timeline
@@ -73,6 +80,7 @@ Read, in order:
 python -m compileall -q backend/app
 python -m pytest -q
 python tools/check_version_isolation.py
+python tools/demo_preflight.py
 python tools/smoke_local_hybrid_rag.py
 
 cd frontend
@@ -84,10 +92,15 @@ Knowledge-management changes also require a Vault lifecycle acceptance test.
 
 ## Current Baseline
 
-- Backend: 254 passed.
-- Frontend: 32 passed and production build passed; main chunk ~332 kB before
+- Backend: 265 passed.
+- Frontend: 33 passed and production build passed; main chunk ~342 kB before
   gzip with heavy panels split into separate chunks.
 - Version isolation passed.
+- Real Demo-First live acceptance passed for `联邦学习` in 249.5 seconds with
+  real local + A2A research, 7 Evidence records, 6 ClaimChecks, ChangeSet
+  approve/apply, and final Mission completion.
+- This is not the ten-domain release gate. Local readiness remains blocked until
+  an independent Backup LLM and second SearchProvider are configured.
 - Temporary real Vault apply/export/rollback/re-export acceptance passed.
 - Real V3 web/Agent/ChangeSet/export acceptance passed on project
   `project-63a8ed6dcd05454ab28cc0443a4e765b`; see `docs/26-product-readiness-audit-v3.md`.

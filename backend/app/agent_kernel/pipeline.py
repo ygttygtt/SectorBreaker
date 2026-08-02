@@ -19,9 +19,11 @@ from backend.app.providers.interfaces import (
     SearchProvider,
     SourceVerificationProvider,
 )
+from backend.app.providers.failover import FailoverContentExtractionProvider, FailoverLLMProvider
 from backend.app.rag import ProjectRetriever
 from backend.app.schemas import (
     Artifact,
+    LiveChallengeRequest,
     MaintenanceRunRequest,
     ProjectDocumentCreate,
     ResearchProject,
@@ -46,6 +48,9 @@ async def run_v2_agent_kernel_pipeline(
     preserve_run_budget: bool = False,
     maintenance_request: MaintenanceRunRequest | None = None,
     project_retriever: ProjectRetriever | None = None,
+    challenge_request: LiveChallengeRequest | None = None,
+    backup_llm_provider: LLMProvider | None = None,
+    backup_content_extraction_provider: ContentExtractionProvider | None = None,
 ) -> KernelRunResult:
     """Run the Agent Kernel, persist durable outputs, and return its terminal status."""
 
@@ -54,6 +59,41 @@ async def run_v2_agent_kernel_pipeline(
             await emit(event)
 
     _run_id = run_id or project.id
+
+    if challenge_request is not None:
+        from backend.app.agent_network.a2a_transport import A2AClientTransport
+        from backend.app.agent_network.runtime import run_live_challenge
+
+        challenge_llm: LLMProvider | None = llm_provider or backup_llm_provider
+        if challenge_llm is not None and not isinstance(challenge_llm, FailoverLLMProvider):
+            challenge_llm = FailoverLLMProvider(
+                challenge_llm,
+                backup_llm_provider if challenge_llm is not backup_llm_provider else None,
+            )
+        challenge_extraction: ContentExtractionProvider | None = (
+            content_extraction_provider or backup_content_extraction_provider
+        )
+        if (
+            challenge_extraction is not None
+            and backup_content_extraction_provider is not None
+            and challenge_extraction is not backup_content_extraction_provider
+        ):
+            challenge_extraction = FailoverContentExtractionProvider(
+                challenge_extraction,
+                backup_content_extraction_provider,
+            )
+        return await run_live_challenge(
+            project=project,
+            repository=repository,
+            search_provider=search_provider,
+            content_extraction_provider=challenge_extraction,
+            source_verification_provider=source_verification_provider,
+            llm_provider=challenge_llm,
+            emit=emit_event,
+            run_id=_run_id,
+            request=challenge_request,
+            a2a_transport=A2AClientTransport(),
+        )
 
     if resume_state is not None:
         state = resume_state

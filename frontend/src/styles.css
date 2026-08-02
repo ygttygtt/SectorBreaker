@@ -1612,3 +1612,76 @@ textarea,
 @media (max-width: 520px) { .run-budget-grid { grid-template-columns: 1fr 1fr; } .run-diagnostics-summary { gap: 8px; } }
 @media (max-width: 900px) { .readiness-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 520px) { .readiness-grid { grid-template-columns: 1fr; } }
+/* Demo-first Agent Contract Network */
+.demo-challenge-button {
+  background: linear-gradient(135deg, #00b8c6, #2563eb);
+  box-shadow: 0 12px 30px rgba(37, 99, 235, .22);
+}
+.readiness-panel-head > div:last-child { display: flex; gap: 8px; }
+.demo-readiness-result { display: grid; grid-template-columns: auto 1fr; gap: 12px; margin-top: 10px; padding: 10px; border: 1px solid #fb718555; border-radius: 10px; background: #fb71850a; }
+.demo-readiness-result > strong { color: #fb7185; font: 800 11px/1.5 monospace; }
+.demo-readiness-result > div { display: grid; gap: 4px; }.demo-readiness-result span { color: var(--muted); font-size: 11px; }
+.demo-readiness-result.is-ready { border-color: #22c55e55; background: #22c55e0a; }.demo-readiness-result.is-ready > strong { color: #16a34a; }
+
+.mission-control {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid rgba(45, 212, 191, .24);
+  border-radius: 18px;
+  background: linear-gradient(160deg, rgba(9, 24, 43, .98), rgba(13, 34, 57, .96));
+  color: #e7f5ff;
+  box-shadow: 0 18px 50px rgba(3, 15, 30, .2);
+}
+
+.review-pro > .mission-control { margin: 18px; }
+.mission-control .eyebrow { color: #5eead4; }
+.mission-control-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.mission-control-head h2 { margin: 3px 0; font-size: 24px; }
+.mission-control-head p { margin: 0; color: #9fb5c8; max-width: 760px; }
+.mission-status { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border: 1px solid #2dd4bf55; border-radius: 999px; color: #5eead4; font: 700 11px/1 monospace; text-transform: uppercase; }
+.mission-status--blocked,.mission-status--failed { border-color: #fb718555; color: #fda4af; }
+.mission-status--completed { color: #86efac; border-color: #4ade8055; }
+.mission-control-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(280px, .8fr); gap: 14px; }
+.mission-graph-panel,.mission-agent-panel,.mission-deliverable-panel { padding: 14px; border: 1px solid rgba(148, 163, 184, .16); border-radius: 14px; background: rgba(15, 35, 56, .72); }
+.mission-panel-title { display: flex; align-items: center; gap: 7px; margin-bottom: 12px; color: #cfe8f8; }
+.mission-panel-title span { margin-left: auto; color: #6f8ba1; font-size: 12px; }
+.mission-dag { display: flex; align-items: stretch; gap: 10px; overflow-x: auto; padding-bottom: 4px; }
+.mission-dag-layer { position: relative; display: grid; align-content: center; gap: 8px; min-width: 170px; }
+.mission-layer-arrow { position: absolute; right: -9px; top: 50%; color: #2dd4bf; transform: translateY(-50%); }
+.mission-task { display: grid; gap: 5px; width: 100%; padding: 11px; text-align: left; color: #dcecf8; border: 1px solid #334d63; border-radius: 11px; background: #102a42; cursor: pointer; }
+.mission-task:hover,.mission-task.is-selected { border-color: #2dd4bf; transform: translateY(-1px); }
+.mission-task > span { color: #5eead4; font: 700 10px/1 monospace; text-transform: uppercase; }
+.mission-task strong { font-size: 13px; }
+.mission-task small { color: #89a2b6; font-size: 10px; overflow-wrap: anywhere; }
+.mission-task em { color: #688398; font-size: 9px; font-style: normal; }
+.mission-task--accepted { border-color: #22c55e70; background: #0d322e; }
+.mission-task--running,.mission-task--assigned { border-color: #38bdf880; box-shadow: inset 0 0 18px #0284c722; }
+.mission-task--failed,.mission-task--blocked { border-color: #fb718570; background: #3a1d2b; }
+.mission-agent-panel h3 { margin: 4px 0 8px; }
+.mission-agent-panel > p { color: #9fb5c8; font-size: 13px; }
+.agent-transport-row { display: flex; gap: 8px; align-items: center; color: #87a0b3; font-size: 11px; }
+.agent-transport-row span { display: inline-flex; align-items: center; gap: 3px; }
+.transport-badge { padding: 4px 7px; border-radius: 5px; background: #334155; color: #cbd5e1; font: 800 10px/1 monospace; }
+.transport-badge--a2a { background: #0f766e; color: #ccfbf1; }
+.mission-agent-facts { display: grid; grid-template-columns: 48px 1fr; gap: 7px; font-size: 11px; }
+.mission-agent-facts dt { color: #6f8ba1; }
+.mission-agent-facts dd { margin: 0; color: #c8dae7; overflow-wrap: anywhere; }
+.assignment-trace { display: grid; gap: 6px; margin-top: 12px; }
+.assignment-trace > strong { font-size: 11px; color: #5eead4; }
+.assignment-trace > div { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 7px; border-radius: 7px; background: rgba(45, 212, 191, .06); font-size: 10px; }
+.assignment-trace > div small { grid-column: 1 / -1; color: #7891a5; }
+.assignment-trace > div.is-excluded { opacity: .58; background: rgba(251, 113, 133, .07); }
+.settlement-card { display: flex; gap: 8px; margin-top: 12px; padding: 9px; border-radius: 9px; background: rgba(34, 197, 94, .1); color: #86efac; }
+.settlement-card div { display: grid; gap: 3px; }.settlement-card span { color: #98b9aa; font-size: 10px; }
+.mission-evidence-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 7px; }
+.mission-evidence-list a { display: grid; grid-template-columns: auto 1fr auto auto; gap: 7px; align-items: center; padding: 8px; border: 1px solid #30485d; border-radius: 8px; color: #d7e9f5; text-decoration: none; font-size: 10px; }
+.mission-evidence-list a > span { color: #5eead4; font-family: monospace; }.mission-evidence-list a > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.mission-evidence-list a > em { color: #7f99ac; font-style: normal; }
+.claim-check { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin-top: 9px; padding: 10px; border-left: 3px solid #38bdf8; background: #102941; }.claim-check p,.claim-check small { margin: 0; }.claim-check small { grid-column: 2; color: #87a0b3; }.claim-check--conflicting { border-color: #fb923c; }.claim-check--insufficient { border-color: #facc15; }
+.starter-note-preview { margin-top: 10px; border: 1px solid #2e485e; border-radius: 9px; overflow: hidden; }.starter-note-preview summary { padding: 10px; cursor: pointer; color: #5eead4; }.starter-note-preview pre { max-height: 420px; overflow: auto; margin: 0; padding: 14px; white-space: pre-wrap; color: #bed1df; background: #091d30; font: 12px/1.7 ui-monospace, monospace; }
+.mission-approval-note { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 0 0; padding: 10px; border: 1px solid #f59e0b55; border-radius: 9px; background: #4b351322; color: #fcd34d; }.mission-approval-note p { margin: 0; font-size: 11px; }.mission-approval-note > div { display: flex; gap: 7px; }
+
+@media (max-width: 980px) {
+  .mission-control-grid { grid-template-columns: 1fr; }
+  .mission-control-head,.mission-approval-note { align-items: flex-start; flex-direction: column; }
+}

@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Local-first multi-Agent autonomous knowledge-base management system."
 requires-python = ">=3.11"
 dependencies = [
+    "a2a-sdk>=1.1,<2",
     "fastapi>=0.136.0",
     "fastembed>=0.8.0,<0.9",
     "httpx>=0.28.0",

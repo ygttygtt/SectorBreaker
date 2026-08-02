@@ -28,12 +28,14 @@ const ConfigPanel = lazy(() => import("./components/ConfigPanel").then((module) 
 const KnowledgeManagementPanel = lazy(() => import("./components/KnowledgeManagementPanel").then((module) => ({ default: module.KnowledgeManagementPanel })));
 import { Logo } from "./components/Logo";
 import { LogStream } from "./components/LogStream";
+import { AgentMissionControl } from "./components/AgentMissionControl";
 import { type NodeStatus } from "./components/WorkflowEditor";
 import { api } from "./api/client";
 import { useRunEvents } from "./hooks/useRunEvents";
 import type {
   Artifact,
   ChatResponse,
+  DemoReadiness,
   Evidence,
   ExportManifest,
   Project,
@@ -533,6 +535,7 @@ function formatElapsed(startedAt: number | null) {
 
 function LandingView({
   onStart,
+  onChallenge,
   onAdoptVault,
   onOpenSettings,
   isLoading,
@@ -551,6 +554,7 @@ function LandingView({
     autoRun?: boolean,
     assistantBriefFile?: File | null,
   ) => void;
+  onChallenge: (domain: string, sourcePolicy: string, sourcePreferences: ProjectSourcePreferences) => void;
   onAdoptVault: (domain: string, sourcePolicy: string, sourcePreferences: ProjectSourcePreferences, vaultPath: string) => void;
   onOpenSettings: () => void;
   isLoading: boolean;
@@ -572,6 +576,8 @@ function LandingView({
   const [vaultPath, setVaultPath] = useState("");
   const [entryMode, setEntryMode] = useState<"bootstrap" | "adopt">("bootstrap");
   const [showBrief, setShowBrief] = useState(false);
+  const [demoReadiness, setDemoReadiness] = useState<DemoReadiness | null>(null);
+  const [checkingDemo, setCheckingDemo] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -614,6 +620,20 @@ function LandingView({
     { label: "正文抽取", state: extractionProviders.length ? "ready" : "partial", detail: extractionProviders.length ? `已启用 ${extractionProviders.join("、")}` : "使用 HTTP 兜底，深层页面可能不完整", action: onOpenSettings },
     { label: "本地语义检索", state: retrievalStatus?.effective_mode === "hybrid" ? "ready" : "partial", detail: retrievalStatus ? (retrievalStatus.effective_mode === "hybrid" ? `${retrievalStatus.embedding_model || "本地模型"} · 已建立索引` : "当前为关键词降级，运行仍可继续") : "状态读取中", action: onOpenSettings },
   ] as const;
+
+  async function checkDemo() {
+    setCheckingDemo(true);
+    try {
+      setDemoReadiness(await api.getDemoReadiness());
+    } catch {
+      setDemoReadiness({ ready: false, live_only: true, checked_at: new Date().toISOString(), checks: [{
+        key: "api", label: "Demo Preflight API", ready: false, critical: true,
+        detail: "预检接口调用失败。", action: "确认后端正在运行并检查日志。",
+      }] });
+    } finally {
+      setCheckingDemo(false);
+    }
+  }
 
   return (
     <div ref={containerRef} className="landing-pro landing-pro--personal">
@@ -756,10 +776,14 @@ function LandingView({
           </fieldset>
         )}
         <section className="readiness-panel" aria-label="运行准备度">
-          <div className="readiness-panel-head"><div><strong>开始前准备度</strong><span>缺少配置不会被隐藏，系统会说明对结果的影响。</span></div><button className="text-button" onClick={onOpenSettings} type="button"><Settings size={13} />打开设置</button></div>
+          <div className="readiness-panel-head"><div><strong>开始前准备度</strong><span>缺少配置不会被隐藏，系统会说明对结果的影响。</span></div><div><button className="text-button" onClick={() => void checkDemo()} type="button">{checkingDemo ? <Loader2 size={13} className="spinner" /> : <Network size={13} />}运行 Demo 预检</button><button className="text-button" onClick={onOpenSettings} type="button"><Settings size={13} />打开设置</button></div></div>
           <div className="readiness-grid">
             {readiness.map((item) => <button key={item.label} className={`readiness-item readiness-item--${item.state}`} onClick={item.action} type="button"><span className="readiness-item-head"><strong>{item.label}</strong><span>{item.state === "ready" ? "就绪" : item.state === "partial" ? "部分可用" : "需配置"}</span></span><small>{item.detail}</small></button>)}
           </div>
+          {demoReadiness && <div className={`demo-readiness-result ${demoReadiness.ready ? "is-ready" : "is-blocked"}`}>
+            <strong>{demoReadiness.ready ? "DEMO READY" : "DEMO BLOCKED"}</strong>
+            <div>{demoReadiness.checks.map((item) => <span key={item.key} title={item.action || item.detail}>{item.ready ? "✓" : "×"} {item.label} · {item.detail}</span>)}</div>
+          </div>}
         </section>
         {entryMode === "adopt" && <>
           <label className="field-label" htmlFor="vault-path">源 Vault 绝对路径</label>
@@ -802,9 +826,14 @@ function LandingView({
           </div>
         )}
         <div className="landing-actions">
-          {entryMode === "bootstrap" ? <button className="primary" disabled={!domain.trim() || isLoading || !llmConfigured || requireAllowListMissing} onClick={() => submit()} type="button">
-            {isLoading ? <Loader2 size={16} className="spinner" /> : <Play size={16} />}{mode.cta}
-          </button> : <button className="primary" disabled={!domain.trim() || !vaultPath.trim() || isLoading} onClick={() => onAdoptVault(domain.trim(), sourcePolicy, buildSourcePreferences(), vaultPath.trim())} type="button">
+          {entryMode === "bootstrap" ? <>
+            <button className="primary demo-challenge-button" disabled={!domain.trim() || isLoading || !llmConfigured || !searchConfigured || !demoReadiness?.ready || requireAllowListMissing} onClick={() => onChallenge(domain.trim(), sourcePolicy, buildSourcePreferences())} type="button" title={!demoReadiness?.ready ? "先运行并通过 Demo 预检" : undefined}>
+              {isLoading ? <Loader2 size={16} className="spinner" /> : <Network size={16} />}开始 5 分钟 Multi-Agent 现场挑战
+            </button>
+            <button className="secondary" disabled={!domain.trim() || isLoading || !llmConfigured || requireAllowListMissing} onClick={() => submit()} type="button">
+              {isLoading ? <Loader2 size={16} className="spinner" /> : <Play size={16} />}{mode.cta}
+            </button>
+          </> : <button className="primary" disabled={!domain.trim() || !vaultPath.trim() || isLoading} onClick={() => onAdoptVault(domain.trim(), sourcePolicy, buildSourcePreferences(), vaultPath.trim())} type="button">
             {isLoading ? <Loader2 size={16} className="spinner" /> : <FolderInput size={16} />}导入并审计 Vault
           </button>}
           <button className="secondary" onClick={onOpenSettings} type="button">
@@ -972,6 +1001,7 @@ function ResearchView({
               <div className="heartbeat-line" />
             )}
           </section>
+          <AgentMissionControl runId={runId} projectId={project.id} eventCount={events.length} />
           <RunTimeline events={events} snapshot={snapshot} elapsed={elapsed} />
           <AgentLiveBrief cards={agentBriefCards} latest={latest} />
           <section className="metrics-strip">
@@ -1173,6 +1203,7 @@ function ReviewView({
 
   return (
     <div className="review-pro">
+      <AgentMissionControl runId={runId} projectId={project.id} eventCount={events.length} />
       <header className="review-pro-header">
         <div>
           <Logo size={24} animate={false} />
@@ -1911,6 +1942,43 @@ export function App() {
     }
   }
 
+  async function startLiveChallenge(
+    domain: string,
+    sourcePolicy: string,
+    sourcePreferences: ProjectSourcePreferences,
+  ) {
+    setIsLoading(true);
+    try {
+      const proj = await api.createProject({
+        title: `${domain} · Live Challenge`,
+        domain,
+        market_scope: "mixed",
+        depth: "quick",
+        source_policy: sourcePolicy,
+        project_mode: "domain_knowledge",
+        source_preferences: sourcePreferences,
+      });
+      const run = await api.startChallenge(proj.id, {
+        domain,
+        deadline_seconds: 300,
+        output_type: "starter_note",
+        orchestration_mode: "adaptive_multi_agent",
+        source_policy: sourcePolicy,
+        publish_policy: "propose_before_publish",
+      });
+      setProject(proj);
+      setRunId(run.id);
+      setRunSnapshot(null);
+      rememberRun(proj.id, run.id);
+      setPhase("researching");
+      success("现场挑战已启动：30 秒内将出现动态 Mission Graph");
+    } catch (err) {
+      error(err instanceof Error ? err.message : "现场挑战启动失败");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   async function handleRecoverRun() {
     if (!runId || !project) return;
     try {
@@ -1949,6 +2017,7 @@ export function App() {
       {phase === "landing" && (
         <LandingView
           onStart={startResearch}
+          onChallenge={startLiveChallenge}
           onAdoptVault={adoptVault}
           onOpenSettings={() => setShowConfig(true)}
           isLoading={isLoading}

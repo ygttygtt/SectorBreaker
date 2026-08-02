@@ -26,6 +26,20 @@ SectorBreaker V3 is a local-first, multi-Agent autonomous knowledge-base managem
 
 ### Agent And Permissions
 
+- Demo-first Agent Contract Network is implemented as typed input to the one
+  V3 Kernel owner: `LiveChallengeRequest -> AgentMission DAG -> WorkOrder ->
+  AgentDeliverable -> TaskSettlement -> ChangeSet`.
+- Foundation and ecosystem research execute concurrently when independent;
+  the verifier and editor wait for accepted dependencies. Mission validation
+  rejects cycles, unknown tasks, incompatible capabilities, and invalid
+  research/verify/edit dependency shapes.
+- Explainable scheduling persists every eligible/excluded candidate and the
+  40/25/15/10/10 score. A remote A2A ecosystem Researcher is discovered from
+  its Agent Card and visibly reassigned to the local peer on failure.
+- Local Specialists use scoped State copies, typed observations, per-task
+  budgets, a maximum of one directed rework, local evidence admission, and no
+  ChangeSet apply permission.
+
 - V3 State contains ArtifactMemory, AutonomyPolicy, Vault/health/task references, maintenance objective, and delegation log.
 - Continuation restores active artifacts before Agent decisions.
 - Search-tool, actual Provider-request, extraction-request, writer, file, and
@@ -98,6 +112,12 @@ SectorBreaker V3 is a local-first, multi-Agent autonomous knowledge-base managem
 
 ### Frontend
 
+- Landing has a preflight-gated 5-minute Multi-Agent challenge action.
+  Mission Control shows the real DAG, parallel/dependent tasks, Agent identity,
+  local/A2A transport, tools, assignment exclusions/scores, Evidence links,
+  ClaimChecks, output hashes, settlements, Starter Note preview, and explicit
+  Approve/Apply controls.
+
 - Vault path import and automatic audit.
 - Health metrics/findings and maintenance Backlog selection.
 - Maintenance run launch.
@@ -121,9 +141,22 @@ SectorBreaker V3 is a local-first, multi-Agent autonomous knowledge-base managem
 
 ## Verification Baseline
 
-- Backend: `254 passed`, one existing Starlette/httpx deprecation warning.
-- Frontend: `32 passed`.
-- Frontend production build: passed; main chunk is ~332 kB (gzip ~109 kB), with
+- Demo-first focused regression: `11 passed` (DAG/scheduler/concurrency/failover,
+  end-to-end Challenge API, A2A failure reassignment, ChangeSet apply).
+- Frontend after Mission Control: `33 passed`; production build passed.
+- Real live challenge acceptance passed on 2026-08-02 for the unprepared domain
+  `联邦学习`: real LLM/search/extraction, local Foundation Researcher, independent
+  A2A Ecosystem Researcher, Verifier, and Editor all settled accepted; 7 project
+  Evidence records, 6 ClaimChecks, ChangeSet approve/apply, and final Mission
+  completion in `249.5s` wall time.
+- The mandatory ten-domain real-provider release gate has not yet been run and
+  must not be described as Demo Ready until `tools/demo_preflight.py` and all
+  ten challenges pass with the configured live channels. The current local
+  configuration still lacks an independent Backup LLM and second SearchProvider.
+
+- Backend: `265 passed`, one existing Starlette/httpx deprecation warning.
+- Frontend: `33 passed`.
+- Frontend production build: passed; main chunk is ~342 kB (gzip ~112 kB), with
   ReactFlow/config/knowledge panels split into lazy chunks.
 - Version isolation: passed.
 - Real temporary Vault acceptance: import -> audit -> ChangeSet -> approve -> apply -> export -> process restart -> rollback -> re-export passed.
@@ -143,8 +176,7 @@ The current implementation is real local Hybrid RAG, not keyword matching behind
 - Replace whole-State artifact evidence attachment with claim-level citation
   support checks. ID existence/project ownership now fail closed; semantic
   claim-to-source support is still pending.
-- Better claim-level semantic verification and counterevidence linking.
-- Per-Specialist bounded tool execution and validated promotion of findings into StateDelta/ChangeSets.
+- Better cross-source claim-level semantic verification and counterevidence linking.
 - Optional Firecrawl map/crawl contract after crawl budgets, robots/policy handling, and persistence are designed.
 - Scheduled/incremental monitoring.
 - Direct bidirectional source-Vault synchronization.

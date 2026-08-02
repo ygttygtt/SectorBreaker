@@ -50,6 +50,7 @@ def test_sqlite_migrations_are_discoverable() -> None:
         "022_run_terminal_reason.sql",
         "023_run_recovery_lineage.sql",
         "024_run_lease_indexes.sql",
+        "025_agent_missions.sql",
     ]
 
 

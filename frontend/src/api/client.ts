@@ -59,6 +59,115 @@ export interface RunProgress {
   total: number;
 }
 
+export interface LiveChallengePayload {
+  domain: string;
+  question?: string;
+  deadline_seconds?: number;
+  output_type?: "starter_note";
+  orchestration_mode?: "adaptive_multi_agent";
+  source_policy?: string;
+  publish_policy?: "propose_before_publish";
+}
+
+export interface AgentBid {
+  agent_id: string;
+  eligible: boolean;
+  score: number;
+  exclusion_reasons: string[];
+  rationale: string;
+}
+
+export interface AgentManifest {
+  agent_id: string;
+  version: string;
+  display_name: string;
+  role: string;
+  capabilities: string[];
+  tool_allowlist: string[];
+  transport: "local" | "a2a";
+  endpoint?: string | null;
+  available: boolean;
+  performance: {
+    assigned_tasks: number;
+    accepted_tasks: number;
+    rejected_tasks: number;
+    evidence_gain_total: number;
+    average_latency_ms: number;
+  };
+}
+
+export interface AgentDeliverable {
+  task_id: string;
+  mission_id: string;
+  agent_id: string;
+  summary: string;
+  findings: { summary: string; evidence_ids: string[]; confidence: number }[];
+  claim_checks: { claim: string; status: "supported" | "conflicting" | "insufficient"; evidence_ids: string[]; reason: string }[];
+  evidence_ids: string[];
+  observations: { tool_name: string; success: boolean; summary: string; latency_ms: number }[];
+  latency_ms: number;
+  output_hash: string;
+  draft_markdown?: string | null;
+  proposed_path?: string | null;
+}
+
+export interface AgentWorkOrder {
+  id: string;
+  mission_id: string;
+  task_type: "research" | "verify" | "edit";
+  objective: string;
+  research_angle: string;
+  required_capabilities: string[];
+  depends_on: string[];
+  acceptance_criteria: string[];
+  status: string;
+  assigned_agent_id?: string | null;
+  assignment_trace: AgentBid[];
+  optional: boolean;
+  attempts: number;
+}
+
+export interface AgentMission {
+  id: string;
+  run_id: string;
+  project_id: string;
+  domain: string;
+  objective: string;
+  deadline_seconds: number;
+  status: string;
+  started_at: string;
+  deadline_at: string;
+  work_orders: AgentWorkOrder[];
+  deliverables: AgentDeliverable[];
+  settlements: {
+    task_id: string;
+    agent_id: string;
+    accepted: boolean;
+    quality_score: number;
+    evidence_gain: number;
+    duplicate_ratio: number;
+    rework_count: number;
+    reason: string;
+  }[];
+  change_set_id?: string | null;
+  unresolved_questions: string[];
+  failure_reason?: string | null;
+}
+
+export interface DemoReadiness {
+  ready: boolean;
+  live_only: boolean;
+  checked_at: string;
+  checks: {
+    key: string;
+    label: string;
+    ready: boolean;
+    critical: boolean;
+    detail: string;
+    action?: string | null;
+  }[];
+}
+
 export interface RunBudgetSnapshot {
   search_calls: number;
   max_search_calls: number;
@@ -706,6 +815,25 @@ export const api = {
 
   rollbackChangeSet(projectId: string, changeSetId: string) {
     return requestJson<ChangeSet>(`/api/projects/${projectId}/change-sets/${changeSetId}/rollback`, { method: "POST" });
+  },
+
+  startChallenge(projectId: string, data: LiveChallengePayload) {
+    return requestJson<RunResponse>(`/api/projects/${projectId}/challenge-runs`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  getDemoReadiness() {
+    return requestJson<DemoReadiness>("/api/demo/readiness");
+  },
+
+  getAgentMission(runId: string) {
+    return requestJson<AgentMission>(`/api/runs/${runId}/agent-mission`);
+  },
+
+  getAgentRegistry(projectId: string) {
+    return requestJson<AgentManifest[]>(`/api/projects/${projectId}/agent-registry`);
   },
 
   updateProject(projectId: string, data: { source_preferences: ProjectSourcePreferences }) {

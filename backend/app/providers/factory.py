@@ -44,6 +44,26 @@ def build_llm_provider() -> LLMProvider | None:
     return build_llm_provider_from_config(base_url=base_url, api_key=api_key, model=model, max_tokens=max_tokens)
 
 
+def build_backup_llm_provider() -> LLMProvider | None:
+    """Build the independently configured demo backup LLM channel."""
+
+    base_url = os.getenv("LLM_BACKUP_BASE_URL")
+    api_key = os.getenv("LLM_BACKUP_API_KEY")
+    model = os.getenv("LLM_BACKUP_MODEL")
+    if not base_url or not api_key or not model:
+        return None
+    try:
+        max_tokens = int(os.getenv("LLM_BACKUP_MAX_TOKENS", "4096"))
+    except ValueError:
+        max_tokens = 4096
+    return build_llm_provider_from_config(
+        base_url=base_url,
+        api_key=api_key,
+        model=model,
+        max_tokens=max_tokens,
+    )
+
+
 def build_search_provider_from_config(
     *,
     provider_mode: str = "auto",
@@ -124,6 +144,17 @@ def build_content_extraction_provider_from_config(
 def build_content_extraction_provider() -> ContentExtractionProvider:
     return build_content_extraction_provider_from_config(
         provider_name=(os.getenv("CONTENT_EXTRACTION_PROVIDER") or "http"),
+        firecrawl_api_key=os.getenv("FIRECRAWL_API_KEY"),
+        firecrawl_endpoint=os.getenv("FIRECRAWL_ENDPOINT", "https://api.firecrawl.dev/v1/scrape"),
+        jina_reader_endpoint_prefix=os.getenv("JINA_READER_ENDPOINT_PREFIX", "https://r.jina.ai/http://"),
+    )
+
+
+def build_backup_content_extraction_provider() -> ContentExtractionProvider:
+    """Build a separately selected extraction fallback for live demos."""
+
+    return build_content_extraction_provider_from_config(
+        provider_name=os.getenv("CONTENT_EXTRACTION_BACKUP_PROVIDER", "jina_reader"),
         firecrawl_api_key=os.getenv("FIRECRAWL_API_KEY"),
         firecrawl_endpoint=os.getenv("FIRECRAWL_ENDPOINT", "https://api.firecrawl.dev/v1/scrape"),
         jina_reader_endpoint_prefix=os.getenv("JINA_READER_ENDPOINT_PREFIX", "https://r.jina.ai/http://"),

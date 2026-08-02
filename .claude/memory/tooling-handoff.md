@@ -31,6 +31,15 @@ Current production architecture:
   typed run budget/timeline diagnostics, gives result next actions, remembers
   Vault paths, and lazy-loads heavy control-plane/ReactFlow chunks.
 
-Verification baseline: backend 254 passed, frontend 32 passed/build passed, real local semantic smoke passed, version isolation passed. Real V3 web/Agent/ChangeSet/export acceptance passed on project `project-63a8ed6dcd05454ab28cc0443a4e765b`.
+Verification baseline: backend 265 passed, frontend 33 passed/build passed, real local semantic smoke passed, version isolation passed. Real V3 web/Agent/ChangeSet/export acceptance passed on project `project-63a8ed6dcd05454ab28cc0443a4e765b`.
+
+Demo-First real acceptance: `联邦学习` completed in 249.5 seconds with local + A2A research, 7 Evidence records, 6 ClaimChecks, and approve/apply. This is one live acceptance, not the mandatory ten-domain gate; Backup LLM and a second SearchProvider are still missing locally.
 
 Do not claim an architecture change ready from unit tests alone. Run the real user path and inspect the exported Vault.
+# Demo-First 入口（2026-08-02）
+
+- 合同：`docs/27-demo-first-agent-contract-network.md`
+- 预检：`python tools/demo_preflight.py`
+- A2A Worker：`python tools/demo_a2a_researcher.py`
+- 环境：Backup LLM、第二搜索通道、Backup Extraction、`SECTORBREAKER_A2A_RESEARCHER_URL` 必须真实配置。
+- 现场挑战必须先得到 `DEMO READY`；不得用 Fake Provider、预生成正文或回放替代。

@@ -207,3 +207,23 @@ Errors include code/message/details/request id where possible. Run events keep
 Thought Summary, Action, Observation, State Update, Decision, writing/review,
 human review, and export semantics. V3 adds audit, maintenance task, specialist,
 ChangeSet proposed/applied/conflicted/rolled-back events.
+
+## Demo-First Live Challenge
+
+- `GET /api/demo/readiness` performs real, sanitized probes for Primary and
+  Backup LLM, multi-search, primary/backup extraction, A2A Agent Card plus a
+  test Task/Artifact, SQLite migrations, export writes, and stale runs.
+- `POST /api/projects/{project_id}/challenge-runs` accepts a typed
+  `LiveChallengeRequest` and dispatches it through the single V3 Agent Kernel
+  production owner.
+- `GET /api/runs/{run_id}/agent-mission` returns the durable WorkOrder DAG,
+  AgentDeliverables, assignment traces, and settlements.
+- `GET /api/projects/{project_id}/agent-registry` returns locally measured
+  identity/capability manifests and the live A2A discovery state.
+
+The challenge run stops at a proposed ChangeSet. Approve/apply completes both
+the Mission and Run; Specialists cannot call apply. New SSE event types are
+`mission_planned`, `task_offered`, `task_awarded`, `specialist_started`,
+`specialist_action`, `deliverable_submitted`, `deliverable_accepted`,
+`deliverable_rework`, `task_reassigned`, `task_settled`,
+`provider_failover`, and `deadline_adjusted`.

@@ -40,6 +40,8 @@ from backend.app.schemas import (
     KnowledgeHealthReport,
     MaintenanceTask,
     VaultImportRecord,
+    AgentMission,
+    AgentPerformance,
 )
 
 MIGRATIONS_DIR = Path(__file__).with_name("migrations")
@@ -134,6 +136,75 @@ class SQLiteRepository:
             if cursor.rowcount == 0:
                 raise KeyError(f"project not found: {project_id}")
         return self.get_project(project_id)
+
+    # ── Agent Contract Network ───────────────────────────────────
+
+    def save_agent_mission(self, mission: AgentMission) -> None:
+        now = datetime.now(UTC)
+        mission.updated_at = now
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO agent_missions (
+                    run_id, project_id, status, mission_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(run_id) DO UPDATE SET
+                    status = excluded.status,
+                    mission_json = excluded.mission_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    mission.run_id,
+                    mission.project_id,
+                    mission.status.value,
+                    mission.model_dump_json(),
+                    mission.started_at.isoformat(),
+                    now.isoformat(),
+                ),
+            )
+
+    def get_agent_mission(self, run_id: str) -> AgentMission:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT mission_json FROM agent_missions WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"agent mission not found: {run_id}")
+        return AgentMission.model_validate_json(row["mission_json"])
+
+    def save_agent_performance(
+        self,
+        project_id: str,
+        agent_id: str,
+        performance: AgentPerformance,
+    ) -> None:
+        now = datetime.now(UTC).isoformat()
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO agent_performance (
+                    project_id, agent_id, performance_json, updated_at
+                ) VALUES (?, ?, ?, ?)
+                ON CONFLICT(project_id, agent_id) DO UPDATE SET
+                    performance_json = excluded.performance_json,
+                    updated_at = excluded.updated_at
+                """,
+                (project_id, agent_id, performance.model_dump_json(), now),
+            )
+
+    def get_agent_performance(self, project_id: str, agent_id: str) -> AgentPerformance:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT performance_json FROM agent_performance
+                WHERE project_id = ? AND agent_id = ?
+                """,
+                (project_id, agent_id),
+            ).fetchone()
+        if row is None:
+            return AgentPerformance()
+        return AgentPerformance.model_validate_json(row["performance_json"])
 
     def add_evidence(self, evidence: EvidenceItem) -> None:
         with self._connect() as connection:

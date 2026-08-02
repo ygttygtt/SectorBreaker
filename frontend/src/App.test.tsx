@@ -7,6 +7,10 @@ const {
   mockGetLLMConfig,
   mockCreateProject,
   mockStartRun,
+  mockStartChallenge,
+  mockGetDemoReadiness,
+  mockGetAgentMission,
+  mockGetAgentRegistry,
   mockGetRun,
   mockGetRunSnapshot,
   mockGetActiveRun,
@@ -295,6 +299,21 @@ const {
     vector_candidates: 0,
     last_error: null,
   }),
+  mockStartChallenge: vi.fn().mockResolvedValue({
+    id: "run-demo-1", project_id: "project-1", status: "running",
+    current_gate: "agent_decide", created_at: new Date().toISOString(), completed_at: null,
+  }),
+  mockGetDemoReadiness: vi.fn().mockResolvedValue({
+    ready: true,
+    live_only: true,
+    checked_at: new Date().toISOString(),
+    checks: [
+      { key: "primary_llm", label: "Primary LLM", ready: true, critical: true, detail: "最小结构化调用成功。" },
+      { key: "a2a", label: "A2A Researcher", ready: true, critical: true, detail: "测试 Task 已返回 Artifact。" },
+    ],
+  }),
+  mockGetAgentMission: vi.fn().mockRejectedValue(new Error("not a challenge")),
+  mockGetAgentRegistry: vi.fn().mockResolvedValue([]),
   mockReindexProject: vi.fn().mockResolvedValue({
     project_id: "project-1",
     source_chunks: 1,
@@ -321,6 +340,10 @@ vi.mock("./api/client", () => ({
   api: {
     createProject: mockCreateProject,
     startRun: mockStartRun,
+    startChallenge: mockStartChallenge,
+    getDemoReadiness: mockGetDemoReadiness,
+    getAgentMission: mockGetAgentMission,
+    getAgentRegistry: mockGetAgentRegistry,
     getRun: mockGetRun,
     getRunSnapshot: mockGetRunSnapshot,
     getActiveRun: mockGetActiveRun,
@@ -553,6 +576,25 @@ test("completed project exposes the V3 knowledge management control plane", asyn
 
   await waitFor(() => expect(mockImportVault).toHaveBeenCalledWith("project-1", { source_path: "D:\\Vault" }));
   expect(mockAuditVault).toHaveBeenCalledWith("project-1");
+});
+
+test("live challenge stays gated until real demo preflight passes", async () => {
+  render(<App />);
+  fireEvent.change(screen.getByPlaceholderText(/AI Agent 工具/), { target: { value: "量子传感" } });
+  const challengeButton = screen.getByRole("button", { name: /5 分钟 Multi-Agent 现场挑战/ });
+  expect(challengeButton).toBeDisabled();
+
+  fireEvent.click(screen.getByRole("button", { name: /运行 Demo 预检/ }));
+  expect(await screen.findByText("DEMO READY")).toBeInTheDocument();
+  await waitFor(() => expect(challengeButton).not.toBeDisabled());
+  fireEvent.click(challengeButton);
+
+  await waitFor(() => expect(mockStartChallenge).toHaveBeenCalledWith("project-1", expect.objectContaining({
+    domain: "量子传感",
+    deadline_seconds: 300,
+    orchestration_mode: "adaptive_multi_agent",
+  })));
+  expect(mockStartRun).not.toHaveBeenCalled();
 });
 
 test("shows hybrid retrieval provenance on the answer and each citation", async () => {

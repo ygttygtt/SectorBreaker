@@ -46,8 +46,8 @@ Retired and deleted from production:
 
 Current verification baseline:
 
-- backend 254 passed;
-- frontend 31 passed;
+- backend 265 passed;
+- frontend 33 passed;
 - frontend build passed;
 - version isolation passed;
 - import/audit/apply/export/restart/rollback/re-export acceptance passed.
@@ -60,3 +60,11 @@ Current RAG is real local Hybrid RAG: `BAAI/bge-small-zh-v1.5`, content-hash inc
 Next valuable work: claim-level semantic support/counterevidence gates, per-Specialist bounded tool
 execution, one real direct source connector, optional Firecrawl map/crawl
 contracts, scheduled monitoring, and direct bidirectional Vault sync.
+# 2026-08-02 Demo-First Multi-Agent 增量
+
+- 新增 `docs/27-demo-first-agent-contract-network.md`；唯一生产入口仍是 V3 Agent Kernel。
+- 已实现 LiveChallenge、Mission DAG、Manifest、可解释派单、Mini-ReAct、Deliverable 验收/返工/结算、A2A 1.x Worker 与本地 failover、Starter Note ChangeSet。
+- 前端 Mission Control 与真实 Demo Preflight 门禁已接通。
+- 十个随机领域的真实 Provider 300 秒 Release Gate 尚未执行，禁止对外声称 Demo Ready。
+- 已完成一次真实 `联邦学习` 全链路验收：local + A2A Researcher、Verifier、Editor、7 Evidence、6 ClaimChecks、Approve/Apply，249.5 秒完成。
+- 当前本机仍缺独立 Backup LLM 和第二 SearchProvider，因此预检应保持 blocked，不能声称 Demo Ready。
